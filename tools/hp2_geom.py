@@ -54,9 +54,10 @@ Usage:
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
                                             which texture and material hashes
                                             the pack's names account for
-    python hp2_geom.py extracted/* --guess --tpk extracted --strings SLUS_203.62
+    python hp2_geom.py extracted/* --guess --tpk extracted --strings SLUS_203.62 -o names.csv
                                             name unknown hashes as two pieces
-                                            joined, from names the game holds
+                                            joined, from names the game holds;
+                                            --known names.csv reuses them
     --tpk PACK may be given with any mode, more than once; PACK may be a
     folder, in which case every texture pack in it is read.
 """
@@ -496,7 +497,7 @@ def model_hashes(paths):
     return want, sorted(cars)
 
 
-def guess_names(paths, string_files):
+def guess_names(paths, string_files, out_csv=None):
     """Name unknown hashes as two pieces joined, drawn from texture names,
     strings in given files (the executable), car names and their parts."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -525,15 +526,75 @@ def guess_names(paths, string_files):
     print("%d unknown hashes; trying %d prefixes x %d suffixes"
           % (len(unknown), len(prefixes), len(pool)), flush=True)
     found = hp2_hash.two_piece(unknown, prefixes, pool)
-    # prefer the shortest, then the one with fewest pieces
-    named = 0
-    for h in sorted(found):
-        opts = sorted({p + s for p, s in found[h]}, key=lambda x: (len(x), x))
-        KNOWN[h] = opts[0]
-        named += 1
-        print("  %08x  %-32s%s" % (h, opts[0],
-                                   "  (also " + ", ".join(opts[1:4]) + ")" if len(opts) > 1 else ""))
-    print("named %d of %d" % (named, len(unknown)))
+
+    import re
+    clean = re.compile(r"^[A-Z0-9][A-Z0-9_]*[A-Z0-9]$")
+
+    def rank(c):
+        # a real asset name is upper case, digits and underscores; anything
+        # else that hashes the same is a coincidence with executable junk
+        return (0 if clean.match(c) else 1, c.count("_") > 6, len(c), c)
+
+    kinds = {}
+    for path in paths:
+        try:
+            with open(path, "rb") as f:
+                if struct.unpack("<I", f.read(4))[0] != HDR:
+                    continue
+            d, m = parse(path)
+        except Exception:
+            continue
+        for p in m["parts"]:
+            for h in p["tex"]:
+                kinds.setdefault(h, "texture")
+            for h in p["tex2"]:
+                kinds.setdefault(h, "material")
+            kinds.setdefault(p.get("hash", 0), "part")
+        for a in m["attach"]:
+            kinds.setdefault(a["part"], "flare")
+
+    rows = []
+    for h in sorted(unknown):
+        opts = sorted({(p + s_).strip() for p, s_ in found.get(h, ())}, key=rank)
+        good = [o for o in opts if clean.match(o)]
+        if good:
+            KNOWN[h] = good[0]
+            rows.append((kinds.get(h, "?"), h, good[0], "sure" if len(good) == 1 else
+                         "also " + ", ".join(good[1:3])))
+        else:
+            rows.append((kinds.get(h, "?"), h, "", "only junk matches" if opts else "no match"))
+    for kind in ("texture", "material", "flare", "part"):
+        sel = [r for r in rows if r[0] == kind]
+        if not sel:
+            continue
+        got = [r for r in sel if r[2]]
+        print()
+        print("%ss: %d of %d unknown now named" % (kind, len(got), len(sel)))
+        if kind == "part":
+            continue                  # part names are already in the files
+        for _, h, nm, note in sorted(sel, key=lambda r: (not r[2], r[2])):
+            print("  %08x  %-34s %s" % (h, nm or "-", note if note != "sure" else ""))
+    if out_csv:
+        with open(out_csv, "w") as f:
+            f.write("hash,name,kind\n")
+            for h, nm in sorted(KNOWN.items()):
+                f.write("%08x,%s,%s\n" % (h, nm, kinds.get(h, "")))
+        print()
+        print("wrote %d names to %s; pass it back with --known %s" % (len(KNOWN), out_csv, out_csv))
+
+
+def load_known(path):
+    n = 0
+    with open(path) as f:
+        for line in f:
+            parts = line.rstrip("\n").split(",")
+            if len(parts) >= 2 and parts[0] != "hash" and parts[1]:
+                try:
+                    KNOWN.setdefault(int(parts[0], 16), parts[1])
+                    n += 1
+                except ValueError:
+                    pass
+    print("loaded %d names from %s" % (n, os.path.basename(path)))
 
 
 def survey(paths):
@@ -617,6 +678,15 @@ def main():
             raise SystemExit("--tpk needs a texture pack")
         learn_names(argv[i + 1])
         del argv[i:i + 2]
+    out_csv = None
+    if "-o" in argv:
+        i = argv.index("-o")
+        out_csv = argv[i + 1]
+        del argv[i:i + 2]
+    while "--known" in argv:
+        i = argv.index("--known")
+        load_known(argv[i + 1])
+        del argv[i:i + 2]
     string_files = []
     while "--strings" in argv:
         i = argv.index("--strings")
@@ -637,7 +707,7 @@ def main():
         name_report(args)
         return
     if "--guess" in argv:
-        guess_names(args, string_files)
+        guess_names(args, string_files, out_csv)
         return
 
     for path in args:
