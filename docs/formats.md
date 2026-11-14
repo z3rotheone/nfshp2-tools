@@ -283,35 +283,56 @@ The two channels alternate in fixed-size chunks: L, R, L, R. **The chunk size is
 a property of the bank, not of the format**, and the two banks on the disc do
 not agree:
 
-| Entry | Name | Interleave | Per-channel size |
+| Entry | Name | Interleave | Status |
 |---|---|---|---|
-| 321 | `SOUND\JUKEBOX.JBC` | 16 bytes (one ADPCM block) | not aligned |
-| 322 | `SOUND\JUKEBOXM.JBC` | 2048 bytes | a whole number of 2048-byte blocks |
+| 321 | `SOUND\JUKEBOX.JBC` | 16 bytes — one ADPCM block | *measured*, channels correlate 0.80 |
+| 322 | `SOUND\JUKEBOXM.JBC` | not 16 bytes | *open* — see below |
 
 Decode each channel with its own predictor history, reassembling it from its
 chunks first.
 
-This was measured, not taken from the header. A wrong chunk size splices the
-two channels into each other's predictor history at every boundary, so the
-waveform jumps there while staying smooth inside a chunk, and the two decoded
-"channels" stop correlating. Comparing the mean sample-to-sample step across
-boundaries with the mean overall separates the cases, and channel correlation
-separates them sharply: ~0.7–0.9 for the right chunk size against ~0 for the
-wrong one. `tools/hp2_audio.py --probe` prints that table.
+A wrong chunk size splices the two channels into each other's predictor history
+at every boundary, so the waveform jumps there while staying smooth inside a
+chunk, and the two decoded "channels" stop correlating. `tools/hp2_audio.py
+--probe` reports both measures for every candidate size, and both reading and
+writing measure the track rather than assume a value.
 
-The 2048-byte alignment of every track in entry 322 corroborates it: all 23
-tracks have a per-channel size that is an exact multiple of 2048, which only a
-2048-byte chunk interleave requires. No track in entry 321 is so aligned.
+Channel correlation is the reliable measure; the boundary step is weak and can
+be absent. **A moderate correlation is not enough.** If the real layout stores
+each channel in one large block, a window taken inside the left channel and
+split at some small size yields left-channel data in *both* halves, which are
+adjacent in time and so correlate — around 0.45 at 2048 bytes in a measured
+case, beating every other small candidate while being entirely wrong. Only the
+true split reaches 0.9. Candidates therefore run from one ADPCM block up to
+half a track.
+
+#### What is known about entry 322
+
+Patching it with a 16-byte interleave plays recognisable but badly distorted
+audio in an emulator, and so does a 2048-byte one, so neither is right.
+Decoding its untouched tracks at either size is audibly wrong, while the game
+plays them correctly — so the layout is still unidentified.
+
+What the sizes say: in entry 322 every track's data size is an exact multiple
+of 2048, and so is half of it (3712, 4320 and 3840 sectors for the first three
+tracks — all even). No track in entry 321 is aligned either way. Each channel
+of a 322 track therefore begins on a sector boundary, which is what a layout
+storing the whole left channel and then the whole right would require. That is
+a hypothesis from arithmetic, not a measurement; `--probe` now searches far
+enough to test it.
+
+Track durations confirm both banks are genuinely stereo: 3:28, 4:02 and 3:35
+for the first three tracks, matching the real songs. Read as mono they would be
+twice that.
 
 The `4096` at `+0x10` is **not** the interleave — it is 4096 in both banks,
-which differ. It may be the DMA buffer size for a stereo pair in entry 322
-(2 × 2048) and simply unused in entry 321.
+which differ.
 
 A track's playing time is `data_size / 2 / 16 * 28 / 32000` seconds either way,
 since the interleave does not change how much audio is present.
 
 Both banks hold the same 23 tracks under the same names in the same order, but
-independently encoded — every track in 322 is a few thousand bytes longer. The
+not byte-identically — every track in 322 is a few thousand bytes longer. The
 game loads 322; patching only 321 has no audible effect (*verified in an
 emulator*).
 
@@ -400,6 +421,10 @@ to measure it.
 
 Things not yet worked out, roughly in order of how tractable they look:
 
+- **The stereo interleave of music bank 322** (§6), the bank the game actually
+  plays. 16 bytes and 2048 bytes are both ruled out by ear, in the emulator and
+  on decoded originals. Sector alignment of each half points at one block per
+  channel; `tools/hp2_audio.py --probe` on an untouched track settles it.
 - **The remaining 120 archive filenames.** 252 of 372 are recovered (§1).
   The rest are mostly unnamed blobs whose paths are not literal strings in the
   executable — notably entries 23–58, a run of 36 files of 60–240 KB, which is

@@ -117,50 +117,88 @@ def decode(adpcm, channels, chunk=16):
     return both
 
 
-def probe_interleave(adpcm, candidates=(16, 128, 512, 1024, 2048, 4096), window=1 << 18):
-    """Which chunk size makes both channels continuous?
+def fmt_chunk(c, half=None):
+    """A chunk size, noting when it means 'the whole channel in one block'."""
+    if half and c == half:
+        return "{:,} B = whole channel".format(c)
+    return "{:,} B".format(c)
 
-    A wrong guess splices the two channels together, so the waveform jumps at
-    every chunk boundary while staying smooth inside one. Comparing the average
-    step across a boundary with the average step overall separates them: the
-    right chunk size scores about 1, a wrong one scores well above it.
-    """
-    # start a quarter in, so leading silence cannot flatten the statistics,
-    # aligned so that the left channel still comes first
-    big = max(candidates) * 2
-    start = min(len(adpcm) // 4 // big * big, max(0, len(adpcm) - window))
-    a = adpcm[start:start + window]
-    rows = []
-    for c in candidates:
-        if len(a) < c * 4:
-            continue
-        if c == 16:
-            L = decode_channel(a, 0, 32)
-            R = decode_channel(a, 16, 32)
-        else:
-            la, ra = deinterleave(a, c)
-            L, R = decode_channel(la, 0, 16), decode_channel(ra, 0, 16)
-        n = min(len(L), len(R))
-        if n < 4096:
-            continue
-        per = c // 16 * 28                      # samples one chunk decodes to
-        score = []
+
+def _corr_and_jumps(L, R, per):
+    """Channel correlation, and the step across chunk boundaries over the
+    average step. `per` is samples per chunk, or 0 when the window holds no
+    boundary (a chunk bigger than the window)."""
+    n = min(len(L), len(R))
+    if n < 4096:
+        return None
+    lm = sum(L[:n]) / n
+    rm = sum(R[:n]) / n
+    num = sum((L[i] - lm) * (R[i] - rm) for i in range(n))
+    dl = sum((L[i] - lm) ** 2 for i in range(n)) ** 0.5
+    dr = sum((R[i] - rm) ** 2 for i in range(n)) ** 0.5
+    corr = num / (dl * dr) if dl and dr else 0.0
+    jump = float("nan")
+    if per and n > per * 2:
+        ratios = []
         for ch in (L, R):
             d = [abs(ch[i + 1] - ch[i]) for i in range(n - 1)]
-            allmean = sum(d) / len(d) or 1.0
+            mean = sum(d) / len(d) or 1.0
             edges = [d[k - 1] for k in range(per, n - 1, per)]
-            if not edges:
-                break
-            score.append((sum(edges) / len(edges)) / allmean)
-        if len(score) != 2:
-            continue
-        lm = sum(L[:n]) / n
-        rm = sum(R[:n]) / n
-        num = sum((L[i] - lm) * (R[i] - rm) for i in range(n))
-        dl = sum((L[i] - lm) ** 2 for i in range(n)) ** 0.5
-        dr = sum((R[i] - rm) ** 2 for i in range(n)) ** 0.5
-        corr = num / (dl * dr) if dl and dr else 0.0
-        rows.append((c, (score[0] + score[1]) / 2, corr))
+            if edges:
+                ratios.append((sum(edges) / len(edges)) / mean)
+        if ratios:
+            jump = sum(ratios) / len(ratios)
+    return corr, jump
+
+
+def probe_interleave(adpcm, candidates=None, window=1 << 18):
+    """Which chunk size splits this stream into two real channels?
+
+    The two channels of a stereo mix correlate strongly; a wrong chunk size
+    splices them into each other, and the correlation collapses to about zero.
+    Where the window spans several chunks the boundary step is reported too: a
+    wrong size jumps at every boundary while staying smooth inside a chunk.
+
+    Candidates run from one ADPCM block up to half the track, because this game
+    uses both extremes - 16 bytes in one music bank, and in the other the whole
+    left channel followed by the whole right.
+    """
+    n = len(adpcm)
+    if candidates is None:
+        candidates = [1 << k for k in range(4, 17)]        # 16 B .. 64 KB
+        half = n // 2
+        candidates += [half - half % 2048, half - half % 16]
+        candidates = sorted({c for c in candidates if 16 <= c <= half})
+    rows = []
+    for c in candidates:
+        if c * 8 <= window:
+            # the window holds several chunk pairs: read it contiguously, so
+            # boundary steps are measurable too
+            big = c * 2
+            start = min(n // 4 // big * big, max(0, n - window))
+            a = adpcm[start:start + window]
+            if c == 16:
+                L, R = decode_channel(a, 0, 32), decode_channel(a, 16, 32)
+            else:
+                la, ra = deinterleave(a, c)
+                L, R = decode_channel(la, 0, 16), decode_channel(ra, 0, 16)
+            per = c // 16 * 28
+        else:
+            # a chunk larger than the window: take the same slice out of each
+            # channel's turn instead, and judge on correlation alone
+            pairs = n // (2 * c)
+            if pairs < 1:
+                continue
+            lo = (pairs // 4) * 2 * c
+            take = min(c, window)
+            la, ra = adpcm[lo:lo + take], adpcm[lo + c:lo + c + take]
+            if len(la) < 4096 or len(ra) < 4096:
+                continue
+            L, R = decode_channel(la, 0, 16), decode_channel(ra, 0, 16)
+            per = 0
+        got = _corr_and_jumps(L, R, per)
+        if got:
+            rows.append((c, got[1], got[0]))
     return rows
 
 
@@ -294,20 +332,24 @@ def main():
                 if ch != 2:
                     print("      mono - nothing to interleave")
                     continue
-                rows = probe_interleave(d[off + 48: off + 48 + dsz])
+                adpcm = d[off + 48: off + 48 + dsz]
+                rows = probe_interleave(adpcm)
+                half = len(adpcm) // 2
                 if not rows:
                     print("      too short to probe")
                     continue
                 best = max(rows, key=lambda r: r[2])
-                print("      %-12s %-12s %s" % ("chunk", "jump ratio", "L/R correlation"))
-                for c, s, corr in rows:
-                    print("      %-12s %-12.2f %+.2f%s"
-                          % ("%d bytes" % c, s, corr, "   <-- continuous" if c == best[0] else ""))
+                print("      %-14s %-12s %s" % ("chunk", "jump", "L/R correlation"))
+                for c, jmp, corr in rows:
+                    js = "    -" if jmp != jmp else "%5.2f" % jmp
+                    print("      %-14s %-12s %+.2f%s"
+                          % (fmt_chunk(c, half), js, corr,
+                             "   <-- two real channels" if c == best[0] else ""))
                 if best[2] < 0.2:
                     print("      inconclusive: no chunk size gives two correlated channels.")
                     print("      This track may not be interleaved stereo at all.")
                 else:
-                    print("      interleave looks like %d bytes per channel" % best[0])
+                    print("      interleave looks like %s per channel" % fmt_chunk(best[0], half))
             continue
         os.makedirs(outdir, exist_ok=True)
         print("  writing %d WAV files to %s (about %.0f MB)" % (len(chosen), outdir, mb * 3.5))
@@ -320,8 +362,8 @@ def main():
                 rows = probe_interleave(adpcm)
                 top = max(rows, key=lambda r: r[2]) if rows else None
                 c = top[0] if top and top[2] >= 0.2 else 16
-                print("      interleave %d bytes%s"
-                      % (c, "" if top and top[2] >= 0.2 else " (assumed; could not measure)"))
+                print("      interleave %s%s"
+                      % (fmt_chunk(c, len(adpcm) // 2), "" if top and top[2] >= 0.2 else " (assumed; could not measure)"))
             pcm = decode(adpcm, ch, c or 16)
             fn = os.path.join(outdir, "%03d_%s.wav" % (i, safe(name)))
             with wave.open(fn, "wb") as w:

@@ -168,6 +168,13 @@ def build_track(path, slot_bytes, fast=False, chunk=16):
     music banks that differ in it, and writing the wrong one plays recognisable
     but badly distorted audio, because every chunk boundary splices the two
     channels into each other's predictor history.
+
+    The slot is treated as a fixed grid of chunk-sized places, half for each
+    channel, and every place is written - with silence where the song has run
+    out. That matters when the chunk is large: one bank stores the whole left
+    channel and then the whole right, so a song shorter than half the slot
+    still has to leave the right channel starting exactly halfway, which is
+    where the game looks for it.
     """
     a, sr = load_wav(path)
     secs_in = len(a) / sr
@@ -188,16 +195,20 @@ def build_track(path, slot_bytes, fast=False, chunk=16):
     print("  encoding %.1f s ... (%d Hz in, %d Hz out)" % (len(x) / RATE, sr, RATE), flush=True)
     left = encode_channel(x[:, 0], fast)
     right = encode_channel(x[:, 1], fast)
-    n = min(len(left), len(right)) // chunk * chunk or min(len(left), len(right)) // 16 * 16
+    def fill(ch):
+        ch = ch[:per_channel]
+        used = len(ch) // 16 * 16
+        ch = bytearray(ch[:used]) + bytearray(per_channel - used)
+        if used >= 16:
+            ch[used - 15] = 1                  # end flag on this channel's last block
+        return bytes(ch)
+
+    left, right = fill(left), fill(right)
     body = bytearray()
-    for p in range(0, n, chunk):
+    for p in range(0, per_channel, chunk):
         body += left[p:p + chunk]
         body += right[p:p + chunk]
-    if len(body) >= 2 * chunk:
-        # end flag on the final block of each channel, not just the last written
-        body[len(body) - chunk - 15] = 1       # left's last block
-        body[len(body) - 15] = 1               # right's last block
-    dsz = len(body)
+    dsz = len(body)                            # the whole grid: 2 * per_channel
     vag = bytearray(48)
     vag[0:4] = b"VAGp"
     struct.pack_into(">IIII", vag, 4, 2, 0, dsz, RATE)
