@@ -76,7 +76,20 @@ python tools/hp2_music.py install modded.bin
 
 Nothing ever changes size: a replacement is padded with silence or trimmed to
 fit its slot, so the archive index stays valid and `ZDIR.BIN` is never touched.
-Keep your original disc image — it is the backup.
+
+### Testing it in an emulator
+
+An emulator boots a disc image, not loose files, so the modified `ZZDATA.BIN`
+has to go back into the ISO. Because sizes never change it can be written
+straight over the original — no rebuild:
+
+```sh
+cp game.iso modded.iso
+python tools/hp2_iso.py find  modded.iso NFSHP2/ZZDATA.BIN
+python tools/hp2_iso.py write modded.iso NFSHP2/ZZDATA.BIN path/to/ZZDATA.BIN
+```
+
+Then boot `modded.iso`. Work on a copy; your original image is the backup.
 
 ### The launcher
 
