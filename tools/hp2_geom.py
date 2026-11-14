@@ -450,6 +450,28 @@ def runtime_textures(name, car, state="off"):
     return out
 
 
+def learn_png_names(root):
+    """Add every exported PNG's name to KNOWN under its hash.
+
+    A model lists its textures by hash only. For a car the names follow from
+    the car's own name (<CAR>_SKIN1 ...), but track scenery uses names such
+    as T_RD2M01 that nothing else predicts. hp2_tpk.py names each PNG after
+    its texture, so hashing the file names gives the table. A name the pack
+    cut at 23 characters hashes to something else and stays unnamed."""
+    n = 0
+    if not root or not os.path.isdir(root):
+        return n
+    for _dirpath, _d, files in os.walk(root):
+        for f in files:
+            if f.upper().endswith(".PNG"):
+                stem = f[:-4]
+                h = name_hash(stem)
+                if h not in KNOWN:
+                    KNOWN[h] = stem
+                    n += 1
+    return n
+
+
 def find_png(root, name, car=None):
     """Path of NAME.png under root (hp2_tpk.py exports one folder per pack).
 
@@ -880,6 +902,8 @@ def main():
         i = argv.index("--textures")
         texdir = argv[i + 1]
         del argv[i:i + 2]
+        learned = learn_png_names(texdir)
+        print("named %d texture hashes from the PNG names under %s" % (learned, texdir))
     while "--known" in argv:
         i = argv.index("--known")
         load_known(argv[i + 1])
