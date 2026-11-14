@@ -259,7 +259,7 @@ def main():
     match = next((a.split("=", 1)[1].lower() for a in argv if a.startswith("--match=")), None)
     outroot = next((a.split("=", 1)[1] for a in argv if a.startswith("--out=")), None)
     probe = "--probe" in argv
-    chunk = next((int(a.split("=", 1)[1]) for a in argv if a.startswith("--interleave=")), 16)
+    chunk = next((int(a.split("=", 1)[1]) for a in argv if a.startswith("--interleave=")), None)
 
     if not files:
         print(__doc__.split("Usage:")[1])
@@ -312,7 +312,17 @@ def main():
         os.makedirs(outdir, exist_ok=True)
         print("  writing %d WAV files to %s (about %.0f MB)" % (len(chosen), outdir, mb * 3.5))
         for n, (i, name, off, dsz, rate, ch) in enumerate(chosen):
-            pcm = decode(d[off + 48: off + 48 + dsz], ch, chunk)
+            adpcm = d[off + 48: off + 48 + dsz]
+            c = chunk
+            if c is None and ch == 2:
+                # the interleave is a property of the bank and the banks differ,
+                # so measure it rather than assume one
+                rows = probe_interleave(adpcm)
+                top = max(rows, key=lambda r: r[2]) if rows else None
+                c = top[0] if top and top[2] >= 0.2 else 16
+                print("      interleave %d bytes%s"
+                      % (c, "" if top and top[2] >= 0.2 else " (assumed; could not measure)"))
+            pcm = decode(adpcm, ch, c or 16)
             fn = os.path.join(outdir, "%03d_%s.wav" % (i, safe(name)))
             with wave.open(fn, "wb") as w:
                 w.setnchannels(ch)
