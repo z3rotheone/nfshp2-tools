@@ -1,0 +1,280 @@
+/* Tests for the SDL-free core: settings parsing, clamping, round-tripping,
+ * and the glyph tables. Build and run with `make test`. */
+#include "../src/hp2_settings.h"
+#include "../src/hp2_glyphs.h"
+
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+
+static int failures = 0, checks = 0;
+
+#define CHECK(cond, ...)                                            \
+    do {                                                            \
+        checks++;                                                   \
+        if (!(cond)) {                                              \
+            failures++;                                             \
+            printf("  FAIL %s:%d  ", __FILE__, __LINE__);           \
+            printf(__VA_ARGS__);                                    \
+            printf("\n");                                           \
+        }                                                           \
+    } while (0)
+
+static void test_defaults(void)
+{
+    hp2_settings s;
+    printf("defaults\n");
+    hp2_settings_defaults(&s);
+    CHECK(s.internal_width == 1920 && s.internal_height == 1080,
+          "expected 1920x1080, got %dx%d", s.internal_width, s.internal_height);
+    CHECK(s.aspect == HP2_ASPECT_16_9, "aspect");
+    CHECK(s.vsync == 1, "vsync");
+    CHECK(s.glyphs == HP2_GLYPHS_AUTO, "glyphs");
+    CHECK(hp2_settings_validate(&s) == 0, "defaults should need no correction");
+}
+
+static void test_parse(void)
+{
+    hp2_settings s;
+    int n;
+    const char *txt =
+        "# a comment\n"
+        "[video]\n"
+        "internal_width = 2560\n"
+        "internal_height=1440\n"
+        "   aspect   =   16:10   \n"
+        "window = fullscreen\n"
+        "vsync = off\n"
+        "[input]\n"
+        "scheme = classic\n"
+        "glyphs = playstation\n"
+        "deadzone = 0.35\n"
+        "rumble = no\n"
+        "unknown_key = whatever   ; ignored\n";
+    printf("parsing\n");
+    n = hp2_settings_parse(&s, txt);
+    CHECK(n == 9, "expected 9 understood keys, got %d", n);
+    CHECK(s.internal_width == 2560, "width %d", s.internal_width);
+    CHECK(s.internal_height == 1440, "height %d", s.internal_height);
+    CHECK(s.aspect == HP2_ASPECT_16_10, "aspect %d", (int)s.aspect);
+    CHECK(s.window == HP2_WINDOW_FULLSCREEN, "window %d", (int)s.window);
+    CHECK(s.vsync == 0, "vsync %d", s.vsync);
+    CHECK(s.scheme == HP2_SCHEME_CLASSIC, "scheme %d", (int)s.scheme);
+    CHECK(s.glyphs == HP2_GLYPHS_PLAYSTATION, "glyphs %d", (int)s.glyphs);
+    CHECK(fabs(s.deadzone - 0.35) < 1e-6, "deadzone %f", s.deadzone);
+    CHECK(s.rumble == 0, "rumble %d", s.rumble);
+}
+
+static void test_case_and_whitespace(void)
+{
+    hp2_settings s;
+    printf("case and whitespace\n");
+    hp2_settings_parse(&s, "ASPECT = 4:3\r\nWindow\t=\tWINDOWED\r\nGlyphs=NINTENDO\n");
+    CHECK(s.aspect == HP2_ASPECT_4_3, "uppercase key/value");
+    CHECK(s.window == HP2_WINDOW_WINDOWED, "tabs and CRLF");
+    CHECK(s.glyphs == HP2_GLYPHS_NINTENDO, "no spaces round =");
+}
+
+static void test_garbage_is_safe(void)
+{
+    hp2_settings s;
+    int corrected;
+    printf("garbage input\n");
+
+    hp2_settings_parse(&s, "");
+    CHECK(s.internal_width == 1920, "empty input should give defaults");
+
+    hp2_settings_parse(&s, NULL);
+    CHECK(s.internal_width == 1920, "NULL input should give defaults");
+
+    hp2_settings_parse(&s, "\x01\x02\x03 nonsense \xff\xfe\n====\n= =\n");
+    CHECK(s.internal_width == 1920, "binary noise should give defaults");
+
+    /* out-of-range values must be clamped, not accepted */
+    hp2_settings_parse(&s, "internal_width = 99999\ninternal_height = -40\n"
+                           "deadzone = 7.5\naspect = sideways\n");
+    CHECK(s.internal_width == HP2_MAX_WIDTH, "width clamped, got %d", s.internal_width);
+    CHECK(s.internal_height == HP2_MIN_HEIGHT, "height clamped, got %d", s.internal_height);
+    CHECK(s.deadzone >= 0.0f && s.deadzone <= 0.9f, "deadzone clamped, got %f", s.deadzone);
+    CHECK(s.aspect == HP2_ASPECT_16_9, "unknown aspect should keep the default");
+
+    /* a struct corrupted in memory must still be made safe */
+    s.internal_width = -1; s.internal_height = 1 << 30;
+    s.aspect = (hp2_aspect)99; s.window = (hp2_window_mode)-3;
+    s.scheme = (hp2_scheme)77; s.glyphs = (hp2_glyph_set)-1;
+    s.vsync = 42; s.rumble = -7; s.deadzone = -5.0f;
+    corrected = hp2_settings_validate(&s);
+    CHECK(corrected == 9, "expected 9 corrections, got %d", corrected);
+    CHECK(s.internal_width == HP2_MIN_WIDTH, "width");
+    CHECK(s.internal_height == HP2_MAX_HEIGHT, "height");
+    CHECK((int)s.aspect == 0 && (int)s.window == 0, "enums reset");
+    CHECK(s.vsync == 1 && s.rumble == 1, "bools reset");
+    CHECK(s.deadzone > 0.0f, "deadzone reset");
+}
+
+static void test_roundtrip(void)
+{
+    hp2_settings a, b;
+    char buf[1024];
+    size_t need;
+    printf("write then read back\n");
+
+    hp2_settings_defaults(&a);
+    a.internal_width = 3840; a.internal_height = 2160;
+    a.aspect = HP2_ASPECT_4_3; a.window = HP2_WINDOW_WINDOWED;
+    a.vsync = 0; a.scheme = HP2_SCHEME_CLASSIC;
+    a.glyphs = HP2_GLYPHS_NINTENDO; a.deadzone = 0.05f; a.rumble = 0;
+
+    need = hp2_settings_write(&a, buf, sizeof(buf));
+    CHECK(need > 0 && need < sizeof(buf), "write produced %lu bytes", (unsigned long)need);
+
+    hp2_settings_parse(&b, buf);
+    CHECK(a.internal_width == b.internal_width, "width survived");
+    CHECK(a.internal_height == b.internal_height, "height survived");
+    CHECK(a.aspect == b.aspect, "aspect survived");
+    CHECK(a.window == b.window, "window survived");
+    CHECK(a.vsync == b.vsync, "vsync survived");
+    CHECK(a.scheme == b.scheme, "scheme survived");
+    CHECK(a.glyphs == b.glyphs, "glyphs survived");
+    CHECK(fabs(a.deadzone - b.deadzone) < 0.005, "deadzone survived (%f vs %f)",
+          a.deadzone, b.deadzone);
+    CHECK(a.rumble == b.rumble, "rumble survived");
+
+    /* a buffer too small must report the need, not overflow */
+    {
+        char tiny[16];
+        size_t n2;
+        memset(tiny, 0x7f, sizeof(tiny));
+        n2 = hp2_settings_write(&a, tiny, sizeof(tiny));
+        CHECK(n2 >= sizeof(tiny), "truncation should report the full length");
+        CHECK(tiny[sizeof(tiny) - 1] == 0 || n2 >= sizeof(tiny), "no overflow past the buffer");
+    }
+}
+
+static void test_file_io(void)
+{
+    hp2_settings a, b;
+    const char *path = "test_settings_tmp.ini";
+    printf("file save and load\n");
+
+    hp2_settings_defaults(&a);
+    a.internal_width = 1280; a.internal_height = 960;
+    a.glyphs = HP2_GLYPHS_XBOX;
+    CHECK(hp2_settings_save(&a, path) == 1, "save should succeed");
+    CHECK(hp2_settings_load(&b, path) == 1, "load should succeed");
+    CHECK(b.internal_width == 1280 && b.internal_height == 960, "values survived the file");
+    CHECK(b.glyphs == HP2_GLYPHS_XBOX, "glyph set survived the file");
+    remove(path);
+
+    CHECK(hp2_settings_load(&b, "definitely_not_here.ini") == 0,
+          "a missing file should report 0");
+    CHECK(b.internal_width == 1920, "a missing file should leave the defaults");
+}
+
+static void test_aspect_ratio(void)
+{
+    printf("aspect ratios\n");
+    CHECK(hp2_aspect_ratio(HP2_ASPECT_AUTO) == 0.0f, "auto means ask the display");
+    CHECK(fabs(hp2_aspect_ratio(HP2_ASPECT_4_3) - 1.3333333) < 1e-5, "4:3");
+    CHECK(fabs(hp2_aspect_ratio(HP2_ASPECT_16_9) - 1.7777778) < 1e-5, "16:9");
+    CHECK(fabs(hp2_aspect_ratio(HP2_ASPECT_16_10) - 1.6) < 1e-5, "16:10");
+}
+
+static void test_glyphs(void)
+{
+    int b, g;
+    char buf[64];
+    printf("glyph tables\n");
+
+    /* the whole point: the same position is named differently per family */
+    CHECK(!strcmp(hp2_button_label(HP2_BTN_SOUTH, HP2_GLYPHS_XBOX), "A"), "xbox south");
+    CHECK(!strcmp(hp2_button_label(HP2_BTN_SOUTH, HP2_GLYPHS_PLAYSTATION), "Cross"), "ps south");
+    CHECK(!strcmp(hp2_button_label(HP2_BTN_SOUTH, HP2_GLYPHS_NINTENDO), "B"), "nintendo south");
+    CHECK(!strcmp(hp2_button_label(HP2_BTN_EAST, HP2_GLYPHS_NINTENDO), "A"), "nintendo east");
+
+    /* no table hole: every (button, set) must give a non-empty label */
+    for (g = 0; g < HP2_GLYPHS_COUNT; g++)
+        for (b = 0; b < HP2_BTN_COUNT; b++) {
+            const char *l = hp2_button_label((hp2_button)b, (hp2_glyph_set)g);
+            CHECK(l && *l, "label missing for set %d button %d", g, b);
+        }
+
+    /* out-of-range must not crash or return NULL */
+    CHECK(hp2_button_label((hp2_button)-1, HP2_GLYPHS_XBOX) != NULL, "bad button");
+    CHECK(hp2_button_label(HP2_BTN_SOUTH, (hp2_glyph_set)99) != NULL, "bad set");
+
+    /* every action must be named and bound under both schemes */
+    for (b = 0; b < HP2_ACT_COUNT; b++) {
+        const char *n = hp2_action_name((hp2_action)b);
+        hp2_button m = hp2_action_button((hp2_action)b, HP2_SCHEME_MODERN);
+        hp2_button c = hp2_action_button((hp2_action)b, HP2_SCHEME_CLASSIC);
+        CHECK(n && *n, "action %d unnamed", b);
+        CHECK(m >= 0 && m < HP2_BTN_COUNT, "action %d modern binding", b);
+        CHECK(c >= 0 && c < HP2_BTN_COUNT, "action %d classic binding", b);
+    }
+
+    /* no two actions may share a button within a scheme, or input is ambiguous */
+    {
+        int seen[HP2_BTN_COUNT], s2;
+        for (s2 = 0; s2 < HP2_SCHEME_COUNT; s2++) {
+            memset(seen, 0, sizeof(seen));
+            for (b = 0; b < HP2_ACT_COUNT; b++) {
+                hp2_button bt = hp2_action_button((hp2_action)b, (hp2_scheme)s2);
+                CHECK(seen[bt] == 0, "scheme %d: %s collides with %s on %s",
+                      s2, hp2_action_name((hp2_action)b),
+                      hp2_action_name((hp2_action)(seen[bt] - 1)),
+                      hp2_button_label(bt, HP2_GLYPHS_XBOX));
+                seen[bt] = b + 1;
+            }
+        }
+    }
+
+    hp2_action_prompt(HP2_ACT_ACCELERATE, HP2_SCHEME_MODERN, HP2_GLYPHS_XBOX, buf, sizeof(buf));
+    CHECK(!strcmp(buf, "Accelerate: RT"), "prompt was \"%s\"", buf);
+    hp2_action_prompt(HP2_ACT_ACCELERATE, HP2_SCHEME_CLASSIC, HP2_GLYPHS_PLAYSTATION, buf, sizeof(buf));
+    CHECK(!strcmp(buf, "Accelerate: Cross"), "prompt was \"%s\"", buf);
+}
+
+
+static void test_set(void)
+{
+    hp2_settings s;
+    printf("single assignments\n");
+    hp2_settings_defaults(&s);
+
+    CHECK(hp2_settings_set(&s, "internal_width=2560") == 1, "known key accepted");
+    CHECK(s.internal_width == 2560, "width applied, got %d", s.internal_width);
+    CHECK(s.internal_height == 1080, "other fields untouched, got %d", s.internal_height);
+
+    CHECK(hp2_settings_set(&s, "glyphs = nintendo") == 1, "spaces allowed");
+    CHECK(s.glyphs == HP2_GLYPHS_NINTENDO, "glyphs applied");
+    CHECK(s.internal_width == 2560, "earlier change survived a second set");
+
+    /* setting a value it already has is still a recognised key */
+    CHECK(hp2_settings_set(&s, "glyphs=nintendo") == 1, "idempotent set still recognised");
+
+    CHECK(hp2_settings_set(&s, "nonsense=7") == 0, "unknown key rejected");
+    CHECK(hp2_settings_set(&s, "no_equals_sign") == 0, "malformed rejected");
+    CHECK(hp2_settings_set(&s, NULL) == 0, "NULL rejected");
+    CHECK(hp2_settings_set(NULL, "vsync=off") == 0, "NULL settings rejected");
+
+    /* out-of-range through set is still clamped */
+    hp2_settings_set(&s, "internal_width=999999");
+    CHECK(s.internal_width == HP2_MAX_WIDTH, "set is clamped too, got %d", s.internal_width);
+}
+
+int main(void)
+{
+    test_defaults();
+    test_parse();
+    test_case_and_whitespace();
+    test_garbage_is_safe();
+    test_roundtrip();
+    test_file_io();
+    test_aspect_ratio();
+    test_glyphs();
+    test_set();
+
+    printf("\n%d checks, %d failures\n", checks, failures);
+    return failures ? 1 : 0;
+}

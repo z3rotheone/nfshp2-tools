@@ -1,0 +1,47 @@
+# ---- game data: never commit any of this ----
+*.iso
+*.bin
+*.BIN
+*.img
+*.ELF
+*.elf
+SLUS_*
+SLES_*
+SLPS_*
+*.vag
+*.VAG
+*.wav
+*.WAV
+*.avi
+*.AVI
+*.tpk
+*.comp
+*.dec
+extracted/
+decomp/
+textures/
+audio/
+iso/
+orig/
+# the Ghidra function maps are facts about the binary, not the binary itself
+!ghidra/*.csv
+
+# ---- build output ----
+hp2launcher
+test_core
+test_pad
+*.o
+*.exe
+hp2.ini
+
+# ---- editors / python ----
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ---- ghidra projects ----
+*.gpr
+*.rep/
