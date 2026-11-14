@@ -321,8 +321,8 @@ def batch_records(d, part):
         8   u32   offset of the batch's VIF packet in the geometry chunk
         12  u8    size of that packet in quadwords (offset steps by 16x this)
         15  u8    flags: 0x00 with no material; 0x40, 0x41, 0x50 and, on the
-                  911's windows, 0xC1. Bit 0 is tested against "has normals"
-                  and bit 7 may be transparency.
+                  911's windows, 0xC1. Bit 0 is not "has normals" (it disagrees
+                  in 8 of the 911's 16 parts); bit 7 may be transparency.
         16  3f    bounding box min
         28  u8    running draw-group number (rises through the list; not the
                   material, it exceeds the material count)
@@ -999,11 +999,9 @@ def main():
                 both = [x for x in mesh if "rec_material" in x]
                 matdiff = sum(1 for x in both if x["rec_material"] != x["material"])
                 texbad = sum(1 for x in both if x["texture"] >= len(p["tex"]))
-                nrmbad = sum(1 for x in both if bool(x["rec_flags"] & 1) != bool(x["normals"]))
-                verdict += "; record material %s, texture index %s, flag bit 0 %s" % (
+                verdict += "; record material %s, texture index %s" % (
                     "agrees" if not matdiff else "DIFFERS in %d" % matdiff,
-                    "in range" if not texbad else "OUT OF RANGE in %d" % texbad,
-                    "= has normals" if not nrmbad else "MISMATCHES normals in %d" % nrmbad)
+                    "in range" if not texbad else "OUT OF RANGE in %d" % texbad)
                 if p.get("counts") and p["counts"] != (len(mesh), tris, verts):
                     verdict += "; part header says %d batches, %d triangles, %d vertices" % p["counts"]
                 print("    %-28s %5d vertices %5d triangles  %s"

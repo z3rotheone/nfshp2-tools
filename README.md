@@ -176,8 +176,8 @@ car at three levels of detail, and the tyre is separate. Vertex colours ride
 on the `v` lines, which Blender and MeshLab read. Files are written Y-up with
 the front toward -Z, so Blender imports them upright with default settings
 (`--game-axes` keeps the game's own X forward, Z up), and faces are grouped by material (`CARSKIN`, `MIRROR`,
-`RUBBER`...; unnamed ones appear as their hash). Which texture each material
-draws with is not yet known, so the OBJ has no `.mtl`.
+`RUBBER`...; unnamed ones appear as their hash). Without `--textures` the OBJ
+has no `.mtl`.
 
 Add `--textures PNGDIR`, pointing at the folder `hp2_tpk.py` exported PNGs
 into, and each OBJ gets an `.mtl`. Faces are grouped by material *and*
@@ -185,6 +185,16 @@ texture (`CARSKIN__911TURBO_SKIN1`, `010cb64a__WINDOW_FRONT`...), each
 texture taken from byte 0 of the batch's record in chunk `0x00034004`, which
 indexes the part's texture list. The skin is not the only texture: lights and
 windows have their own. `--check` confirms the reading on every part.
+`--skin N` paints the car with `<CAR>_SKINn` (1 to 9 on the 911) instead of
+the first skin.
+
+Blender shows the textures at the brightness they are stored at, which is
+about half what the game shows: the PS2 multiplies each texture by the vertex
+colour, and the vertex colours carry baked shading. After importing, run
+`tools/blender_ps2_shade.py` from Blender's Scripting tab to add that step to
+every material. Start each import from File > New: Blender reuses a material
+that already has the same name, so a second import of the same car keeps the
+first one's images.
 
 Every model file records how many triangles each batch should produce.
 `--survey` decodes every model it is given and reports whether it got that
