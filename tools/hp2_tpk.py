@@ -5,7 +5,10 @@ Container: little-endian chunks, each  u32 id, u32 size, payload.
   0xB0300001  texture pack (container)
     0x30300002  pack header (84 bytes: pack name, path)
     0x30300003  texture index: N records of 164 bytes
-    0x30300004  texture data: padding (0x11 bytes), palettes, pixels
+    0x30300004  texture data: padding (0x11 bytes), palettes, pixels. Offsets
+              count from the end of the padding; some packs (cars, front end)
+              have spare bytes after the last pixel, so the end of the chunk
+              is not a safe reference.
   0xB0300100  trailer (container), then a 0x00000000 padding chunk
 
 Index record (164 bytes), offsets within the record:
@@ -239,10 +242,19 @@ def parse_pack(d):
                          w=w, h=h, pix_off=pix_off, pal_off=pal_off,
                          pix_sz=pix_sz, pal_sz=pal_sz))
     total = max((r["pix_off"] + r["pix_sz"] for r in recs), default=0)
-    pad = dsz - total
-    if pad < 0:
+    if dsz < total:
         raise ValueError("data chunk smaller than index claims")
-    return recs, doff + pad
+    # Offsets count from the end of the 0x11 filler that opens the data
+    # chunk. (An earlier rule, "the data ends exactly at the last pixel",
+    # holds for the track packs but not for the car and front-end packs,
+    # which carry 128 or 1024 bytes after it; that put every read there late
+    # and read the car palettes out of pixel data.)
+    fill = 0
+    while fill < dsz and d[doff + fill] == 0x11:
+        fill += 1
+    if fill > dsz - total:
+        fill = dsz - total
+    return recs, doff + fill
 
 
 def make_palette(raw, n, fix8):
