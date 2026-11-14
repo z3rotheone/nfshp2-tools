@@ -18,6 +18,7 @@ executable. Nothing here contains any game data — you supply your own disc.
 | **Executable** | 377 functions attributed to source files, 258 sites carrying file and line |
 | **Name hash** | solved — djb2 with a `-1` seed, verified against every texture name checked |
 | **Filenames** | 252 of 372 archive entries mapped back to their original paths |
+| **Car models** | `GEOMETRY.BIN` structure decoded; vertex positions extractable |
 
 [`docs/formats.md`](docs/formats.md) documents every format in detail, marking
 what is confirmed against the disassembly, what is verified against data, and

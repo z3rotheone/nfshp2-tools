@@ -293,6 +293,83 @@ Read with `tools/hp2_audio.py`, write with `tools/hp2_music.py`.
 
 ---
 
+## 10. Car models: `GEOMETRY.BIN`
+
+*Verified against data for `CARS\\4DR_SEDAN02\\GEOMETRY.BIN`; the vertex layout
+is confirmed by the result measuring 4.68 m x 2.16 m x 1.15 m, symmetric about
+y=0 and sitting on z=0.*
+
+The same chunk convention as the texture packs (§3).
+
+| Id | Contents |
+|---|---|
+| `0x00034013` | file header: 6 attachment records of 32 bytes |
+| `0x80034000` | model (container) |
+| ⟶ `0x00034001` | the development path the file was built from |
+| ⟶ `0x80034002` | one part (container), repeated |
+| ⟶⟶ `0x00034003` | part header: name hash, name length, name, bounding box |
+| ⟶⟶ `0x00034006` | texture name hashes for this part, as (u32 hash, u32 pad) |
+| ⟶⟶ `0x0003401d` | further texture hashes, the generic ones such as `MIRROR` |
+| ⟶⟶ `0x00034004` | sub-mesh records with bounding boxes |
+| ⟶⟶ `0x00034005` | the geometry, as a VIF display list |
+
+Sequences of `0x11111111` are pointer placeholders the loader fixes up.
+
+### Parts and names
+
+Parts are named `<CAR>_A`, `_B`, `_C` and `<CAR>_TIRE_FRONT_A`, with geometry
+shrinking down the letters: 22,032 / 13,376 / 6,320 bytes for the sedan. They
+are levels of detail. The letter is a variant suffix carried by the hash but
+not always by the stored name — a part whose name field reads
+`4DR_SEDAN02_TIRE_FRONT_` hashes as `4DR_SEDAN02_TIRE_FRONT_A`, and its
+sibling as `..._B`, giving consecutive hashes.
+
+Texture references are name hashes (§9) only, so recovering what a car is
+painted with means hashing candidate names; `4DR_SEDAN02_SKIN1`, `INTERIOR`
+and `MIRROR` check out.
+
+### The file header's attachment records
+
+Six 32-byte records, each: two u32 (both 11), the hash of the part to attach,
+the hash of the car's own base name, a position as three floats, and flags.
+The sedan's are at x ≈ ±2.2 with y in ± pairs: wheel positions.
+
+### Geometry: a VIF display list
+
+`0x00034005` is a PS2 VIF packet stream, the format the hardware DMAs to the
+Vector Unit. It alternates `UNPACK` commands, which push data into VU1 memory
+at an address given by the tag's immediate, with `MSCAL`, which runs the
+microprogram that turns it into triangles. The sedan's largest part is 17 such
+batches.
+
+Within a batch, by VU address:
+
+| Address | Data |
+|---|---|
+| 0 | `V4_8`, one quad: batch header |
+| 1 | `V4_32`, one quad, all zero |
+| **2** | **`V4_32`: vertex positions** |
+| 14, 23, 46 | `V2_32` / `S_32`: texture coordinates |
+| 32 | `V4_32`: a second vector stream, normals or lighting |
+| 52 | `V4_5551`: packed colours |
+| 92 | `V4_8` |
+
+**Positions are transposed for the VU1's SIMD registers.** Each group of three
+quads holds the X, then the Y, then the Z of the *same four vertices*, so a
+block of `num` quads yields `num/3 * 4` vertices and `num` is always a
+multiple of 3. Reading the quads as (x, y, z, w) per vertex produces noise.
+
+One practical trap: VIF payloads are padded to a 4-byte boundary. A
+`V4_5551` run of 29 elements occupies 60 bytes, not 58, and a walker that
+misses this desynchronises partway through a batch.
+
+Turning the stream into triangles needs the VU1 microprogram's own strip
+logic, which is not decoded. `tools/hp2_geom.py` reports the structure and
+dumps the positions as a point cloud, which is enough to confirm a model and
+to measure it.
+
+---
+
 ## 7. Open questions
 
 Things not yet worked out, roughly in order of how tractable they look:
@@ -304,7 +381,9 @@ Things not yet worked out, roughly in order of how tractable they look:
   tried. They are probably composed at runtime from a table not yet found.
   `tools/hp2_hash.py --solve` narrows a guess: it gives the exact hash state
   any proposed prefix would have to produce.
-- **Car models** — 88 `GEOMETRY.BIN` and 6 `DASHGEOM.BIN` files, untouched.
+- **Triangle reconstruction from the VIF stream** (§10). Positions come out;
+  assembling them into strips needs the VU1 microprogram, which lives in the
+  executable's `.vutext` section.
 - **Track scenery** — the `eLabScenery0.bin` files, 7–11 MB each.
 - **Menu text** — the `FE_ENGLISH.bin` family. Strings are readable; the
   surrounding structure is not parsed.
