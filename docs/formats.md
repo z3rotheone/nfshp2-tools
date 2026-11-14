@@ -505,10 +505,17 @@ batch, preceded in some parts by eight bytes of `0x11`:
 | 0x20 | 3 x f32 | bounding box maximum |
 
 Decoding the masks as above gives exactly the recorded triangle count for all
-77 batches of the one model examined (`CARS\4DR_SEDAN02`), and the result
-renders as a closed car body with consistent winding. `tools/hp2_geom.py
---check` repeats the comparison and `--survey` runs it over every model file;
-that has not yet been done for the other cars.
+all 16,789 batches of all 44 car models on the disc, about 260,000
+triangles, and the sedan renders as a closed body with consistent winding.
+`tools/hp2_geom.py --check` repeats the comparison for one file and
+`--survey` for many.
+
+Batches of fewer than four vertices have no whole group, so their only
+position block is the leftover one, at address 2.
+
+In six parts the part header's triangle total exceeds the sum of that part's
+own batch records by 2 to 32. Every batch decodes to its record, so this is
+the file disagreeing with itself; what the header counts extra is unknown.
 
 None of this needed the VU1 microprogram.
 
@@ -534,7 +541,6 @@ Things not yet worked out, roughly in order of how tractable they look:
   from the part's texture list is not.
 - **Where wheels attach.** Not in `GEOMETRY.BIN`.
 - **Bits 19-22 of the strip mask words** (§7).
-- **Whether the car layout holds for every model.** Verified on one car only.
 - **Track scenery** — the `eLabScenery0.bin` files, 7–11 MB each.
 - **Menu text** — the `FE_ENGLISH.bin` family. Strings are readable; the
   surrounding structure is not parsed.
