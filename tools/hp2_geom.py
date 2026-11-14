@@ -317,13 +317,16 @@ def batch_records(d, part):
         0   u32   texture: index into the part's texture list (0x00034006)
         8   u32   offset of the batch's VIF packet in the geometry chunk
         12  u8    size of that packet in quadwords (offset steps by 16x this)
-        15  u8    flags (0x40, 0x41, 0x50 seen)
+        15  u8    flags: 0x00 with no material; 0x40, 0x41, 0x50 and, on the
+                  911's windows, 0xC1. Bit 0 is tested against "has normals"
+                  and bit 7 may be transparency.
         16  3f    bounding box min
         28  u8    running draw-group number (rises through the list; not the
                   material, it exceeds the material count)
         29  u8    vertices
         30  u8    triangles
-        31  u8    material: index into the part's material list (0x0003401d)
+        31  u8    material: index into the part's material list (0x0003401d),
+                  0xFF for none (the VU header then holds 0x3F)
         32  3f    bounding box max
 
     Records are sorted by texture then material, as a renderer would want
@@ -336,7 +339,7 @@ def batch_records(d, part):
     out = []
     for i in range(len(body) // 64):
         r = body[lead + i * 64: lead + (i + 1) * 64]
-        out.append(dict(texture=struct.unpack_from("<I", r, 0)[0], material=r[31],
+        out.append(dict(texture=struct.unpack_from("<I", r, 0)[0], material=r[31], flags=r[15],
                         group=r[28], verts=r[29], tris=r[30],
                         bbox=(struct.unpack_from("<3f", r, 16), struct.unpack_from("<3f", r, 32))))
     return out
@@ -375,7 +378,10 @@ def part_mesh(d, part, failures=None):
                 wrong += 1
             m["texture"] = r["texture"]
             m["index"] = i
-            m["rec_material"] = r["material"]
+            # 0xFF means no material; the VU header holds material*4 in a
+            # byte, so the same "none" reads back there as 0x3F
+            m["rec_material"] = 0x3F if r["material"] == 0xFF else r["material"]
+            m["rec_flags"] = r["flags"]
         out.append(m)
     return out, wrong, len(recs)
 
@@ -383,6 +389,8 @@ def part_mesh(d, part, failures=None):
 def material_name(part, k):
     """Name for material index k: an entry of the part's 0x0003401d list."""
     lst = part.get("tex2") or []
+    if k == 0x3F:
+        return "nomaterial"
     if k < len(lst):
         return KNOWN.get(lst[k]) or "%08x" % lst[k]
     return "material_%d" % k
@@ -916,9 +924,11 @@ def main():
                 both = [x for x in mesh if "rec_material" in x]
                 matdiff = sum(1 for x in both if x["rec_material"] != x["material"])
                 texbad = sum(1 for x in both if x["texture"] >= len(p["tex"]))
-                verdict += "; record material %s, texture index %s" % (
+                nrmbad = sum(1 for x in both if bool(x["rec_flags"] & 1) != bool(x["normals"]))
+                verdict += "; record material %s, texture index %s, flag bit 0 %s" % (
                     "agrees" if not matdiff else "DIFFERS in %d" % matdiff,
-                    "in range" if not texbad else "OUT OF RANGE in %d" % texbad)
+                    "in range" if not texbad else "OUT OF RANGE in %d" % texbad,
+                    "= has normals" if not nrmbad else "MISMATCHES normals in %d" % nrmbad)
                 if p.get("counts") and p["counts"] != (len(mesh), tris, verts):
                     verdict += "; part header says %d batches, %d triangles, %d vertices" % p["counts"]
                 print("    %-28s %5d vertices %5d triangles  %s"
