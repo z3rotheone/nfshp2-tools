@@ -79,12 +79,21 @@ fit its slot, so the archive index stays valid and `ZDIR.BIN` is never touched.
 
 ### Testing it in an emulator
 
-An emulator boots a disc image, not loose files, so the modified `ZZDATA.BIN`
-has to go back into the ISO. Because sizes never change it can be written
-straight over the original — no rebuild:
+An emulator boots a disc image, not loose files, so a modified bank has to go
+back into the ISO. Because sizes never change it can be written straight over
+the original — no rebuild. `install-bank` does it without copying the 3 GB
+archive out of the image first: it reads `ZDIR.BIN` from inside the ISO to find
+where the entry lives, and writes there.
 
 ```sh
 cp game.iso modded.iso
+python tools/hp2_iso.py install-bank modded.iso 321 modded.bin
+```
+
+If you already have a whole modified `ZZDATA.BIN` on disk, replace the file
+instead:
+
+```sh
 python tools/hp2_iso.py find  modded.iso NFSHP2/ZZDATA.BIN
 python tools/hp2_iso.py write modded.iso NFSHP2/ZZDATA.BIN path/to/ZZDATA.BIN
 ```
