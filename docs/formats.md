@@ -400,15 +400,34 @@ not always by the stored name — a part whose name field reads
 `4DR_SEDAN02_TIRE_FRONT_` hashes as `4DR_SEDAN02_TIRE_FRONT_A`, and its
 sibling as `..._B`, giving consecutive hashes.
 
-Texture references are name hashes (§10) only, so recovering what a car is
-painted with means hashing candidate names; `4DR_SEDAN02_SKIN1`, `INTERIOR`
-and `MIRROR` check out.
+The part header also carries totals, as three u16 forty bytes after the
+`0x0000000b` that precedes the name: batches, triangles, vertices. For the
+sedan's body that is 37, 481 and 803, which is what decoding the geometry
+produces.
 
-### The file header's attachment records
+Each part has two lists of name hashes (§10), each entry a u32 hash and a u32
+of zero, and either list may be preceded by eight bytes of `0x11` filler:
 
-Six 32-byte records, each: two u32 (both 11), the hash of the part to attach,
-the hash of the car's own base name, a position as three floats, and flags.
-The sedan's are at x ≈ ±2.2 with y in ± pairs: wheel positions.
+- `0x00034006`, **textures**: `4DR_SEDAN02_SKIN1`, `CARBOTTOM`, and others not
+  yet named.
+- `0x0003401d`, **materials**: `MIRROR`, `CARSKIN`, `INTERIOR`, `RUBBER`, and
+  others not yet named. A batch's material index (§ below) selects from this
+  list: index 0 of the sedan's body is `MIRROR` and its two batches are the
+  two wing mirrors; index 2 is `CARSKIN` and holds most of the body. One
+  material, `0x010cb64a`, is the one whose batches carry no normals, in every
+  part that uses it.
+
+The low-detail tyre lists one material and uses indices 0 and 1, so either the
+list is shared with its sibling or an out-of-range index has a default.
+
+### The file header's flare records
+
+Six 32-byte records, each: two u32 (both 11), a name hash, the hash of the
+car's own base name, a position as three floats, and flags. The names are
+`FLARE_HEADLIGHT_LEFT`, `FLARE_HEADLIGHT_RIGHT`, `FLARE_BRAKELIGHT_LEFT` and
+`FLARE_BRAKELIGHT_RIGHT` (the sedan has two brake light pairs): where the
+light glows are drawn. They are not wheel positions; those are not in this
+file.
 
 ### Geometry: a VIF display list
 
@@ -510,9 +529,10 @@ Things not yet worked out, roughly in order of how tractable they look:
   tried. They are probably composed at runtime from a table not yet found.
   `tools/hp2_hash.py --solve` narrows a guess: it gives the exact hash state
   any proposed prefix would have to produce.
-- **Which texture each material index selects** (§7). Batches carry a material
-  index of 0-5 and parts list texture hashes in two chunks, but the list
-  lengths do not match the index range, so the link is somewhere else.
+- **Which texture each material draws with** (§7). Material names are known
+  for some (`CARSKIN`, `RUBBER`, `MIRROR`, `INTERIOR`); how a material picks
+  from the part's texture list is not.
+- **Where wheels attach.** Not in `GEOMETRY.BIN`.
 - **Bits 19-22 of the strip mask words** (§7).
 - **Whether the car layout holds for every model.** Verified on one car only.
 - **Track scenery** — the `eLabScenery0.bin` files, 7–11 MB each.

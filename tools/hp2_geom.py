@@ -4,13 +4,14 @@ Parse Need for Speed: Hot Pursuit 2 (PS2) GEOMETRY.BIN car models.
 Structure (same u32 id + u32 size chunk convention as the texture packs and
 sound banks, a container being an id with the top bit set):
 
-    0x00034013  file header: 6 x 32-byte attachment records
+    0x00034013  file header: 6 x 32-byte light flare positions
     0x80034000  model (container)
         0x00034001  the development path the file was built from
         0x80034002  one part (container), repeated
             0x00034003  part header: name, name hash, bounding box
             0x00034006  texture hashes used by this part (u32 hash, u32 pad)
-            0x0003401d  more texture hashes, generic ones such as MIRROR
+            0x0003401d  material names, hashed: CARSKIN, RUBBER, MIRROR...
+                        A batch's material index selects from this list.
             0x00034004  sub-mesh records, each with a bounding box
             0x00034005  the geometry itself, as a VIF display list
 
@@ -19,9 +20,9 @@ variant suffix; the part header's hash covers the full name including it, so
 `4DR_SEDAN02_TIRE_FRONT_` in the name field actually hashes as
 `4DR_SEDAN02_TIRE_FRONT_A`. Hashes are the §9 name hash (see hp2_hash.py, and docs/formats.md section 10).
 
-The file header's 6 records are wheel and attachment points: each holds a
-position, the hash of the part to attach, and the hash of the car's own base
-name. Their Y coordinates come in +/- pairs, which is the left/right symmetry.
+The file header's 6 records are where the light flares go: each holds a
+position, a hashed name (FLARE_HEADLIGHT_LEFT, FLARE_BRAKELIGHT_RIGHT ...) and
+the hash of the car's own base name.
 
 The geometry chunk is a PS2 VIF display list, one batch of at most 30
 vertices per MSCAL. Each batch unpacks, at fixed VU1 addresses:
@@ -148,13 +149,17 @@ def parse(path):
                             part["hash"] = struct.unpack_from("<I", blob, max(0, i - 4))[0]
                             nm = blob[i + 4:]
                             part["name"] = nm.split(b"\0")[0].decode("ascii", "replace")
+                            if len(blob) >= i + 46:
+                                # batches, triangles, vertices
+                                part["counts"] = struct.unpack_from("<3H", blob, i + 40)
                         elif c3 in (TEX1, TEX2):
                             key = "tex" if c3 == TEX1 else "tex2"
-                            base = o3 + (8 if c3 == TEX2 else 0)
+                            base = o3
+                            # chunks are sometimes preceded by 0x11 alignment filler
+                            while base + 4 <= o3 + s3 and d[base:base + 4] == b"\x11" * 4:
+                                base += 4
                             for k in range((o3 + s3 - base) // 8):
-                                h = struct.unpack_from("<I", d, base + k * 8)[0]
-                                if h:
-                                    part[key].append(h)
+                                part[key].append(struct.unpack_from("<I", d, base + k * 8)[0])
                         elif c3 == SUBMESH:
                             part["submesh"] = (o3, s3)
                         elif c3 == GEOM:
@@ -311,7 +316,15 @@ def part_mesh(d, part):
     return out, wrong, len(recs)
 
 
-def write_obj(path, name, mesh):
+def material_name(part, k):
+    """Name for material index k: an entry of the part's 0x0003401d list."""
+    lst = part.get("tex2") or []
+    if k < len(lst):
+        return KNOWN.get(lst[k]) or "%08x" % lst[k]
+    return "material_%d" % k
+
+
+def write_obj(path, name, mesh, part=None):
     """Wavefront OBJ: positions with vertex colours, texture coordinates, normals,
     one group per material. X is forward, Y is left-right and Z is up, as stored."""
     with open(path, "w") as f:
@@ -321,7 +334,8 @@ def write_obj(path, name, mesh):
         for m in sorted(mesh, key=lambda m: m["material"]):
             if m["material"] != cur:
                 cur = m["material"]
-                f.write("g material_%d\nusemtl material_%d\n" % (cur, cur))
+                nm = material_name(part, cur) if part else "material_%d" % cur
+                f.write("g %s\nusemtl %s\n" % (nm, nm))
             for i, p in enumerate(m["pos"]):
                 c = m["col"][i] if i < len(m["col"]) else (1.0, 1.0, 1.0)
                 f.write("v %.6f %.6f %.6f %.4f %.4f %.4f\n" % (p + c))
@@ -343,7 +357,10 @@ def write_obj(path, name, mesh):
                 nbase += m["n"]
 
 
-KNOWN = {0x2787edab: "INTERIOR", 0x6bfa56da: "MIRROR"}
+KNOWN = {0x2787edab: "INTERIOR", 0x6bfa56da: "MIRROR", 0xd6d6080a: "CARSKIN",
+         0x78743ca1: "RUBBER", 0xbd1f0e0a: "CARBOTTOM",
+         0xacec665c: "FLARE_HEADLIGHT_LEFT", 0x4ae7f96f: "FLARE_HEADLIGHT_RIGHT",
+         0x7efcf06f: "FLARE_BRAKELIGHT_LEFT", 0x5f09c5e2: "FLARE_BRAKELIGHT_RIGHT"}
 
 
 def survey(paths):
@@ -379,6 +396,10 @@ def survey(paths):
             tris += sum(len(x["tris"]) for x in mesh)
             if wrong:
                 notes.append("%s: %d of %d batches disagree" % (p["name"], wrong, nrec))
+            t = (len(mesh), sum(len(x["tris"]) for x in mesh), sum(x["n"] for x in mesh))
+            if p.get("counts") and p["counts"] != t:
+                notes.append("%s: part header says %d/%d/%d batches/triangles/vertices, decoded %d/%d/%d"
+                             % ((p["name"],) + p["counts"] + t))
         tot["files"] += 1
         tot["parts"] += len(m["parts"])
         tot["batches"] += nb
@@ -430,8 +451,9 @@ def main():
 
         print("\n  attachment points (%d):" % len(m["attach"]))
         for i, a in enumerate(m["attach"]):
-            print("    [%d] part %08x  at (%7.3f,%7.3f,%7.3f)  flags %08x"
-                  % (i, a["part"], a["pos"][0], a["pos"][1], a["pos"][2], a["flags"]))
+            print("    [%d] %-24s at (%7.3f,%7.3f,%7.3f)  flags %08x"
+                  % (i, KNOWN.get(a["part"]) or "%08x" % a["part"],
+                     a["pos"][0], a["pos"][1], a["pos"][2], a["flags"]))
 
         print("\n  parts (%d):" % len(m["parts"]))
         for p in m["parts"]:
@@ -439,13 +461,16 @@ def main():
             print("    %-28s hash %08x  geometry %s bytes  %d+%d textures"
                   % (p["name"] or "(unnamed)", p.get("hash", 0), "{:,}".format(gs),
                      len(p["tex"]), len(p["tex2"])))
-            for h in p["tex"] + p["tex2"]:
-                known = KNOWN.get(h)
-                guess = ""
-                for suf in ("_SKIN1", "_SKIN2", "_SKIN3", "_TIRE", "_GLASS"):
-                    if name_hash(car + suf) == h:
-                        guess = car + suf
-                print("        texture %08x%s" % (h, "  = " + (known or guess) if (known or guess) else ""))
+            for label, lst in (("texture", p["tex"]), ("material", p["tex2"])):
+                for k, h in enumerate(lst):
+                    known = KNOWN.get(h)
+                    guess = ""
+                    for suf in ("_SKIN1", "_SKIN2", "_SKIN3", "_TIRE", "_GLASS"):
+                        if name_hash(car + suf) == h:
+                            guess = car + suf
+                    idx = "%d " % k if label == "material" else ""
+                    print("        %s %s%08x%s" % (label, idx, h, "  = " + (known or guess)
+                                                   if (known or guess) else ""))
 
         if show_vif:
             for p in m["parts"]:
@@ -483,6 +508,8 @@ def main():
                     verdict = "%d of %d batches DISAGREE with the file's own counts" % (wrong, nrec)
                 else:
                     verdict = "all %d batches agree with the file's own counts" % nrec
+                if p.get("counts") and p["counts"] != (len(mesh), tris, verts):
+                    verdict += "; part header says %d batches, %d triangles, %d vertices" % p["counts"]
                 print("    %-28s %5d vertices %5d triangles  %s"
                       % (p["name"], verts, tris, verdict))
                 if objdir:
@@ -491,7 +518,7 @@ def main():
                     if used[nm] > 1:
                         nm += "%d" % used[nm]
                     out = os.path.join(objdir, nm + ".obj")
-                    write_obj(out, nm, mesh)
+                    write_obj(out, nm, mesh, p)
                     print("        -> %s" % out)
 
         if dump:

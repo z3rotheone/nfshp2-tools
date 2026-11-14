@@ -174,8 +174,9 @@ python tools/hp2_geom.py extracted/* --survey
 `--obj` writes one Wavefront OBJ per part: `_A`, `_B` and `_C` are the same
 car at three levels of detail, and the tyre is separate. Vertex colours ride
 on the `v` lines, which Blender and MeshLab read. Axes are left as stored (X
-forward, Z up), and faces are grouped by material index; which texture each
-index means is not yet known, so the OBJ has no `.mtl`.
+forward, Z up), and faces are grouped by material (`CARSKIN`, `MIRROR`,
+`RUBBER`...; unnamed ones appear as their hash). Which texture each material
+draws with is not yet known, so the OBJ has no `.mtl`.
 
 Every model file records how many triangles each batch should produce.
 `--survey` decodes every model it is given and reports whether it got that
@@ -238,8 +239,11 @@ The format work is solid — the compression is confirmed against the shipped
 code, and the texture and audio decoders are checked against thousands of real
 files. What is **not** proven:
 
-- No modified archive has been booted in an emulator yet, so writing back is
-  verified only to the extent that the tools read their own output correctly.
+- One modified disc has been booted in PCSX2: a replaced music track plays
+  correctly in game. Texture writing is verified only to the extent that the
+  tools read their own output correctly.
+- The model decoder has been checked on one car. `hp2_geom.py --survey` tests
+  the rest.
 - The launcher's two SDL source files compile cleanly but have never run.
 - Function attribution past the 199 direct hits is a call-graph heuristic;
   `functions_attributed.csv` marks each row `direct` or `inferred`.
