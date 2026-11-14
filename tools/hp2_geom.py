@@ -53,6 +53,7 @@ Usage:
           [--textures PNGDIR]               ...with an .mtl giving each batch its
                                             own texture, from hp2_tpk.py's PNGs
           [--lights off|on|damaged]         which state light textures show
+          [--game-axes]                     keep X forward / Z up instead of Y-up
     python hp2_geom.py extracted/* --survey one line per model file: do the
                                             decoded triangle counts match?
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
@@ -497,11 +498,21 @@ def draw_key(part, m, car):
     return "%s__%s" % (mat, tex), tex
 
 
-def write_obj(path, name, mesh, part=None, mtl=None, car=""):
+def to_yup(v):
+    """Game axes (+x front, +y left, +z up) to the usual OBJ convention
+    (+y up, front facing -z), so tools import it upright with default settings."""
+    x, y, z = v
+    return (-y, z, -x)
+
+
+def write_obj(path, name, mesh, part=None, mtl=None, car="", yup=True):
     """Wavefront OBJ: positions with vertex colours, texture coordinates, normals,
-    one group per material. X is forward, Y is left-right and Z is up, as stored."""
+    one group per material and texture. Written Y-up by default; with
+    yup=False the game's own axes are kept (X forward, Y left, Z up)."""
+    conv = to_yup if yup else (lambda v: tuple(v))
     with open(path, "w") as f:
-        f.write("# %s\n# axes as stored: X forward, Y sideways, Z up\n" % name)
+        f.write("# %s\n# axes: %s\n" % (name, "Y up, front toward -Z" if yup
+                                          else "as stored: X forward, Y left, Z up"))
         if mtl:
             f.write("mtllib %s\n" % mtl)
         f.write("o %s\n" % name)
@@ -514,12 +525,12 @@ def write_obj(path, name, mesh, part=None, mtl=None, car=""):
                 f.write("g %s\nusemtl %s\n" % (nm, nm))
             for i, p in enumerate(m["pos"]):
                 c = m["col"][i] if i < len(m["col"]) else (1.0, 1.0, 1.0)
-                f.write("v %.6f %.6f %.6f %.4f %.4f %.4f\n" % (p + c))
+                f.write("v %.6f %.6f %.6f %.4f %.4f %.4f\n" % (conv(p) + tuple(c)))
             for u, v in m["uv"]:
                 f.write("vt %.6f %.6f\n" % (u, 1.0 - v))
             if m["normals"]:
                 for nx in m["normals"]:
-                    f.write("vn %.5f %.5f %.5f\n" % nx)
+                    f.write("vn %.5f %.5f %.5f\n" % conv(nx))
             for a, b_, c in m["tris"]:
                 if m["normals"]:
                     f.write("f %d/%d/%d %d/%d/%d %d/%d/%d\n" % (
@@ -845,6 +856,7 @@ def main():
         i = argv.index("-o")
         out_csv = argv[i + 1]
         del argv[i:i + 2]
+    keep_axes = "--game-axes" in argv
     state = "off"
     if "--lights" in argv:
         i = argv.index("--lights")
@@ -1005,7 +1017,7 @@ def main():
                             missing.add(tex)
                         entries[key] = os.path.relpath(png, objdir) if png else None
                     write_mtl(os.path.join(objdir, nm + ".mtl"), sorted(entries.items()))
-                    write_obj(out, nm, mesh, p, nm + ".mtl", car)
+                    write_obj(out, nm, mesh, p, nm + ".mtl", car, yup=not keep_axes)
                     print("        -> %s  (%d material/texture pairs)" % (out, len(entries)))
                     if missing:
                         print("           no PNG found for: %s" % ", ".join(sorted(missing)))

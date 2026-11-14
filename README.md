@@ -173,8 +173,9 @@ python tools/hp2_geom.py extracted/* --survey
 
 `--obj` writes one Wavefront OBJ per part: `_A`, `_B` and `_C` are the same
 car at three levels of detail, and the tyre is separate. Vertex colours ride
-on the `v` lines, which Blender and MeshLab read. Axes are left as stored (X
-forward, Z up), and faces are grouped by material (`CARSKIN`, `MIRROR`,
+on the `v` lines, which Blender and MeshLab read. Files are written Y-up with
+the front toward -Z, so Blender imports them upright with default settings
+(`--game-axes` keeps the game's own X forward, Z up), and faces are grouped by material (`CARSKIN`, `MIRROR`,
 `RUBBER`...; unnamed ones appear as their hash). Which texture each material
 draws with is not yet known, so the OBJ has no `.mtl`.
 
