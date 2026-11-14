@@ -285,11 +285,15 @@ Read with `tools/hp2_audio.py`, write with `tools/hp2_music.py`.
 
 Things not yet worked out, roughly in order of how tractable they look:
 
-- **The path hash** used for `ZDIR.BIN` ids and texture names. It is not
-  random: a compressed file's id and its uncompressed twin's differ by a
-  constant (`0x2CB0` or `0x2B24`), which suggests a simple additive hash where
-  only the filename's ending changes. Finding it would recover real filenames
-  for all 405 entries.
+- **What string the `ZDIR.BIN` ids hash.** The *function* is solved (§9) and
+  the ids are produced by it, but the exact string it is given is not known.
+  A pack's own stored path (`TRACK11\\TrackTextures.tpk`) does not reproduce
+  its archive id under any prefix, suffix, case or separator tried, nor with
+  the 16-byte group field prepended or the 64-byte field's NUL padding
+  included. Since the hash is invertible you can work backwards: for pack
+  `241` the prefix would have to leave the hash standing at `0xf27afbe9`
+  before the stored path begins (`tools/hp2_hash.py --solve`). Finding the
+  caller that hashes a path before a `ZDIR` lookup would settle it.
 - **Car models** — 88 `GEOMETRY.BIN` and 6 `DASHGEOM.BIN` files, untouched.
 - **Track scenery** — the `eLabScenery0.bin` files, 7–11 MB each.
 - **Menu text** — the `FE_ENGLISH.bin` family. Strings are readable; the
@@ -320,3 +324,37 @@ game code (`car.cpp`, `player.cpp`, `racecoordinator.cpp`, `trackroute.cpp`,
 and `src\b*.cpp` for a base library (`bFile.cpp`, `bMemory.cpp`, `bSound.cpp`,
 `bJukebox.cpp`, `bDriverPS2.cpp`). `bDriverPS2.cpp` is the platform layer a
 port would discard.
+## 9. The name hash
+
+*Confirmed twice: it reproduces the hash stored beside all 29 texture names
+checked, and the routine is in the executable.*
+
+```
+h = 0xFFFFFFFF
+for each byte:  h = (h * 33 + byte) & 0xFFFFFFFF
+```
+
+djb2 with a seed of −1 rather than the usual 5381. Three forms exist in the
+binary:
+
+| Address | Signature |
+|---|---|
+| `0x103520` | `hash(data, length)` |
+| `0x2534a8` | `hash(string)` — seeds with `0xFFFFFFFF` |
+| `0x2534e8` | `hash_continue(string, seed)` — carries an existing hash on |
+
+The third lets a name be hashed in pieces, which the game uses to look
+textures up by a composed name: at `0x198200` it builds a car's badge as
+`hash("CARLOGO_" + "CORVETTE")`.
+
+It is used for the `hash` field at offset 32 of every texture index record
+(§3), and for the ids in `ZDIR.BIN` (§1) — though see §7 for what remains
+unknown about the latter.
+
+Because 33 is odd it is invertible modulo 2^32, so given a known suffix you
+can solve exactly for the hash state its prefix must have produced. That makes
+guessing an unknown prefix a search over short strings rather than over whole
+paths. `tools/hp2_hash.py` computes, verifies and solves.
+
+---
+
