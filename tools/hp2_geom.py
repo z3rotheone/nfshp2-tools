@@ -239,9 +239,10 @@ def decode_batch(b):
     first = pos_blocks[0][1]
     vals = struct.unpack_from("<%df" % (len(first[2]) // 4), first[2])
     rem = n % 4
-    if rem and len(pos_blocks) > 1:
-        pos, _ = _transposed(vals, n, False)
-        tail = pos_blocks[1][1][2]
+    if rem and (n < 4 or len(pos_blocks) > 1):
+        # fewer than four vertices: the leftover block is the only one
+        pos, _ = _transposed(vals, n, False) if n >= 4 else ([], 0)
+        tail = pos_blocks[1 if n >= 4 else 0][1][2]
         if len(tail) < 12 * rem:
             raise ValueError("leftover positions: %d bytes for %d vertices" % (len(tail), rem))
         t = struct.unpack_from("<%df" % (3 * rem), tail)
