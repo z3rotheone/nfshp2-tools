@@ -136,17 +136,25 @@ PCSX2 names replacement textures by a hash it computes from the texture upload,
 so a pack is a folder of opaque filenames. The pictures are reusable by a port;
 the names are not, because a port loads the game's own assets by name.
 
+There are two ways to recover the names, and they fail differently.
+
 ```sh
-python tools/hp2_match.py extracted ~/.config/PCSX2/textures/SLUS-20362 --missing -o map.csv
+python tools/hp2_hash.py  extracted ~/.config/PCSX2/textures/SLUS-20362 -o map.csv
+python tools/hp2_match.py extracted ~/.config/PCSX2/textures/SLUS-20362 -o map.csv
 ```
 
-Matching is by image content, not by hash, so there is no need to reimplement
-PCSX2's hashing and an upscaled replacement still matches the texture it was
-made from: each image is reduced to a small resolution-independent fingerprint,
-the nearest candidates are compared properly, and each channel is allowed one
-gain and offset so a recoloured pack is still recognised. Anything that stays
-ambiguous is reported as ambiguous rather than guessed at, and `--missing`
-lists the game textures nothing in the pack covers.
+`hp2_hash.py` recomputes PCSX2's own filenames: it lays each of the game's
+textures out the way the GS stores it and hashes it the way PCSX2 does. A hit
+is exact, and it does not matter how thoroughly the replacement was repainted.
+It needs `pip install xxhash`. It has been checked against the texture decoder
+and against PCSX2's source, but not yet against a real pack; if it names
+nothing, one of the assumptions listed at the top of the file is wrong.
+
+`hp2_match.py` compares pictures instead. That is right for a dump folder and
+for a pack that is a plain upscale. It is wrong for a pack whose art was
+redrawn: run against a real one, every match that could be checked against a
+dump's hash (13 of 13) was the wrong texture, including ones labelled "close".
+Do not trust its output for an enhanced pack.
 
 Note that PCSX2 texture replacement can load textures at any resolution,
 because it swaps them as the GS uploads them. Patching the disc cannot: that is
