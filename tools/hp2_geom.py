@@ -51,6 +51,10 @@ Usage:
     python hp2_geom.py CAR.BIN --obj DIR    write one Wavefront OBJ per part
     python hp2_geom.py extracted/* --survey one line per model file: do the
                                             decoded triangle counts match?
+    python hp2_geom.py extracted/* --names --tpk PACK.tpk
+                                            which texture and material hashes
+                                            the pack's names account for
+    --tpk PACK may be given with any mode, more than once.
 """
 import os
 import struct
@@ -394,6 +398,48 @@ KNOWN = {0x2787edab: "INTERIOR", 0x6bfa56da: "MIRROR", 0xd6d6080a: "CARSKIN",
          0x7efcf06f: "FLARE_BRAKELIGHT_LEFT", 0x5f09c5e2: "FLARE_BRAKELIGHT_RIGHT"}
 
 
+def learn_names(path):
+    """Add every texture name in a .tpk pack to KNOWN, so hashes print as names."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import hp2_tpk
+    with open(path, "rb") as f:
+        d = f.read()
+    try:
+        recs, _ = hp2_tpk.parse_pack(d)
+    except Exception as e:
+        raise SystemExit("%s is not a texture pack this can read (%s)" % (path, e))
+    for r in recs:
+        KNOWN.setdefault(name_hash(r["name"]), r["name"])
+    print("learned %d texture names from %s" % (len(recs), os.path.basename(path)))
+
+
+def name_report(paths):
+    """Every texture and material hash used by the models, and which have names."""
+    seen = {}
+    for path in paths:
+        try:
+            with open(path, "rb") as f:
+                if struct.unpack("<I", f.read(4))[0] != HDR:
+                    continue
+            d, m = parse(path)
+        except Exception:
+            continue
+        for p in m["parts"]:
+            for kind, lst in (("texture", p["tex"]), ("material", p["tex2"])):
+                for h in lst:
+                    e = seen.setdefault((kind, h), [0, set()])
+                    e[0] += 1
+                    e[1].add(p["name"].split("_")[0])
+    for kind in ("texture", "material"):
+        items = [(k[1], v) for k, v in seen.items() if k[0] == kind]
+        named = sum(1 for h, _ in items if h in KNOWN)
+        print("%ss: %d distinct, %d named" % (kind, len(items), named))
+        for h, (n, cars) in sorted(items, key=lambda kv: -kv[1][0]):
+            if n > 1 or h in KNOWN:
+                print("  %08x  %-28s used by %3d parts in %2d cars"
+                      % (h, KNOWN.get(h, ""), n, len(cars)))
+
+
 def survey(paths):
     """One line per file: do the decoded triangle counts match the file's own?"""
     tot = {"files": 0, "parts": 0, "batches": 0, "agree": 0, "tris": 0}
@@ -469,6 +515,12 @@ def main():
             raise SystemExit("--obj needs a folder to write into")
         objdir = argv[i + 1]
         del argv[i:i + 2]
+    while "--tpk" in argv:
+        i = argv.index("--tpk")
+        if i + 1 >= len(argv):
+            raise SystemExit("--tpk needs a texture pack")
+        learn_names(argv[i + 1])
+        del argv[i:i + 2]
     args = [a for a in argv if not a.startswith("--")]
     check = "--check" in argv
     if not args:
@@ -479,6 +531,9 @@ def main():
 
     if "--survey" in argv:
         survey(args)
+        return
+    if "--names" in argv:
+        name_report(args)
         return
 
     for path in args:

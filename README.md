@@ -18,7 +18,7 @@ executable. Nothing here contains any game data — you supply your own disc.
 | **Executable** | 377 functions attributed to source files, 258 sites carrying file and line |
 | **Name hash** | solved — djb2 with a `-1` seed, verified against every texture name checked |
 | **Filenames** | 252 of 372 archive entries mapped back to their original paths |
-| **Car models** | `GEOMETRY.BIN` decoded to triangles with normals, texture coordinates and vertex colours; exports OBJ. Checked on one car |
+| **Car models** | `GEOMETRY.BIN` decoded to triangles with normals, texture coordinates and vertex colours; exports OBJ. All 16,789 batches of all 44 cars match the triangle counts the files record |
 
 [`docs/formats.md`](docs/formats.md) documents every format in detail, marking
 what is confirmed against the disassembly, what is verified against data, and
@@ -180,9 +180,8 @@ draws with is not yet known, so the OBJ has no `.mtl`.
 
 Every model file records how many triangles each batch should produce.
 `--survey` decodes every model it is given and reports whether it got that
-number, one line per file. For the one car examined so far it does, for all 77
-batches. Run it over the whole `extracted` folder before trusting it on the
-rest.
+number, one line per file. Over the whole disc it does for all 16,789 batches
+in 44 cars, about 260,000 triangles.
 
 ### When a mod boots but nothing changed
 
@@ -242,8 +241,8 @@ files. What is **not** proven:
 - One modified disc has been booted in PCSX2: a replaced music track plays
   correctly in game. Texture writing is verified only to the extent that the
   tools read their own output correctly.
-- The model decoder has been checked on one car. `hp2_geom.py --survey` tests
-  the rest.
+- Model geometry is checked against the counts the files store, for every car;
+  which texture each material draws with is not yet known.
 - The launcher's two SDL source files compile cleanly but have never run.
 - Function attribution past the 199 direct hits is a call-graph heuristic;
   `functions_attributed.csv` marks each row `direct` or `inferred`.
