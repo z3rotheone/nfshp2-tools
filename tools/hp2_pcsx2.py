@@ -218,11 +218,25 @@ def game_hashes(root):
                 skipped["format not understood"] = skipped.get("format not understood", 0) + 1
                 continue
             lv, bpp, pal = got
-            if not all(is_pow2(w) and is_pow2(h) for w, h, _ in lv):
-                # PCSX2 sees these through a clamp region, which changes the name
-                skipped["not a power-of-two size"] = skipped.get("not a power-of-two size", 0) + 1
-                continue
             ph = h64(pal) if pal else 0
+            if not all(is_pow2(w) and is_pow2(h) for w, h, _ in lv):
+                # The GS addresses these as the next power of two up, so the
+                # hash also covers whatever lies beyond the picture. If that
+                # memory happened to be clear the name is predictable; try it.
+                w, h, px = lv[0]
+                pw, phh = 1 << (w - 1).bit_length(), 1 << (h - 1).bit_length()
+                if bpp == 32:
+                    big = np.zeros((phh, pw, 4), dtype=np.uint8)
+                    big[:h, :w] = px.reshape(h, w, 4)
+                else:
+                    big = np.zeros((phh, pw), dtype=np.uint8)
+                    big[:h, :w] = px.reshape(h, w)
+                key = h64(gs_bytes(big.ravel(), pw, phh, bpp))
+                table.setdefault(key, []).append((pack, r["name"], pw, phh, bpp, ph,
+                                                  "padded from %dx%d" % (w, h)))
+                skipped["not a power-of-two size (tried padded)"] = \
+                    skipped.get("not a power-of-two size (tried padded)", 0) + 1
+                continue
             blobs = [gs_bytes(px, w, h, bpp) for w, h, px in lv]
             # every run of consecutive levels: PCSX2 hashes from whichever level
             # the game addressed, through however many it was told exist
