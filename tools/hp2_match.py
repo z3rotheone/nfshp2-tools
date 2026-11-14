@@ -113,11 +113,22 @@ def load_assets(root):
     return assets
 
 
+IMAGES = (".png", ".jpg", ".jpeg", ".bmp", ".dds", ".tga", ".webp")
+
+
 def load_pngs(root):
-    out = []
+    if not os.path.isdir(root):
+        raise SystemExit("%s is not a folder. PCSX2 shows the right path under\n"
+                         "Settings -> Graphics -> Texture Replacements; a Flatpak install\n"
+                         "keeps it under ~/.var/app/net.pcsx2.PCSX2/config/PCSX2/textures."
+                         % root)
+    out, other = [], {}
     for dirpath, _dirs, files in os.walk(root):
         for f in sorted(files):
-            if not f.lower().endswith(".png"):
+            ext = os.path.splitext(f)[1].lower()
+            if ext != ".png":
+                if ext in IMAGES:
+                    other[ext] = other.get(ext, 0) + 1
                 continue
             p = os.path.join(dirpath, f)
             try:
@@ -125,6 +136,11 @@ def load_pngs(root):
             except Exception:
                 continue
             out.append((p, np.array(im, dtype=np.uint8)))
+    if not out and other:
+        print("  no PNGs, but this folder holds %s"
+              % ", ".join("%d %s" % (n, e) for e, n in sorted(other.items())))
+        print("  convert them first, e.g.  mogrify -format png *%s"
+              % sorted(other, key=lambda e: -other[e])[0])
     return out
 
 
