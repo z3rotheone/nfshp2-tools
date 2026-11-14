@@ -130,6 +130,28 @@ them to palette indices, packs them again and requires the same bytes back,
 then does the same for the palette. Anything that does not round-trip is a bug
 in the writer, and it is named.
 
+### Carrying a PCSX2 texture pack to a port
+
+PCSX2 names replacement textures by a hash it computes from the texture upload,
+so a pack is a folder of opaque filenames. The pictures are reusable by a port;
+the names are not, because a port loads the game's own assets by name.
+
+```sh
+python tools/hp2_match.py extracted ~/.config/PCSX2/textures/SLUS-20362 --missing -o map.csv
+```
+
+Matching is by image content, not by hash, so there is no need to reimplement
+PCSX2's hashing and an upscaled replacement still matches the texture it was
+made from: each image is reduced to a small resolution-independent fingerprint,
+the nearest candidates are compared properly, and each channel is allowed one
+gain and offset so a recoloured pack is still recognised. Anything that stays
+ambiguous is reported as ambiguous rather than guessed at, and `--missing`
+lists the game textures nothing in the pack covers.
+
+Note that PCSX2 texture replacement can load textures at any resolution,
+because it swaps them as the GS uploads them. Patching the disc cannot: that is
+what the fixed slot size above is about.
+
 ### When a mod boots but nothing changed
 
 Three causes, and `hp2_verify.py` tells them apart:
