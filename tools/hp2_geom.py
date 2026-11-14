@@ -234,15 +234,27 @@ def decode_batch(b):
     out = {"n": n, "material": hdr[3] >> 2, "normals": None}
 
     pos_blocks = sorted((addr, e) for addr in b if 2 <= addr < 32 for e in b[addr])
+    if not pos_blocks:
+        raise ValueError("no position data")
     first = pos_blocks[0][1]
     vals = struct.unpack_from("<%df" % (len(first[2]) // 4), first[2])
-    pos, full = _transposed(vals, n, False)
-    rem = n - full * 4
-    if rem:
-        tail = pos_blocks[1][1]
-        t = struct.unpack_from("<%df" % (3 * rem), tail[2])
+    rem = n % 4
+    if rem and len(pos_blocks) > 1:
+        pos, _ = _transposed(vals, n, False)
+        tail = pos_blocks[1][1][2]
+        if len(tail) < 12 * rem:
+            raise ValueError("leftover positions: %d bytes for %d vertices" % (len(tail), rem))
+        t = struct.unpack_from("<%df" % (3 * rem), tail)
         for j in range(rem):
             pos.append((t[j], t[rem + j], t[2 * rem + j]))
+    elif len(vals) >= (n + 3) // 4 * 12:
+        # the last group padded out to four, as the normals are
+        pos, _ = _transposed(vals, n, True)
+    elif not rem:
+        raise ValueError("positions: %d floats for %d vertices" % (len(vals), n))
+    else:
+        raise ValueError("positions: %d floats for %d vertices and no leftover block"
+                         % (len(vals), n))
     out["pos"] = pos
 
     uv = []
@@ -301,15 +313,33 @@ def batch_records(d, part):
     return out
 
 
-def part_mesh(d, part):
-    """All batches of a part decoded, and how many disagree with their record."""
+def describe(b):
+    """The unpacks of a batch, for reporting one that will not decode."""
+    out = []
+    for addr in sorted(b):
+        for cmd, num, pay in b[addr]:
+            out.append("%d:%s x%d" % (addr, unpack_label(cmd).replace("UNPACK ", ""), num))
+    return " ".join(out)
+
+
+def part_mesh(d, part, failures=None):
+    """All batches of a part decoded, and how many disagree with their record.
+
+    A batch that cannot be decoded is left out and, if `failures` is a list,
+    reported there as (batch index, error, layout)."""
     o, n = part["geom"]
     recs = batch_records(d, part)
     out, wrong = [], 0
     for i, b in enumerate(batches(d, o, o + n)):
         if 0 not in b or 2 not in b:
             continue
-        m = decode_batch(b)
+        try:
+            m = decode_batch(b)
+        except (ValueError, IndexError, struct.error) as e:
+            wrong += 1
+            if failures is not None:
+                failures.append((i, str(e), describe(b), b[0][0][2][:4].hex()))
+            continue
         if i < len(recs) and (recs[i]["verts"] != m["n"] or recs[i]["tris"] != len(m["tris"])):
             wrong += 1
         out.append(m)
@@ -379,25 +409,32 @@ def survey(paths):
             continue
         car = os.path.basename(os.path.dirname(m["devpath"].replace("\\", "/"))) or "?"
         nb = ok = tris = 0
-        notes = []
+        notes, info = [], []
         for p in m["parts"]:
             if not p["geom"]:
                 continue
+            fails = []
             try:
-                mesh, wrong, nrec = part_mesh(d, p)
+                mesh, wrong, nrec = part_mesh(d, p, fails)
             except Exception as e:
                 notes.append("%s: could not decode (%s)" % (p["name"], e))
                 continue
-            if nrec != len(mesh):
-                notes.append("%s: %d batches, %d records" % (p["name"], len(mesh), nrec))
-                continue
+            for i, err, lay, hdr in fails[:2]:
+                notes.append("%s batch %d: %s | header %s | %s" % (p["name"], i, err, hdr, lay))
+            if len(fails) > 2:
+                notes.append("%s: %d more batches like that" % (p["name"], len(fails) - 2))
             nb += nrec
             ok += nrec - wrong
             tris += sum(len(x["tris"]) for x in mesh)
-            if wrong:
-                notes.append("%s: %d of %d batches disagree" % (p["name"], wrong, nrec))
-            t = (len(mesh), sum(len(x["tris"]) for x in mesh), sum(x["n"] for x in mesh))
-            if p.get("counts") and p["counts"] != t:
+            if wrong > len(fails):
+                notes.append("%s: %d of %d batches disagree" % (p["name"], wrong - len(fails), nrec))
+            t = (nrec, sum(len(x["tris"]) for x in mesh), sum(x["n"] for x in mesh))
+            if not wrong and p.get("counts") and p["counts"][::2] == t[::2] and p["counts"][1] != t[1]:
+                # every batch matches its own record, so this is the file disagreeing
+                # with itself; noted, not counted against the decode
+                info.append("%s: header total %d triangles, its batch records sum to %d"
+                            % (p["name"], p["counts"][1], t[1]))
+            elif p.get("counts") and p["counts"] != t:
                 notes.append("%s: part header says %d/%d/%d batches/triangles/vertices, decoded %d/%d/%d"
                              % ((p["name"],) + p["counts"] + t))
         tot["files"] += 1
@@ -410,6 +447,8 @@ def survey(paths):
                  "ok" if not notes else "CHECK"))
         for n in notes:
             print("      " + n)
+        for n in info:
+            print("      (note) " + n)
         if notes:
             trouble.append(os.path.basename(path))
     print()
