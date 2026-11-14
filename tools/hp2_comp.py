@@ -79,7 +79,7 @@ def decompress(data):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\Clear\Desktop\hp2-decomp\extracted"
+    root = sys.argv[1] if len(sys.argv) > 1 else "extracted"
     outdir = os.path.join(root, "decomp")
     os.makedirs(outdir, exist_ok=True)
 

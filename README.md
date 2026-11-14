@@ -10,7 +10,7 @@ executable. Nothing here contains any game data — you supply your own disc.
 
 | | |
 |---|---|
-| **Archive** | `ZDIR.BIN` / `ZZDATA.BIN` fully parsed — 405 entries, 372 real files |
+| **Archive** | `ZDIR.BIN` / `ZZDATA.BIN` fully parsed and extracted — 405 entries, 372 real files |
 | **Compression** | The `COMP` LZ scheme, confirmed against the game's own decompressor |
 | **Textures** | 3,284 of 3,287 textures export to PNG, including PS2 swizzling and mipmaps |
 | **Sound** | 382 named sound effects to WAV |
@@ -24,7 +24,7 @@ what is still inferred.
 ## Layout
 
 ```
-tools/      Python tools for reading and writing game data
+tools/      Python tools for reading and writing game data (start with hp2_extract.py)
 launcher/   SDL2 settings and input prototype for a port (C99, 988 tests)
 ghidra/     Function map and an import script for Ghidra
 docs/       Format documentation
@@ -32,26 +32,29 @@ docs/       Format documentation
 
 ## Getting started
 
-You need a disc image of your own copy. Extract it with any ISO tool, then:
+You need a disc image of your own copy. Unpack it with any ISO tool (`7z x
+game.iso`) — you should end up with a `NFSHP2/` folder containing `ZDIR.BIN`
+and `ZZDATA.BIN`. Then, from your working folder:
 
 ```sh
-# 1. unpack the archive into individual files
-python tools/hp2_index.py path/to/extracted/NFSHP2
+# 1. split the archive into individual files  (~3 GB of free space)
+python tools/hp2_extract.py NFSHP2 -o extracted
 
 # 2. decompress everything that is compressed
-python tools/hp2_comp.py extracted/
+python tools/hp2_comp.py extracted
 
 # 3. textures to PNG
 pip install pillow numpy
-python tools/hp2_tpk.py extracted/
+python tools/hp2_tpk.py extracted
 
-# 4. find and extract audio
-python tools/hp2_scan.py extracted/
-python tools/hp2_audio.py extracted/<sound bank> --list
+# 4. find the audio, then extract a bank
+python tools/hp2_scan.py extracted
+python tools/hp2_audio.py extracted/359_e2f0cc8a.bin --list
 ```
 
-Each tool prints usage when run without arguments. The paths in their defaults
-assume a `hp2-decomp` working folder; pass your own as an argument.
+Every tool prints its usage when run with no arguments, and takes paths
+relative to wherever you run it. Add `--list` to `hp2_extract.py` to see the
+archive table without writing anything.
 
 ### Replacing music
 

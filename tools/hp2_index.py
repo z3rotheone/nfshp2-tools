@@ -33,7 +33,7 @@ def describe(path):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\Clear\Desktop\hp2-decomp\extracted"
+    root = sys.argv[1] if len(sys.argv) > 1 else "extracted"
     files = []
     for n in sorted(os.listdir(root)):
         fp = os.path.join(root, n)

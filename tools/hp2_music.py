@@ -229,7 +229,9 @@ def cmd_replace(bank, idx, wav, out, fast):
     out = out or (os.path.splitext(bank)[0] + "_modded.bin")
     open(out, "wb").write(bytes(d))
     print("  wrote %s (%s bytes, unchanged in size)" % (out, "{:,}".format(len(d))))
-    print("  check it:  python hp2_audio.py \"%s\" --match=%s" % (out, (e["name"][:12] or "track")))
+    # quote the fragment: track names contain spaces
+    frag = e["name"].split("-")[0] or "track"
+    print("  check it:  python hp2_audio.py \"%s\" --match=\"%s\"" % (out, frag))
 
 
 def cmd_install(bank, zzdata, zdir):
@@ -270,7 +272,6 @@ def main():
         i = a.index("-o")
         out = a[i + 1]
         del a[i:i + 2]
-    base = r"C:\Users\Clear\Desktop\hp2-decomp"
     if not a:
         print(__doc__)
         return
@@ -280,8 +281,8 @@ def main():
     elif cmd == "replace" and len(a) == 4:
         cmd_replace(a[1], int(a[2]), a[3], out, fast)
     elif cmd == "install" and len(a) >= 2:
-        zz = a[2] if len(a) > 2 else os.path.join(base, "iso", "NFSHP2", "ZZDATA.BIN")
-        zd = a[3] if len(a) > 3 else os.path.join(base, "iso", "NFSHP2", "ZDIR.BIN")
+        zz = a[2] if len(a) > 2 else os.path.join("NFSHP2", "ZZDATA.BIN")
+        zd = a[3] if len(a) > 3 else os.path.join("NFSHP2", "ZDIR.BIN")
         cmd_install(a[1], zz, zd)
     else:
         print(__doc__)

@@ -193,7 +193,6 @@ def main():
     listing = "--list" in argv
     match = next((a.split("=", 1)[1].lower() for a in argv if a.startswith("--match=")), None)
     outroot = next((a.split("=", 1)[1] for a in argv if a.startswith("--out=")), None)
-    base = r"C:\Users\Clear\Desktop\hp2-decomp"
 
     if not files:
         print(__doc__.split("Usage:")[1])
@@ -202,7 +201,7 @@ def main():
     for path in files:
         d, ents, how = load(path)
         stem = os.path.splitext(os.path.basename(path))[0]
-        outdir = outroot or os.path.join(base, "audio", stem)
+        outdir = outroot or os.path.join("audio", stem)
         print("\n=== %s: %d items (%s)" % (os.path.basename(path), len(ents), how))
         chosen = []
         for i, (name, off, ch) in enumerate(ents):

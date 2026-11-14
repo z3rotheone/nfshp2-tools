@@ -259,7 +259,7 @@ def export(path, outdir):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\Clear\Desktop\hp2-decomp\extracted"
+    root = sys.argv[1] if len(sys.argv) > 1 else "extracted"
     out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(root.rstrip("\\/")), "textures")
     seen = {}
     total_done = total_skip = 0

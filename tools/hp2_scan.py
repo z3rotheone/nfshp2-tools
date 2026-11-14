@@ -73,7 +73,7 @@ def count_riff(mm):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\Clear\Desktop\hp2-decomp\extracted"
+    root = sys.argv[1] if len(sys.argv) > 1 else "extracted"
     paths = []
     for base in (root, os.path.join(root, "decomp")):
         if os.path.isdir(base):
