@@ -442,6 +442,21 @@ part's dump; `hp2_geom.py --check` tests on every part that offset 31 matches
 the material in the batch's own VU header and that offset 0 is a valid
 texture index.
 
+#### Light textures are slots, filled at runtime
+
+The texture list names `<CAR>_HEADLIGHT_LEFT`, `_RIGHT`, `<CAR>_BRAKELIGHT_LEFT`
+and `_RIGHT`, but the shared car pack (`012_0287bf4f`) holds no such entries for
+most cars. It holds each light in three states: `<CAR>_HEADLIGHT`,
+`<CAR>_HEADLIGHT_ON` and `<CAR>_HEADLIGHT_DAMAGE0` (pack names are cut at 23
+characters, so this often shows as `_DAMA`). So the left and right slots are
+probably filled while the game runs, letting one side be lit or broken on its
+own. CROWNVIC, JAGUAR, VANQUISH and CHALLENGE do have `_LEFT`/`_RIGHT` brake
+light art. The attachment points of the same names (`HEADLIGHT_LEFT`,
+`WINDOW_FRONT`...) are probably where a hit breaks that piece. Inferred from
+names; the executable has not been checked.
+
+The six `WINDOW_*` textures and `CARBOTTOM` are not in the car pack either.
+
 The low-detail tyre lists one material and uses indices 0 and 1, so either the
 list is shared with its sibling or an out-of-range index has a default.
 

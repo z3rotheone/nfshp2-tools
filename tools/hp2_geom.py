@@ -52,6 +52,7 @@ Usage:
     python hp2_geom.py CAR.BIN --obj DIR    write one Wavefront OBJ per part
           [--textures PNGDIR]               ...with an .mtl giving each batch its
                                             own texture, from hp2_tpk.py's PNGs
+          [--lights off|on|damaged]         which state light textures show
     python hp2_geom.py extracted/* --survey one line per model file: do the
                                             decoded triangle counts match?
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
@@ -411,6 +412,33 @@ def texture_name(part, k, car):
 
 
 _PNG_INDEX = {}
+PACK_NAME_LEN = 23     # .tpk name fields hold 23 characters; longer names are cut
+
+
+def _key(name):
+    return name.upper()[:PACK_NAME_LEN] + ".PNG"
+
+
+def runtime_textures(name, car, state="off"):
+    """Texture names to try, in order, for a name the model asks for.
+
+    The model names slots, not always pack entries. The pack holds lights in
+    three states - <CAR>_HEADLIGHT, _HEADLIGHT_ON, _HEADLIGHT_DAMAGE0 - while
+    the model asks for <CAR>_HEADLIGHT_LEFT and _RIGHT, so each side can be
+    lit or broken on its own. A few cars (CROWNVIC, JAGUAR, VANQUISH,
+    CHALLENGE) do have _LEFT/_RIGHT brake light art, so the exact name is
+    tried first. The generic TIRE slot is the car's own <CAR>_TIRE.
+    This is inferred from the pack's names, not read from the executable."""
+    out = [name]
+    up = name.upper()
+    for side in ("_LEFT", "_RIGHT"):
+        if car and up.startswith(car.upper() + "_") and up.endswith(side):
+            base = name[:-len(side)]
+            out += {"on": [base + "_ON"], "damaged": [base + "_DAMAGE0"]}.get(state, [])
+            out.append(base)
+    if up == "TIRE" and car:
+        out.append(car + "_TIRE")
+    return out
 
 
 def find_png(root, name, car=None):
@@ -426,14 +454,14 @@ def find_png(root, name, car=None):
         for dirpath, _d, files in os.walk(root):
             for f in files:
                 if f.upper().endswith(".PNG"):
-                    idx.setdefault(f.upper(), []).append(os.path.join(dirpath, f))
+                    idx.setdefault(_key(f[:-4]), []).append(os.path.join(dirpath, f))
         _PNG_INDEX[root] = idx
     idx = _PNG_INDEX[root]
-    hits = idx.get(name.upper() + ".PNG", [])
+    hits = idx.get(_key(name), [])
     if not hits:
         return None
     if car:
-        for skin in idx.get((car + "_SKIN1.PNG").upper(), []):
+        for skin in idx.get(_key(car + "_SKIN1"), []):
             home = os.path.dirname(skin)
             for h in hits:
                 if os.path.dirname(h) == home:
@@ -800,6 +828,13 @@ def main():
         i = argv.index("-o")
         out_csv = argv[i + 1]
         del argv[i:i + 2]
+    state = "off"
+    if "--lights" in argv:
+        i = argv.index("--lights")
+        state = argv[i + 1]
+        if state not in ("off", "on", "damaged"):
+            raise SystemExit("--lights takes off, on or damaged")
+        del argv[i:i + 2]
     texdir = None
     if "--textures" in argv:
         i = argv.index("--textures")
@@ -944,7 +979,11 @@ def main():
                         key, tex = draw_key(p, x, car)
                         if key in entries:
                             continue
-                        png = find_png(texdir, tex, car) if texdir else None
+                        png = None
+                        for cand in (runtime_textures(tex, car, state) if texdir else []):
+                            png = find_png(texdir, cand, car)
+                            if png:
+                                break
                         if texdir and not png:
                             missing.add(tex)
                         entries[key] = os.path.relpath(png, objdir) if png else None
