@@ -17,7 +17,7 @@ sound banks, a container being an id with the top bit set):
 Parts are named <CAR>_A, _B, _C and <CAR>_TIRE_FRONT_A. The letter is a
 variant suffix; the part header's hash covers the full name including it, so
 `4DR_SEDAN02_TIRE_FRONT_` in the name field actually hashes as
-`4DR_SEDAN02_TIRE_FRONT_A`. Hashes are the §9 name hash (see hp2_hash.py).
+`4DR_SEDAN02_TIRE_FRONT_A`. Hashes are the §9 name hash (see hp2_hash.py, and docs/formats.md section 10).
 
 The file header's 6 records are wheel and attachment points: each holds a
 position, the hash of the part to attach, and the hash of the car's own base

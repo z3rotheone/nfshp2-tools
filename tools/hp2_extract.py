@@ -17,7 +17,7 @@ entry again when installing a modified bank.
 Alongside them it writes names.txt, mapping each entry to the real path the
 game knows it by, where that is known. Those came from hashing candidate
 strings out of the executable against the ids (see tools/archive_names.csv and
-docs/formats.md section 9); about two thirds of the archive is covered.
+docs/formats.md section 10); about two thirds of the archive is covered.
 
 Entries with size 0 are placeholders and are skipped.
 

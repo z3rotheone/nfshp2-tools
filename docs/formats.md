@@ -37,7 +37,7 @@ also why the archive holds many byte-identical duplicates: a copy of a texture
 pack sits next to each track that needs it, avoiding a seek. Any mod that
 changes a shared asset has to change every copy.
 
-The id is the §9 hash of the path the game asks for, such as
+The id is the §10 hash of the path the game asks for, such as
 `GLOBAL\\DRIVTEX.BIN` or `CARS\\CORVETTE\\GEOMETRY.BIN`. Note that these runtime
 paths are *not* the development paths stored inside the assets themselves — a
 pack whose header reads `Global\\DriverTextures.tpk` is fetched as
@@ -293,7 +293,7 @@ Read with `tools/hp2_audio.py`, write with `tools/hp2_music.py`.
 
 ---
 
-## 10. Car models: `GEOMETRY.BIN`
+## 7. Car models: `GEOMETRY.BIN`
 
 *Verified against data for `CARS\\4DR_SEDAN02\\GEOMETRY.BIN`; the vertex layout
 is confirmed by the result measuring 4.68 m x 2.16 m x 1.15 m, symmetric about
@@ -324,7 +324,7 @@ not always by the stored name — a part whose name field reads
 `4DR_SEDAN02_TIRE_FRONT_` hashes as `4DR_SEDAN02_TIRE_FRONT_A`, and its
 sibling as `..._B`, giving consecutive hashes.
 
-Texture references are name hashes (§9) only, so recovering what a car is
+Texture references are name hashes (§10) only, so recovering what a car is
 painted with means hashing candidate names; `4DR_SEDAN02_SKIN1`, `INTERIOR`
 and `MIRROR` check out.
 
@@ -370,7 +370,7 @@ to measure it.
 
 ---
 
-## 7. Open questions
+## 8. Open questions
 
 Things not yet worked out, roughly in order of how tractable they look:
 
@@ -394,7 +394,7 @@ Things not yet worked out, roughly in order of how tractable they look:
 
 ---
 
-## 8. The executable
+## 9. The executable
 
 `SLUS_203.62` is a 2.3 MB ELF: 32-bit, little-endian, MIPS, entry point
 `0x100008`. `.text` is 1.7 MB at `0x100000`, roughly 431,000 instructions.
@@ -413,7 +413,7 @@ game code (`car.cpp`, `player.cpp`, `racecoordinator.cpp`, `trackroute.cpp`,
 and `src\b*.cpp` for a base library (`bFile.cpp`, `bMemory.cpp`, `bSound.cpp`,
 `bJukebox.cpp`, `bDriverPS2.cpp`). `bDriverPS2.cpp` is the platform layer a
 port would discard.
-## 9. The name hash
+## 10. The name hash
 
 *Confirmed twice: it reproduces the hash stored beside all 29 texture names
 checked, and the routine is in the executable.*
@@ -437,7 +437,7 @@ textures up by a composed name: at `0x198200` it builds a car's badge as
 `hash("CARLOGO_" + "CORVETTE")`.
 
 It is used for the `hash` field at offset 32 of every texture index record
-(§3), and for the ids in `ZDIR.BIN` (§1) — though see §7 for what remains
+(§3), and for the ids in `ZDIR.BIN` (§1) — though see §8 for what remains
 unknown about the latter.
 
 Because 33 is odd it is invertible modulo 2^32, so given a known suffix you
