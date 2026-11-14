@@ -250,7 +250,7 @@ Read with `tools/hp2_audio.py`.
 
 ## 6. Music banks
 
-*Verified against data; the stereo interleave was measured, not assumed.*
+*Verified against data; the stereo interleave was measured per bank, not assumed.*
 
 A different layout from the sound banks.
 
@@ -277,17 +277,43 @@ The trailing number appears to be a usage flag: instrumental versions end in 2,
 vocal versions in 4, and tracks with no album credit in 0 (*inferred* from the
 pattern across all 23 tracks).
 
-### Stereo interleave
+### Stereo interleave — differs between banks
 
-The two channels alternate **one 16-byte ADPCM block at a time**: L, R, L, R.
-Decode each channel with its own predictor history.
+The two channels alternate in fixed-size chunks: L, R, L, R. **The chunk size is
+a property of the bank, not of the format**, and the two banks on the disc do
+not agree:
 
-This was established by measurement rather than taken from the header. Decoded
-as a single channel the waveform breaks every 28 samples — the block boundary,
-where the data jumps between channels. Split into alternating blocks, both
-channels are continuous and correlate at 0.80, as real stereo music does.
+| Entry | Name | Interleave | Per-channel size |
+|---|---|---|---|
+| 321 | `SOUND\JUKEBOX.JBC` | 16 bytes (one ADPCM block) | not aligned |
+| 322 | `SOUND\JUKEBOXM.JBC` | 2048 bytes | a whole number of 2048-byte blocks |
 
-A track's playing time is therefore `data_size / 2 / 16 * 28 / 32000` seconds.
+Decode each channel with its own predictor history, reassembling it from its
+chunks first.
+
+This was measured, not taken from the header. A wrong chunk size splices the
+two channels into each other's predictor history at every boundary, so the
+waveform jumps there while staying smooth inside a chunk, and the two decoded
+"channels" stop correlating. Comparing the mean sample-to-sample step across
+boundaries with the mean overall separates the cases, and channel correlation
+separates them sharply: ~0.7–0.9 for the right chunk size against ~0 for the
+wrong one. `tools/hp2_audio.py --probe` prints that table.
+
+The 2048-byte alignment of every track in entry 322 corroborates it: all 23
+tracks have a per-channel size that is an exact multiple of 2048, which only a
+2048-byte chunk interleave requires. No track in entry 321 is so aligned.
+
+The `4096` at `+0x10` is **not** the interleave — it is 4096 in both banks,
+which differ. It may be the DMA buffer size for a stereo pair in entry 322
+(2 × 2048) and simply unused in entry 321.
+
+A track's playing time is `data_size / 2 / 16 * 28 / 32000` seconds either way,
+since the interleave does not change how much audio is present.
+
+Both banks hold the same 23 tracks under the same names in the same order, but
+independently encoded — every track in 322 is a few thousand bytes longer. The
+game loads 322; patching only 321 has no audible effect (*verified in an
+emulator*).
 
 Read with `tools/hp2_audio.py`, write with `tools/hp2_music.py`.
 

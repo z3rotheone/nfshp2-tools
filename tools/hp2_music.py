@@ -17,6 +17,8 @@ Because sizes never change, ZDIR.BIN is never touched and the archive stays vali
 STEPS
     1. python hp2_music.py list BANK
     2. python hp2_music.py replace BANK N SONG.wav -o NEWBANK
+       (the stereo interleave is measured from the track being replaced;
+        --interleave=N overrides it)
     3. python hp2_audio.py NEWBANK --match=...        (listen before installing)
     4. python hp2_music.py install NEWBANK            (writes into ZZDATA.BIN)
 
@@ -158,13 +160,23 @@ def encode_channel(x, fast=False):
     return bytes(out)
 
 
-def build_track(path, slot_bytes, fast=False):
-    """WAV -> (VAG header + interleaved stereo ADPCM) padded to exactly slot_bytes."""
+def build_track(path, slot_bytes, fast=False, chunk=16):
+    """WAV -> (VAG header + interleaved stereo ADPCM) padded to exactly slot_bytes.
+
+    `chunk` is how many bytes of one channel go down before the other channel's
+    turn. It is a property of the bank, not of the audio: this game ships two
+    music banks that differ in it, and writing the wrong one plays recognisable
+    but badly distorted audio, because every chunk boundary splices the two
+    channels into each other's predictor history.
+    """
     a, sr = load_wav(path)
     secs_in = len(a) / sr
     a = resample(a, sr)
     capacity = slot_bytes - 48
-    max_frames = capacity // 32 * 28          # one stereo block pair = 32 bytes = 28 frames
+    # each channel gets half the slot, rounded down to whole chunks so the two
+    # streams stay in step
+    per_channel = capacity // 2 // chunk * chunk
+    max_frames = per_channel // 16 * 28
     cut = False
     if len(a) > max_frames:
         a = a[:max_frames]
@@ -176,13 +188,15 @@ def build_track(path, slot_bytes, fast=False):
     print("  encoding %.1f s ... (%d Hz in, %d Hz out)" % (len(x) / RATE, sr, RATE), flush=True)
     left = encode_channel(x[:, 0], fast)
     right = encode_channel(x[:, 1], fast)
-    nb = min(len(left), len(right)) // 16
+    n = min(len(left), len(right)) // chunk * chunk or min(len(left), len(right)) // 16 * 16
     body = bytearray()
-    for b in range(nb):
-        body += left[b * 16:(b + 1) * 16]
-        body += right[b * 16:(b + 1) * 16]
-    if nb:
-        body[-15] = 1                          # end flag on the last block
+    for p in range(0, n, chunk):
+        body += left[p:p + chunk]
+        body += right[p:p + chunk]
+    if len(body) >= 2 * chunk:
+        # end flag on the final block of each channel, not just the last written
+        body[len(body) - chunk - 15] = 1       # left's last block
+        body[len(body) - 15] = 1               # right's last block
     dsz = len(body)
     vag = bytearray(48)
     vag[0:4] = b"VAGp"
@@ -208,7 +222,31 @@ def cmd_list(bank):
                  "{:,}".format(e["size"]), (e["size"] - 48) / BYTES_PER_SECOND))
 
 
-def cmd_replace(bank, idx, wav, out, fast):
+def detect_interleave(d, e):
+    """Measure the interleave of the track being replaced, so we write it back
+    the way the bank already stores it."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import hp2_audio
+    except ImportError:
+        print("  interleave: assuming 16 bytes (hp2_audio.py not beside me)")
+        return 16
+    rows = hp2_audio.probe_interleave(d[e["off"] + 48:e["off"] + 48 + e["dsz"]])
+    if not rows:
+        print("  interleave: assuming 16 bytes (track too short to measure)")
+        return 16
+    c, _jump, corr = max(rows, key=lambda r: r[2])
+    if corr < 0.2:
+        print("  interleave: assuming 16 bytes - could not measure this track")
+        return 16
+    print("  interleave: %d bytes per channel (measured, channels correlate %+.2f)"
+          % (c, corr))
+    return c
+
+
+def cmd_replace(bank, idx, wav, out, fast, chunk=None):
     d = bytearray(open(bank, "rb").read())
     ents = parse_music(bytes(d))
     if not (0 <= idx < len(ents)):
@@ -217,7 +255,11 @@ def cmd_replace(bank, idx, wav, out, fast):
     print("replacing track %d: %s" % (idx, e["name"]))
     print("  slot holds %.1f s (%s bytes)" % ((e["size"] - 48) / BYTES_PER_SECOND,
                                               "{:,}".format(e["size"])))
-    blob, secs_in, secs_used, cut = build_track(wav, e["size"], fast)
+    if chunk is None:
+        chunk = detect_interleave(bytes(d), e)
+    else:
+        print("  interleave: %d bytes per channel (given)" % chunk)
+    blob, secs_in, secs_used, cut = build_track(wav, e["size"], fast, chunk)
     assert len(blob) == e["size"]
     d[e["off"]:e["off"] + e["size"]] = blob
     if cut:
@@ -267,6 +309,11 @@ def main():
     a = sys.argv[1:]
     fast = "--fast" in a
     a = [x for x in a if x != "--fast"]
+    chunk = None
+    for x in list(a):
+        if x.startswith("--interleave="):
+            chunk = int(x.split("=", 1)[1])
+            a.remove(x)
     out = None
     if "-o" in a:
         i = a.index("-o")
@@ -279,7 +326,7 @@ def main():
     if cmd == "list" and len(a) == 2:
         cmd_list(a[1])
     elif cmd == "replace" and len(a) == 4:
-        cmd_replace(a[1], int(a[2]), a[3], out, fast)
+        cmd_replace(a[1], int(a[2]), a[3], out, fast, chunk)
     elif cmd == "install" and len(a) >= 2:
         zz = a[2] if len(a) > 2 else os.path.join("NFSHP2", "ZZDATA.BIN")
         zd = a[3] if len(a) > 3 else os.path.join("NFSHP2", "ZDIR.BIN")

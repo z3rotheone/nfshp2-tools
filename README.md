@@ -70,6 +70,8 @@ archive table without writing anything.
 ```sh
 python tools/hp2_music.py list <music bank>
 python tools/hp2_music.py replace <music bank> 15 mysong.wav -o modded.bin
+#   the stereo interleave is measured from the track being replaced - the two
+#   music banks on the disc differ in it, and the wrong one plays distorted
 python tools/hp2_audio.py modded.bin --match=rush      # listen before installing
 python tools/hp2_music.py install modded.bin
 ```

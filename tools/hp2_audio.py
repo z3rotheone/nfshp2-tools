@@ -34,6 +34,8 @@ so an unfamiliar bank still extracts.
 
 Usage:
     python hp2_audio.py FILE --list          list the contents, decode nothing
+    python hp2_audio.py FILE --probe         measure the stereo interleave
+    python hp2_audio.py FILE --interleave=2048   decode with that chunk size
     python hp2_audio.py FILE                 extract everything to WAV
     python hp2_audio.py FILE --match=rush    only names containing "rush"
     python hp2_audio.py FILE --out=D         write into D
@@ -87,16 +89,79 @@ def decode_channel(a, first, stride):
     return out
 
 
-def decode(adpcm, channels):
+def deinterleave(a, chunk):
+    """Split a stereo stream that alternates `chunk` bytes per channel."""
+    if chunk == 16:
+        return a, a                     # stride-16 is read in place, below
+    left, right = bytearray(), bytearray()
+    for p in range(0, len(a), chunk * 2):
+        left += a[p:p + chunk]
+        right += a[p + chunk:p + 2 * chunk]
+    return bytes(left), bytes(right)
+
+
+def decode(adpcm, channels, chunk=16):
     if channels == 1:
         return decode_channel(adpcm, 0, 16)
-    left = decode_channel(adpcm, 0, 32)
-    right = decode_channel(adpcm, 16, 32)
+    if chunk == 16:
+        left = decode_channel(adpcm, 0, 32)
+        right = decode_channel(adpcm, 16, 32)
+    else:
+        la, ra = deinterleave(adpcm, chunk)
+        left = decode_channel(la, 0, 16)
+        right = decode_channel(ra, 0, 16)
     n = min(len(left), len(right))
     both = array("h", bytes(4 * n))
     both[0::2] = left[:n]
     both[1::2] = right[:n]
     return both
+
+
+def probe_interleave(adpcm, candidates=(16, 128, 512, 1024, 2048, 4096), window=1 << 18):
+    """Which chunk size makes both channels continuous?
+
+    A wrong guess splices the two channels together, so the waveform jumps at
+    every chunk boundary while staying smooth inside one. Comparing the average
+    step across a boundary with the average step overall separates them: the
+    right chunk size scores about 1, a wrong one scores well above it.
+    """
+    # start a quarter in, so leading silence cannot flatten the statistics,
+    # aligned so that the left channel still comes first
+    big = max(candidates) * 2
+    start = min(len(adpcm) // 4 // big * big, max(0, len(adpcm) - window))
+    a = adpcm[start:start + window]
+    rows = []
+    for c in candidates:
+        if len(a) < c * 4:
+            continue
+        if c == 16:
+            L = decode_channel(a, 0, 32)
+            R = decode_channel(a, 16, 32)
+        else:
+            la, ra = deinterleave(a, c)
+            L, R = decode_channel(la, 0, 16), decode_channel(ra, 0, 16)
+        n = min(len(L), len(R))
+        if n < 4096:
+            continue
+        per = c // 16 * 28                      # samples one chunk decodes to
+        score = []
+        for ch in (L, R):
+            d = [abs(ch[i + 1] - ch[i]) for i in range(n - 1)]
+            allmean = sum(d) / len(d) or 1.0
+            edges = [d[k - 1] for k in range(per, n - 1, per)]
+            if not edges:
+                break
+            score.append((sum(edges) / len(edges)) / allmean)
+        if len(score) != 2:
+            continue
+        lm = sum(L[:n]) / n
+        rm = sum(R[:n]) / n
+        num = sum((L[i] - lm) * (R[i] - rm) for i in range(n))
+        dl = sum((L[i] - lm) ** 2 for i in range(n)) ** 0.5
+        dr = sum((R[i] - rm) ** 2 for i in range(n)) ** 0.5
+        corr = num / (dl * dr) if dl and dr else 0.0
+        rows.append((c, (score[0] + score[1]) / 2, corr))
+    return rows
 
 
 def read_vag_header(d, off):
@@ -193,6 +258,8 @@ def main():
     listing = "--list" in argv
     match = next((a.split("=", 1)[1].lower() for a in argv if a.startswith("--match=")), None)
     outroot = next((a.split("=", 1)[1] for a in argv if a.startswith("--out=")), None)
+    probe = "--probe" in argv
+    chunk = next((int(a.split("=", 1)[1]) for a in argv if a.startswith("--interleave=")), 16)
 
     if not files:
         print(__doc__.split("Usage:")[1])
@@ -221,10 +288,31 @@ def main():
                       (name[:62], rate, "stereo" if ch == 2 else "mono  ", int(secs // 60), secs % 60))
             print("  -- %d items, %.1f MB compressed (about %.0f MB as WAV)" % (len(chosen), mb, mb * 3.5))
             continue
+        if probe:
+            for i, name, off, dsz, rate, ch in chosen:
+                print("  [%d] %s" % (i, name[:70]))
+                if ch != 2:
+                    print("      mono - nothing to interleave")
+                    continue
+                rows = probe_interleave(d[off + 48: off + 48 + dsz])
+                if not rows:
+                    print("      too short to probe")
+                    continue
+                best = max(rows, key=lambda r: r[2])
+                print("      %-12s %-12s %s" % ("chunk", "jump ratio", "L/R correlation"))
+                for c, s, corr in rows:
+                    print("      %-12s %-12.2f %+.2f%s"
+                          % ("%d bytes" % c, s, corr, "   <-- continuous" if c == best[0] else ""))
+                if best[2] < 0.2:
+                    print("      inconclusive: no chunk size gives two correlated channels.")
+                    print("      This track may not be interleaved stereo at all.")
+                else:
+                    print("      interleave looks like %d bytes per channel" % best[0])
+            continue
         os.makedirs(outdir, exist_ok=True)
         print("  writing %d WAV files to %s (about %.0f MB)" % (len(chosen), outdir, mb * 3.5))
         for n, (i, name, off, dsz, rate, ch) in enumerate(chosen):
-            pcm = decode(d[off + 48: off + 48 + dsz], ch)
+            pcm = decode(d[off + 48: off + 48 + dsz], ch, chunk)
             fn = os.path.join(outdir, "%03d_%s.wav" % (i, safe(name)))
             with wave.open(fn, "wb") as w:
                 w.setnchannels(ch)
