@@ -146,9 +146,13 @@ python tools/hp2_match.py extracted ~/.config/PCSX2/textures/SLUS-20362 -o map.c
 `hp2_hash.py` recomputes PCSX2's own filenames: it lays each of the game's
 textures out the way the GS stores it and hashes it the way PCSX2 does. A hit
 is exact, and it does not matter how thoroughly the replacement was repainted.
-It needs `pip install xxhash`. It has been checked against the texture decoder
-and against PCSX2's source, but not yet against a real pack; if it names
-nothing, one of the assumptions listed at the top of the file is wrong.
+It needs `pip install xxhash`. Run against a real pack it named 1092 of 1316
+replacement files; every hit agreed with the size and format stated in its
+filename, the palette hash was reproduced independently for all but two, and
+all 30 dump files that could also be identified pixel-for-pixel got the same
+name both ways. Files it cannot name are listed in the CSV with a blank asset:
+textures whose size is not a power of two are seen by PCSX2 through a clamp
+region, which this does not model.
 
 `hp2_match.py` compares pictures instead. That is right for a dump folder and
 for a pack that is a plain upscale. It is wrong for a pack whose art was

@@ -24,9 +24,9 @@ How PCSX2 hashes (GSTextureCache.cpp, HashTextureLevel):
     are fed into the same hash one after another
 The palette hash is XXH3-64 over the palette as 16 or 256 RGBA words.
 
-Three hashes are tried for every texture - the top level alone, all levels
-together, and each smaller level as a texture in its own right - because which
-one PCSX2 saw depends on how the game drew it. A match is exact or absent;
+Every run of consecutive levels is tried for every texture - the top level
+alone, all levels together, any lower level on its own or with those beneath
+it - because which one PCSX2 saw depends on how the game drew it. A match is exact or absent;
 there is no "close".
 
 Usage:
@@ -224,11 +224,18 @@ def game_hashes(root):
                 continue
             ph = h64(pal) if pal else 0
             blobs = [gs_bytes(px, w, h, bpp) for w, h, px in lv]
-            keys = [(h64(blobs[0]), lv[0][0], lv[0][1], "top level")]
-            if len(blobs) > 1:
-                keys.append((h64(*blobs), lv[0][0], lv[0][1], "all levels"))
-                for k in range(1, len(blobs)):
-                    keys.append((h64(blobs[k]), lv[k][0], lv[k][1], "level %d" % k))
+            # every run of consecutive levels: PCSX2 hashes from whichever level
+            # the game addressed, through however many it was told exist
+            keys = []
+            for i in range(len(blobs)):
+                for j in range(i, len(blobs)):
+                    if i == j:
+                        how = "top level" if i == 0 else "level %d" % i
+                    elif i == 0 and j == len(blobs) - 1:
+                        how = "all levels"
+                    else:
+                        how = "levels %d-%d" % (i, j)
+                    keys.append((h64(*blobs[i:j + 1]), lv[i][0], lv[i][1], how))
             for key, w, h, how in keys:
                 table.setdefault(key, []).append((pack, r["name"], w, h, bpp, ph, how))
     return table, total, skipped
@@ -293,11 +300,18 @@ def main():
         hits = table.get(th)
         if not hits:
             miss.append((rel, fmt, tw, thh))
+            rows.append(dict(file=rel, asset="", also="", packs=0, width=tw, height=thh,
+                             bits=fmt or "", hashed="", size_agrees="", palette=""))
             continue
         # the filename also states the size and format; a hit that disagrees
         # with them would be a coincidence and is reported as such
         good = [x for x in hits if x[2] == tw and x[3] == thh and x[4] == fmt]
         use = good or hits
+        # several textures can share their pixels and differ only in palette;
+        # the palette hash in the filename says which one this file is
+        if ph is not None:
+            exact = [x for x in use if x[5] == ph]
+            use = exact or use
         names = []
         for x in use:
             if x[1] not in names:
@@ -313,13 +327,14 @@ def main():
                          size_agrees="yes" if good else "NO",
                          palette="same" if palmatch else "different"))
 
+    named = [r for r in rows if r["asset"]]
     print()
-    print("%d of %d files named exactly" % (len(rows), len(files) - odd))
+    print("%d of %d files named exactly" % (len(named), len(files) - odd))
     for how, n in sorted(hows.items(), key=lambda kv: -kv[1]):
         print("  %5d by hashing %s" % (n, how))
-    if rows:
+    if named:
         print("  palette hash also reproduced for %d, differs for %d" % (pal_ok, pal_bad))
-        bad = sum(1 for r in rows if r["size_agrees"] == "NO")
+        bad = sum(1 for r in named if r["size_agrees"] == "NO")
         if bad:
             print("  %d hits disagree with the size in their filename - treat as suspect" % bad)
     if odd:
@@ -332,12 +347,12 @@ def main():
             kinds[k] = kinds.get(k, 0) + 1
         for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])[:12]:
             print("  %5d  %s" % (n, k))
-    for r in rows[:20]:
+    for r in named[:20]:
         print("  %-44s -> %-24s %4dx%-4d %s" % (r["file"][-44:], r["asset"], r["width"],
                                                  r["height"], r["hashed"]))
-    if len(rows) > 20:
-        print("  ... and %d more" % (len(rows) - 20))
-    if not rows:
+    if len(named) > 20:
+        print("  ... and %d more" % (len(named) - 20))
+    if not named:
         print()
         print("No filename was reproduced, so one of the assumptions in this file's\n"
               "header is wrong for this game. The image-based hp2_match.py is unaffected.")
@@ -349,7 +364,7 @@ def main():
             w.writeheader()
             w.writerows(rows)
         print()
-        print("wrote %s" % out)
+        print("wrote %s - unnamed files are listed too, with the asset left blank" % out)
 
 
 if __name__ == "__main__":
