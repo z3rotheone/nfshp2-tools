@@ -20,7 +20,7 @@ Usage:
     python hp2_match.py extracted PCSX2_TEXTURE_DIR --missing
 
 `extracted` is the folder of archive entries from hp2_extract.py; every texture
-pack in it is read. PCSX2_TEXTURE_DIR is searched recursively for PNGs, so
+pack in it is read. PCSX2_TEXTURE_DIR is searched recursively for PNG and DDS files, so
 point it at the game's folder and both dumps and replacements are picked up.
 
 --missing also lists the game textures that no file in the pack matches, which
@@ -129,35 +129,42 @@ def load_assets(root):
     return assets, total
 
 
-IMAGES = (".png", ".jpg", ".jpeg", ".bmp", ".dds", ".tga", ".webp")
+IMAGES = (".png", ".dds", ".jpg", ".jpeg", ".bmp", ".tga", ".webp")
 
 
-def load_pngs(root):
+def find_images(root):
+    """Every image file under `root`, sorted, with a count per extension."""
     if not os.path.isdir(root):
         raise SystemExit("%s is not a folder. PCSX2 shows the right path under\n"
                          "Settings -> Graphics -> Texture Replacements; a Flatpak install\n"
                          "keeps it under ~/.var/app/net.pcsx2.PCSX2/config/PCSX2/textures."
                          % root)
-    out, other = [], {}
+    paths, kinds = [], {}
     for dirpath, _dirs, files in os.walk(root):
-        for f in sorted(files):
+        for f in files:
             ext = os.path.splitext(f)[1].lower()
-            if ext != ".png":
-                if ext in IMAGES:
-                    other[ext] = other.get(ext, 0) + 1
-                continue
-            p = os.path.join(dirpath, f)
-            try:
-                im = Image.open(p).convert("RGB")
-            except Exception:
-                continue
-            out.append((p, np.array(im, dtype=np.uint8)))
-    if not out and other:
-        print("  no PNGs, but this folder holds %s"
-              % ", ".join("%d %s" % (n, e) for e, n in sorted(other.items())))
-        print("  convert them first, e.g.  mogrify -format png *%s"
-              % sorted(other, key=lambda e: -other[e])[0])
-    return out
+            if ext in IMAGES:
+                paths.append(os.path.join(dirpath, f))
+                kinds[ext] = kinds.get(ext, 0) + 1
+    paths.sort()
+    return paths, kinds
+
+
+def read_images(paths, failed):
+    """Decode one file at a time. An enhanced pack can run to gigabytes once
+    decoded, so nothing is kept after it has been matched."""
+    for p in paths:
+        try:
+            with Image.open(p) as im:
+                rgb = np.array(im.convert("RGB"), dtype=np.uint8)
+        except Exception as e:
+            ext = os.path.splitext(p)[1].lower()
+            failed.setdefault(ext, [0, str(e)])[0] += 1
+            continue
+        yield p, rgb
+
+
+ROOT = ["."]
 
 
 def relation(w, h, aw, ah):
@@ -184,11 +191,13 @@ def compare(rgb, a):
     return fitted_error(x, ref), float(np.abs(x - ref).mean())
 
 
-def match(assets, pngs):
+def match(assets, images, progress=None):
     F = np.array([a["fp"] for a in assets])
     rows, unmatched = [], []
     seen = set()
-    for path, rgb in pngs:
+    for n, (path, rgb) in enumerate(images, 1):
+        if progress and n % 50 == 0:
+            progress(n)
         fp = fingerprint(rgb)
         d = np.abs(F - fp).mean(1)
         order = np.argsort(d)[:8]
@@ -223,7 +232,7 @@ def match(assets, pngs):
         # score zero tie without it being noticed
         if flat or runner < err * AMBIGUOUS + 0.5:
             kind = "ambiguous"
-        rows.append(dict(file=os.path.basename(path), asset=a["name"],
+        rows.append(dict(file=os.path.relpath(path, ROOT[0]), asset=a["name"],
                          also=" ".join(a["names"][1:]), packs=len(a["packs"]),
                          width=a["w"], height=a["h"], file_width=w, file_height=h,
                          relation=rel, error="%.2f" % err, raw_error="%.2f" % raw,
@@ -252,14 +261,27 @@ def main():
     assets, total = load_assets(root)
     print("  %d textures in %d packs, %d different pictures"
           % (total, len({p for x in assets for p in x["packs"]}), len(assets)))
-    print("reading PNGs from %s ..." % texdir, flush=True)
-    pngs = load_pngs(texdir)
-    print("  %d PNG files" % len(pngs))
-    if not assets or not pngs:
+    paths, kinds = find_images(texdir)
+    print("%d image files in %s (%s)"
+          % (len(paths), texdir,
+             ", ".join("%d %s" % (n, e) for e, n in sorted(kinds.items())) or "none"))
+    if not assets or not paths:
         print("nothing to match")
         return
-
-    rows, unmatched, seen = match(assets, pngs)
+    ROOT[0] = texdir
+    tty = sys.stdout.isatty()
+    failed = {}
+    rows, unmatched, seen = match(
+        assets, read_images(paths, failed),
+        (lambda n: print("\r  matched %d of %d" % (n, len(paths)), end="", flush=True))
+        if tty else None)
+    if tty:
+        print("\r" + " " * 40 + "\r", end="")
+    for ext, (n, why) in sorted(failed.items()):
+        print("could not read %d %s files: %s" % (n, ext, why))
+        if ext == ".dds":
+            print("  pip install --upgrade pillow  (BC7 needs a recent Pillow), or convert"
+                  " with  mogrify -format png *.dds")
     names = {}
     for r in rows:
         names.setdefault(r["file"], []).append(r["asset"])
@@ -271,7 +293,7 @@ def main():
     print()
     print("%d matched: %d exact, %d close, %d likely, %d ambiguous"
           % (len(rows), exact, close, regr, amb))
-    print("%d PNGs matched nothing in the game's own textures" % len(unmatched))
+    print("%d files matched nothing in the game's own textures" % len(unmatched))
 
     up = sum(1 for r in rows if r["relation"].startswith("upscaled"))
     same = sum(1 for r in rows if r["relation"] == "same size")
@@ -288,7 +310,7 @@ def main():
 
     for r in rows[:25]:
         print("  %-40s -> %-24s %4dx%-4d %-12s err %-6s %s"
-              % (r["file"][:40], r["asset"], r["width"], r["height"],
+              % (r["file"][-40:], r["asset"], r["width"], r["height"],
                  r["relation"], r["error"], r["confidence"]))
     if len(rows) > 25:
         print("  ... and %d more" % (len(rows) - 25))
@@ -297,7 +319,7 @@ def main():
         print()
         print("not matched - nearest candidate and its error, for you to judge:")
         for path, nm, e in unmatched[:15]:
-            print("  %-40s %s" % (os.path.basename(path)[:40],
+            print("  %-40s %s" % (os.path.relpath(path, texdir)[-40:],
                                   "nearest %s at %.1f" % (nm, e) if nm else "no candidate"))
         if len(unmatched) > 15:
             print("  ... and %d more" % (len(unmatched) - 15))
@@ -307,14 +329,14 @@ def main():
         print("ambiguous ones, where a second texture fits nearly as well:")
         for r in rows:
             if r["confidence"] == "ambiguous":
-                print("  %-40s %s or %s" % (r["file"][:40], r["asset"], r["runner_up"]))
+                print("  %-40s %s or %s" % (r["file"][-40:], r["asset"], r["runner_up"]))
 
     dup = {k: v for k, v in names.items() if len(v) > 1}
     if dup:
         print()
         print("one file matching several textures (PCSX2 needs unique filenames):")
         for k, v in list(dup.items())[:10]:
-            print("  %-40s %s" % (k[:40], ", ".join(v)))
+            print("  %-40s %s" % (k[-40:], ", ".join(v)))
 
     if show_missing:
         miss = [u for x in assets for u in x["uses"] if u not in seen]
