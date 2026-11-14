@@ -48,6 +48,7 @@ Usage:
     python hp2_geom.py CAR.BIN --vif        walk the VIF display lists
     python hp2_geom.py CAR.BIN --dump-verts write part_N.xyz point clouds
     python hp2_geom.py CAR.BIN --check      verify triangle counts against the file
+    python hp2_geom.py CAR.BIN --records    print every batch record raw, as hex
     python hp2_geom.py CAR.BIN --obj DIR    write one Wavefront OBJ per part
           [--textures PNGDIR]               ...with an .mtl pointing at the car's
                                             skin, from hp2_tpk.py's PNG output
@@ -435,6 +436,25 @@ KNOWN = {0x2787edab: "INTERIOR", 0x6bfa56da: "MIRROR", 0xd6d6080a: "CARSKIN",
          0xacec665c: "FLARE_HEADLIGHT_LEFT", 0x4ae7f96f: "FLARE_HEADLIGHT_RIGHT",
          0x7efcf06f: "FLARE_BRAKELIGHT_LEFT", 0x5f09c5e2: "FLARE_BRAKELIGHT_RIGHT"}
 
+# Names found from the 911's attachment points and texture lists. Each is a
+# plain one-word-plus-side name, and each sits where its name says (the
+# windows at roof height, CORNER_* at the bumper corners, EXHAUST twice at the
+# back), which is the check that they are not chance collisions. They also fix
+# the axes: +x is the front and +y is the car's left.
+for _n in ("WINDOW_FRONT", "WINDOW_REAR", "WINDOW_LEFT_FRONT", "WINDOW_RIGHT_FRONT",
+           "WINDOW_LEFT_REAR", "WINDOW_RIGHT_REAR",
+           "HEADLIGHT_LEFT", "HEADLIGHT_RIGHT", "BRAKELIGHT_LEFT", "BRAKELIGHT_RIGHT",
+           "FLARE_REVERSELIGHT_LEFT", "FLARE_REVERSELIGHT_RIGHT", "FLARE_BRAKELIGHT_MIDDLE",
+           "CORNER_LEFT_FRONT", "CORNER_RIGHT_FRONT", "CORNER_LEFT_REAR", "CORNER_RIGHT_REAR",
+           "SIDE_MIRROR_LEFT", "SIDE_MIRROR_RIGHT", "LICENSE_PLATE_FRONT", "LICENSE_PLATE_REAR",
+           "EXHAUST", "ENGINE", "TIRE", "BRAKES", "PLASTIC", "WHEEL_BLUR"):
+    KNOWN[name_hash(_n)] = _n
+
+# Per-car texture names: <CAR> + one of these.
+CAR_SUFFIXES = ("_SKIN1", "_SKIN2", "_SKIN3", "_SKIN4", "_SKIN5", "_SKIN6", "_SKIN7",
+                "_TIRE", "_GLASS", "_LICENSE_PLATE",
+                "_HEADLIGHT_LEFT", "_HEADLIGHT_RIGHT", "_BRAKELIGHT_LEFT", "_BRAKELIGHT_RIGHT")
+
 
 def learn_names(path):
     """Add every texture name in a .tpk pack - or in every pack in a folder -
@@ -772,12 +792,30 @@ def main():
                 for k, h in enumerate(lst):
                     known = KNOWN.get(h)
                     guess = ""
-                    for suf in ("_SKIN1", "_SKIN2", "_SKIN3", "_TIRE", "_GLASS"):
+                    for suf in CAR_SUFFIXES:
                         if name_hash(car + suf) == h:
                             guess = car + suf
                     idx = "%d " % k if label == "material" else ""
                     print("        %s %s%08x%s" % (label, idx, h, "  = " + (known or guess)
                                                    if (known or guess) else ""))
+
+        if "--records" in argv:
+            # Raw batch records, to find which field picks the texture. Bytes
+            # 16-27 and 32-43 are the bounding box and 28-30 are material,
+            # vertices, triangles; everything else is printed as hex.
+            for p in m["parts"]:
+                if not p["submesh"]:
+                    continue
+                o, sz = p["submesh"]
+                body = d[o:o + sz]
+                lead = len(body) % 64
+                print("\n  records for %s (%d textures, %d materials):"
+                      % (p["name"], len(p["tex"]), len(p["tex2"])))
+                print("      #   mat  v   t  | bytes 0-15                       | 31 | bytes 44-63")
+                for i in range(len(body) // 64):
+                    r = body[lead + i * 64: lead + (i + 1) * 64]
+                    print("    %3d  %2d %3d %3d  | %s | %02x | %s"
+                          % (i, r[28], r[29], r[30], r[0:16].hex(" "), r[31], r[44:64].hex(" ")))
 
         if show_vif:
             for p in m["parts"]:
