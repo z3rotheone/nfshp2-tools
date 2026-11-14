@@ -50,8 +50,8 @@ Usage:
     python hp2_geom.py CAR.BIN --check      verify triangle counts against the file
     python hp2_geom.py CAR.BIN --records    print every batch record raw, as hex
     python hp2_geom.py CAR.BIN --obj DIR    write one Wavefront OBJ per part
-          [--textures PNGDIR]               ...with an .mtl pointing at the car's
-                                            skin, from hp2_tpk.py's PNG output
+          [--textures PNGDIR]               ...with an .mtl giving each batch its
+                                            own texture, from hp2_tpk.py's PNGs
     python hp2_geom.py extracted/* --survey one line per model file: do the
                                             decoded triangle counts match?
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
@@ -312,7 +312,22 @@ def decode_batch(b):
 
 
 def batch_records(d, part):
-    """The 64-byte record chunk 0x00034004 keeps for each batch."""
+    """The 64-byte record chunk 0x00034004 keeps for each batch.
+
+        0   u32   texture: index into the part's texture list (0x00034006)
+        8   u32   offset of the batch's VIF packet in the geometry chunk
+        12  u8    size of that packet in quadwords (offset steps by 16x this)
+        15  u8    flags (0x40, 0x41, 0x50 seen)
+        16  3f    bounding box min
+        28  u8    running draw-group number (rises through the list; not the
+                  material, it exceeds the material count)
+        29  u8    vertices
+        30  u8    triangles
+        31  u8    material: index into the part's material list (0x0003401d)
+        32  3f    bounding box max
+
+    Records are sorted by texture then material, as a renderer would want
+    to minimise state changes."""
     if not part["submesh"]:
         return []
     o, sz = part["submesh"]
@@ -321,7 +336,8 @@ def batch_records(d, part):
     out = []
     for i in range(len(body) // 64):
         r = body[lead + i * 64: lead + (i + 1) * 64]
-        out.append(dict(material=r[28], verts=r[29], tris=r[30],
+        out.append(dict(texture=struct.unpack_from("<I", r, 0)[0], material=r[31],
+                        group=r[28], verts=r[29], tris=r[30],
                         bbox=(struct.unpack_from("<3f", r, 16), struct.unpack_from("<3f", r, 32))))
     return out
 
@@ -353,8 +369,12 @@ def part_mesh(d, part, failures=None):
             if failures is not None:
                 failures.append((i, str(e), describe(b), b[0][0][2][:4].hex()))
             continue
-        if i < len(recs) and (recs[i]["verts"] != m["n"] or recs[i]["tris"] != len(m["tris"])):
-            wrong += 1
+        if i < len(recs):
+            r = recs[i]
+            if r["verts"] != m["n"] or r["tris"] != len(m["tris"]):
+                wrong += 1
+            m["texture"] = r["texture"]
+            m["rec_material"] = r["material"]
         out.append(m)
     return out, wrong, len(recs)
 
@@ -365,6 +385,20 @@ def material_name(part, k):
     if k < len(lst):
         return KNOWN.get(lst[k]) or "%08x" % lst[k]
     return "material_%d" % k
+
+
+def texture_name(part, k, car):
+    """Name for texture index k: an entry of the part's 0x00034006 list."""
+    lst = part.get("tex") or []
+    if k is None or k >= len(lst):
+        return None
+    h = lst[k]
+    if h in KNOWN:
+        return KNOWN[h]
+    for suf in CAR_SUFFIXES:
+        if name_hash(car + suf) == h:
+            return car + suf
+    return "%08x" % h
 
 
 def find_png(root, name):
@@ -379,23 +413,25 @@ def find_png(root, name):
     return None
 
 
-def write_mtl(path, names, skin):
-    """One material per name, all drawing with the car's skin atlas.
-
-    That every material samples <CAR>_SKIN1 is a working assumption: the
-    body, tyre and trim materials' texture coordinates all fall inside it,
-    and materials such as MIRROR and INTERIOR use a single coordinate - a
-    flat colour picked from the atlas. Which texture the others (glass,
-    lights) really use is not known."""
+def write_mtl(path, entries):
+    """One OBJ material per (material, texture) pair the part draws with.
+    `entries` is a list of (name, relative PNG path or None)."""
     with open(path, "w") as f:
-        f.write("# every material assumed to draw with the car's skin atlas\n")
-        for nm in names:
+        f.write("# texture per batch from byte 0 of its 0x00034004 record\n")
+        for nm, png in entries:
             f.write("\nnewmtl %s\nKd 1 1 1\n" % nm)
-            if skin:
-                f.write("map_Kd %s\n" % skin)
+            if png:
+                f.write("map_Kd %s\n" % png)
 
 
-def write_obj(path, name, mesh, part=None, mtl=None):
+def draw_key(part, m, car):
+    """OBJ material name for a batch: <material>__<texture>."""
+    tex = texture_name(part, m.get("texture"), car) or "notexture"
+    mat = material_name(part, m["material"]) if part else "material_%d" % m["material"]
+    return "%s__%s" % (mat, tex), tex
+
+
+def write_obj(path, name, mesh, part=None, mtl=None, car=""):
     """Wavefront OBJ: positions with vertex colours, texture coordinates, normals,
     one group per material. X is forward, Y is left-right and Z is up, as stored."""
     with open(path, "w") as f:
@@ -405,10 +441,10 @@ def write_obj(path, name, mesh, part=None, mtl=None):
         f.write("o %s\n" % name)
         vbase = nbase = 1
         cur = None
-        for m in sorted(mesh, key=lambda m: m["material"]):
-            if m["material"] != cur:
-                cur = m["material"]
-                nm = material_name(part, cur) if part else "material_%d" % cur
+        for m in sorted(mesh, key=lambda m: draw_key(part, m, car)[0]):
+            nm = draw_key(part, m, car)[0]
+            if nm != cur:
+                cur = nm
                 f.write("g %s\nusemtl %s\n" % (nm, nm))
             for i, p in enumerate(m["pos"]):
                 c = m["col"][i] if i < len(m["col"]) else (1.0, 1.0, 1.0)
@@ -811,7 +847,7 @@ def main():
                 lead = len(body) % 64
                 print("\n  records for %s (%d textures, %d materials):"
                       % (p["name"], len(p["tex"]), len(p["tex2"])))
-                print("      #   mat  v   t  | bytes 0-15                       | 31 | bytes 44-63")
+                print("      #   grp  v   t  | bytes 0-15 (0 = texture)         |mat | bytes 44-63")
                 for i in range(len(body) // 64):
                     r = body[lead + i * 64: lead + (i + 1) * 64]
                     print("    %3d  %2d %3d %3d  | %s | %02x | %s"
@@ -853,6 +889,14 @@ def main():
                     verdict = "%d of %d batches DISAGREE with the file's own counts" % (wrong, nrec)
                 else:
                     verdict = "all %d batches agree with the file's own counts" % nrec
+                # does byte 31 of each record name the same material as the
+                # batch's own VU header? and is byte 0 a valid texture index?
+                both = [x for x in mesh if "rec_material" in x]
+                matdiff = sum(1 for x in both if x["rec_material"] != x["material"])
+                texbad = sum(1 for x in both if x["texture"] >= len(p["tex"]))
+                verdict += "; record material %s, texture index %s" % (
+                    "agrees" if not matdiff else "DIFFERS in %d" % matdiff,
+                    "in range" if not texbad else "OUT OF RANGE in %d" % texbad)
                 if p.get("counts") and p["counts"] != (len(mesh), tris, verts):
                     verdict += "; part header says %d batches, %d triangles, %d vertices" % p["counts"]
                 print("    %-28s %5d vertices %5d triangles  %s"
@@ -863,14 +907,20 @@ def main():
                     if used[nm] > 1:
                         nm += "%d" % used[nm]
                     out = os.path.join(objdir, nm + ".obj")
-                    mats = sorted({x["material"] for x in mesh})
-                    mnames = [material_name(p, k) for k in mats]
-                    skin = find_png(texdir, car + "_SKIN1") if texdir else None
-                    rel = os.path.relpath(skin, objdir) if skin else None
-                    write_mtl(os.path.join(objdir, nm + ".mtl"), mnames, rel)
-                    write_obj(out, nm, mesh, p, nm + ".mtl")
-                    print("        -> %s%s" % (out, "  (textured with %s)" % os.path.basename(skin)
-                                                if skin else ""))
+                    entries, missing = {}, set()
+                    for x in mesh:
+                        key, tex = draw_key(p, x, car)
+                        if key in entries:
+                            continue
+                        png = find_png(texdir, tex) if texdir else None
+                        if texdir and not png:
+                            missing.add(tex)
+                        entries[key] = os.path.relpath(png, objdir) if png else None
+                    write_mtl(os.path.join(objdir, nm + ".mtl"), sorted(entries.items()))
+                    write_obj(out, nm, mesh, p, nm + ".mtl", car)
+                    print("        -> %s  (%d material/texture pairs)" % (out, len(entries)))
+                    if missing:
+                        print("           no PNG found for: %s" % ", ".join(sorted(missing)))
 
         if dump:
             stem = os.path.splitext(os.path.basename(path))[0]

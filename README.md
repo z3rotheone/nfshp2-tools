@@ -179,10 +179,11 @@ forward, Z up), and faces are grouped by material (`CARSKIN`, `MIRROR`,
 draws with is not yet known, so the OBJ has no `.mtl`.
 
 Add `--textures PNGDIR`, pointing at the folder `hp2_tpk.py` exported PNGs
-into, and each OBJ gets an `.mtl` using the car's `<CAR>_SKIN1` texture. That
-every material draws with the skin is an assumption, not yet confirmed: the
-body, tyre and trim texture coordinates all fall inside it, and mirror and
-interior materials use a single coordinate, a flat colour picked from it.
+into, and each OBJ gets an `.mtl`. Faces are grouped by material *and*
+texture (`CARSKIN__911TURBO_SKIN1`, `010cb64a__WINDOW_FRONT`...), each
+texture taken from byte 0 of the batch's record in chunk `0x00034004`, which
+indexes the part's texture list. The skin is not the only texture: lights and
+windows have their own. `--check` confirms the reading on every part.
 
 Every model file records how many triangles each batch should produce.
 `--survey` decodes every model it is given and reports whether it got that

@@ -417,6 +417,31 @@ of zero, and either list may be preceded by eight bytes of `0x11` filler:
   material, `0x010cb64a`, is the one whose batches carry no normals, in every
   part that uses it.
 
+### The batch records (`0x00034004`)
+
+One 64-byte record per batch, in draw order:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u32 | **texture**: index into the part's `0x00034006` list |
+| 8 | u32 | offset of the batch's VIF packet in the geometry chunk |
+| 12 | u8 | packet size in quadwords (the offset steps by 16 times this) |
+| 15 | u8 | flags: `0x40`, `0x41`, `0x50` seen, meaning unknown |
+| 16 | 3×f32 | bounding box min |
+| 28 | u8 | running draw-group number; rises through the list, exceeds the material count, so not the material |
+| 29 | u8 | vertices |
+| 30 | u8 | triangles |
+| 31 | u8 | **material**: index into `0x0003401d` |
+| 32 | 3×f32 | bounding box max |
+| 44–63 | | unknown; 44–45 repeat 14–15, the last four bytes are zero |
+
+Records are sorted by texture, then material. In the 911's body the first
+batches use the per-car brake light and headlight textures, then
+`911TURBO_SKIN1` for interior and body. Offsets 0 and 31 were read from one
+part's dump; `hp2_geom.py --check` tests on every part that offset 31 matches
+the material in the batch's own VU header and that offset 0 is a valid
+texture index.
+
 The low-detail tyre lists one material and uses indices 0 and 1, so either the
 list is shared with its sibling or an out-of-range index has a default.
 
