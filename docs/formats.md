@@ -25,7 +25,7 @@ archive.*
 
 | Offset | Type | Meaning |
 |---|---|---|
-| 0 | u32 | id — a hash of the original path (see §7) |
+| 0 | u32 | id — the name hash (§9) of the file's original path |
 | 4 | u32 | offset, **in 2048-byte sectors** |
 | 8 | u32 | size, **in bytes** |
 
@@ -37,7 +37,19 @@ also why the archive holds many byte-identical duplicates: a copy of a texture
 pack sits next to each track that needs it, avoiding a seek. Any mod that
 changes a shared asset has to change every copy.
 
-Read with `tools/hp2_index.py`.
+The id is the §9 hash of the path the game asks for, such as
+`GLOBAL\\DRIVTEX.BIN` or `CARS\\CORVETTE\\GEOMETRY.BIN`. Note that these runtime
+paths are *not* the development paths stored inside the assets themselves — a
+pack whose header reads `Global\\DriverTextures.tpk` is fetched as
+`GLOBAL\\DRIVTEX.BIN`, which is why hashing the embedded path never matches.
+
+Hashing candidate strings out of the executable against the 372 ids recovers
+the real path for about two thirds of them; `tools/archive_names.csv` holds the
+result, and `hp2_extract.py` writes it beside the files it extracts. A
+compressed asset lives under the same path with the extension `.LZC` in place
+of `.BIN`, which is how the archive carries both forms of the same file.
+
+Read with `tools/hp2_extract.py`, then `tools/hp2_index.py`.
 
 ---
 
@@ -285,15 +297,13 @@ Read with `tools/hp2_audio.py`, write with `tools/hp2_music.py`.
 
 Things not yet worked out, roughly in order of how tractable they look:
 
-- **What string the `ZDIR.BIN` ids hash.** The *function* is solved (§9) and
-  the ids are produced by it, but the exact string it is given is not known.
-  A pack's own stored path (`TRACK11\\TrackTextures.tpk`) does not reproduce
-  its archive id under any prefix, suffix, case or separator tried, nor with
-  the 16-byte group field prepended or the 64-byte field's NUL padding
-  included. Since the hash is invertible you can work backwards: for pack
-  `241` the prefix would have to leave the hash standing at `0xf27afbe9`
-  before the stored path begins (`tools/hp2_hash.py --solve`). Finding the
-  caller that hashes a path before a `ZDIR` lookup would settle it.
+- **The remaining 120 archive filenames.** 252 of 372 are recovered (§1).
+  The rest are mostly unnamed blobs whose paths are not literal strings in the
+  executable — notably entries 23–58, a run of 36 files of 60–240 KB, which is
+  suggestively 6 locations x 6 sub-tracks but matches no `TRACKS\\...` pattern
+  tried. They are probably composed at runtime from a table not yet found.
+  `tools/hp2_hash.py --solve` narrows a guess: it gives the exact hash state
+  any proposed prefix would have to produce.
 - **Car models** — 88 `GEOMETRY.BIN` and 6 `DASHGEOM.BIN` files, untouched.
 - **Track scenery** — the `eLabScenery0.bin` files, 7–11 MB each.
 - **Menu text** — the `FE_ENGLISH.bin` family. Strings are readable; the

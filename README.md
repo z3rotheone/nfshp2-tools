@@ -17,6 +17,7 @@ executable. Nothing here contains any game data — you supply your own disc.
 | **Music** | 23 stereo tracks to WAV, and your own audio back in |
 | **Executable** | 377 functions attributed to source files, 258 sites carrying file and line |
 | **Name hash** | solved — djb2 with a `-1` seed, verified against every texture name checked |
+| **Filenames** | 252 of 372 archive entries mapped back to their original paths |
 
 [`docs/formats.md`](docs/formats.md) documents every format in detail, marking
 what is confirmed against the disassembly, what is verified against data, and
@@ -54,6 +55,9 @@ python tools/hp2_audio.py extracted/359_e2f0cc8a.bin --list
 
 # 5. check a texture pack's name hashes
 python tools/hp2_hash.py --check extracted/241_73607f72.bin
+
+# extracted/names.txt now lists each file's original path, e.g.
+#   CARS\CORVETTE\GEOMETRY.BIN, GLOBAL\HUDTEX.BIN, MOVIES\NFSINTRO_EN.AVI
 ```
 
 Every tool prints its usage when run with no arguments, and takes paths

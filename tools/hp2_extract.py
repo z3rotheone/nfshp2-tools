@@ -14,6 +14,11 @@ the first four bytes (.comp for compressed, .avi for video, .bin otherwise).
 Keeping the leading index matters: hp2_music.py reads it back to find the
 entry again when installing a modified bank.
 
+Alongside them it writes names.txt, mapping each entry to the real path the
+game knows it by, where that is known. Those came from hashing candidate
+strings out of the executable against the ids (see tools/archive_names.csv and
+docs/formats.md section 9); about two thirds of the archive is covered.
+
 Entries with size 0 are placeholders and are skipped.
 
 Usage:
@@ -41,6 +46,21 @@ def read_index(zdir_path):
         raise SystemExit("%s is %d bytes, not a multiple of 12 - is this really ZDIR.BIN?"
                          % (os.path.basename(zdir_path), len(d)))
     return [struct.unpack_from("<III", d, i * 12) for i in range(len(d) // 12)]
+
+
+def load_names():
+    """entry id (hex) -> original path, from archive_names.csv beside this script."""
+    import csv
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "archive_names.csv")
+    out = {}
+    try:
+        with open(p, newline="") as f:
+            for row in csv.DictReader(f):
+                if row.get("name"):
+                    out[row["id"].lower()] = row["name"]
+    except OSError:
+        pass
+    return out
 
 
 def guess_ext(head):
@@ -86,9 +106,13 @@ def main():
     empty = sum(1 for _id, _off, sz in ents if sz == 0)
     print("%d real files, %d empty placeholders" % (len(ents) - empty, empty))
 
+    known = load_names()
+    if known:
+        print("%d of these entries have a known original path" % len(known))
     if not listing:
         os.makedirs(out, exist_ok=True)
     written = 0
+    manifest = []
     with open(zz, "rb") as f:
         for i, (eid, off, sz) in enumerate(ents):
             if sz == 0:
@@ -111,13 +135,18 @@ def main():
                         raise SystemExit("ZZDATA.BIN ended early while writing %s" % name)
                     o.write(chunk)
                     left -= len(chunk)
+            manifest.append((i, eid, sz, known.get("%08x" % eid, "")))
             written += 1
             if written % 50 == 0:
                 print("  %d files..." % written, flush=True)
 
     if listing:
         return
-    print("extracted %d files to %s/" % (written, out))
+    with open(os.path.join(out, "names.txt"), "w") as f:
+        f.write("# entry  id        size          original path (blank = not recovered)\n")
+        for i, eid, sz, nm in manifest:
+            f.write("%3d  %08x  %12d  %s\n" % (i, eid, sz, nm))
+    print("extracted %d files to %s/  (names.txt lists their original paths)" % (written, out))
     print("next:  python hp2_comp.py %s" % out)
 
 
