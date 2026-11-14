@@ -139,11 +139,11 @@ the names are not, because a port loads the game's own assets by name.
 There are two ways to recover the names, and they fail differently.
 
 ```sh
-python tools/hp2_hash.py  extracted ~/.config/PCSX2/textures/SLUS-20362 -o map.csv
+python tools/hp2_pcsx2.py extracted ~/.config/PCSX2/textures/SLUS-20362 -o map.csv
 python tools/hp2_match.py extracted ~/.config/PCSX2/textures/SLUS-20362 -o map.csv
 ```
 
-`hp2_hash.py` recomputes PCSX2's own filenames: it lays each of the game's
+`hp2_pcsx2.py` recomputes PCSX2's own filenames: it lays each of the game's
 textures out the way the GS stores it and hashes it the way PCSX2 does. A hit
 is exact, and it does not matter how thoroughly the replacement was repainted.
 It needs `pip install xxhash`. Run against a real pack it named 1092 of 1316
