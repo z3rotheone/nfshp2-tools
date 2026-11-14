@@ -374,6 +374,7 @@ def part_mesh(d, part, failures=None):
             if r["verts"] != m["n"] or r["tris"] != len(m["tris"]):
                 wrong += 1
             m["texture"] = r["texture"]
+            m["index"] = i
             m["rec_material"] = r["material"]
         out.append(m)
     return out, wrong, len(recs)
@@ -401,16 +402,35 @@ def texture_name(part, k, car):
     return "%08x" % h
 
 
-def find_png(root, name):
-    """Path of NAME.png anywhere under root (as hp2_tpk.py exports), or None."""
+_PNG_INDEX = {}
+
+
+def find_png(root, name, car=None):
+    """Path of NAME.png under root (hp2_tpk.py exports one folder per pack).
+
+    Generic names - WINDOW_FRONT, CARBOTTOM, TIRE - exist in every car's
+    pack, so the folder holding <CAR>_SKIN1.png is searched first and any
+    other folder only as a fallback."""
     if not root:
         return None
-    target = name.upper() + ".PNG"
-    for dirpath, _d, files in os.walk(root):
-        for f in files:
-            if f.upper() == target:
-                return os.path.join(dirpath, f)
-    return None
+    if root not in _PNG_INDEX:
+        idx = {}
+        for dirpath, _d, files in os.walk(root):
+            for f in files:
+                if f.upper().endswith(".PNG"):
+                    idx.setdefault(f.upper(), []).append(os.path.join(dirpath, f))
+        _PNG_INDEX[root] = idx
+    idx = _PNG_INDEX[root]
+    hits = idx.get(name.upper() + ".PNG", [])
+    if not hits:
+        return None
+    if car:
+        for skin in idx.get((car + "_SKIN1.PNG").upper(), []):
+            home = os.path.dirname(skin)
+            for h in hits:
+                if os.path.dirname(h) == home:
+                    return h
+    return hits[0]
 
 
 def write_mtl(path, entries):
@@ -845,13 +865,15 @@ def main():
                 o, sz = p["submesh"]
                 body = d[o:o + sz]
                 lead = len(body) % 64
+                vu = {x.get("index"): x["material"] for x in part_mesh(d, p)[0]} if p["geom"] else {}
                 print("\n  records for %s (%d textures, %d materials):"
                       % (p["name"], len(p["tex"]), len(p["tex2"])))
-                print("      #   grp  v   t  | bytes 0-15 (0 = texture)         |mat | bytes 44-63")
+                print("      #   grp  v   t  | bytes 0-15 (0 = texture)         |mat | vu | bytes 44-63")
                 for i in range(len(body) // 64):
                     r = body[lead + i * 64: lead + (i + 1) * 64]
-                    print("    %3d  %2d %3d %3d  | %s | %02x | %s"
-                          % (i, r[28], r[29], r[30], r[0:16].hex(" "), r[31], r[44:64].hex(" ")))
+                    print("    %3d  %2d %3d %3d  | %s | %02x | %s | %s"
+                          % (i, r[28], r[29], r[30], r[0:16].hex(" "), r[31],
+                             "%02x" % vu[i] if i in vu else "--", r[44:64].hex(" ")))
 
         if show_vif:
             for p in m["parts"]:
@@ -912,7 +934,7 @@ def main():
                         key, tex = draw_key(p, x, car)
                         if key in entries:
                             continue
-                        png = find_png(texdir, tex) if texdir else None
+                        png = find_png(texdir, tex, car) if texdir else None
                         if texdir and not png:
                             missing.add(tex)
                         entries[key] = os.path.relpath(png, objdir) if png else None
