@@ -49,6 +49,8 @@ Usage:
     python hp2_geom.py CAR.BIN --dump-verts write part_N.xyz point clouds
     python hp2_geom.py CAR.BIN --check      verify triangle counts against the file
     python hp2_geom.py CAR.BIN --obj DIR    write one Wavefront OBJ per part
+          [--textures PNGDIR]               ...with an .mtl pointing at the car's
+                                            skin, from hp2_tpk.py's PNG output
     python hp2_geom.py extracted/* --survey one line per model file: do the
                                             decoded triangle counts match?
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
@@ -364,11 +366,42 @@ def material_name(part, k):
     return "material_%d" % k
 
 
-def write_obj(path, name, mesh, part=None):
+def find_png(root, name):
+    """Path of NAME.png anywhere under root (as hp2_tpk.py exports), or None."""
+    if not root:
+        return None
+    target = name.upper() + ".PNG"
+    for dirpath, _d, files in os.walk(root):
+        for f in files:
+            if f.upper() == target:
+                return os.path.join(dirpath, f)
+    return None
+
+
+def write_mtl(path, names, skin):
+    """One material per name, all drawing with the car's skin atlas.
+
+    That every material samples <CAR>_SKIN1 is a working assumption: the
+    body, tyre and trim materials' texture coordinates all fall inside it,
+    and materials such as MIRROR and INTERIOR use a single coordinate - a
+    flat colour picked from the atlas. Which texture the others (glass,
+    lights) really use is not known."""
+    with open(path, "w") as f:
+        f.write("# every material assumed to draw with the car's skin atlas\n")
+        for nm in names:
+            f.write("\nnewmtl %s\nKd 1 1 1\n" % nm)
+            if skin:
+                f.write("map_Kd %s\n" % skin)
+
+
+def write_obj(path, name, mesh, part=None, mtl=None):
     """Wavefront OBJ: positions with vertex colours, texture coordinates, normals,
     one group per material. X is forward, Y is left-right and Z is up, as stored."""
     with open(path, "w") as f:
-        f.write("# %s\n# axes as stored: X forward, Y sideways, Z up\no %s\n" % (name, name))
+        f.write("# %s\n# axes as stored: X forward, Y sideways, Z up\n" % name)
+        if mtl:
+            f.write("mtllib %s\n" % mtl)
+        f.write("o %s\n" % name)
         vbase = nbase = 1
         cur = None
         for m in sorted(mesh, key=lambda m: m["material"]):
@@ -683,6 +716,11 @@ def main():
         i = argv.index("-o")
         out_csv = argv[i + 1]
         del argv[i:i + 2]
+    texdir = None
+    if "--textures" in argv:
+        i = argv.index("--textures")
+        texdir = argv[i + 1]
+        del argv[i:i + 2]
     while "--known" in argv:
         i = argv.index("--known")
         load_known(argv[i + 1])
@@ -787,8 +825,14 @@ def main():
                     if used[nm] > 1:
                         nm += "%d" % used[nm]
                     out = os.path.join(objdir, nm + ".obj")
-                    write_obj(out, nm, mesh, p)
-                    print("        -> %s" % out)
+                    mats = sorted({x["material"] for x in mesh})
+                    mnames = [material_name(p, k) for k in mats]
+                    skin = find_png(texdir, car + "_SKIN1") if texdir else None
+                    rel = os.path.relpath(skin, objdir) if skin else None
+                    write_mtl(os.path.join(objdir, nm + ".mtl"), mnames, rel)
+                    write_obj(out, nm, mesh, p, nm + ".mtl")
+                    print("        -> %s%s" % (out, "  (textured with %s)" % os.path.basename(skin)
+                                                if skin else ""))
 
         if dump:
             stem = os.path.splitext(os.path.basename(path))[0]
