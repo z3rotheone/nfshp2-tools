@@ -54,7 +54,8 @@ Usage:
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
                                             which texture and material hashes
                                             the pack's names account for
-    --tpk PACK may be given with any mode, more than once.
+    --tpk PACK may be given with any mode, more than once; PACK may be a
+    folder, in which case every texture pack in it is read.
 """
 import os
 import struct
@@ -399,18 +400,33 @@ KNOWN = {0x2787edab: "INTERIOR", 0x6bfa56da: "MIRROR", 0xd6d6080a: "CARSKIN",
 
 
 def learn_names(path):
-    """Add every texture name in a .tpk pack to KNOWN, so hashes print as names."""
+    """Add every texture name in a .tpk pack - or in every pack in a folder -
+    to KNOWN, so hashes print as names."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import hp2_tpk
-    with open(path, "rb") as f:
-        d = f.read()
-    try:
-        recs, _ = hp2_tpk.parse_pack(d)
-    except Exception as e:
-        raise SystemExit("%s is not a texture pack this can read (%s)" % (path, e))
-    for r in recs:
-        KNOWN.setdefault(name_hash(r["name"]), r["name"])
-    print("learned %d texture names from %s" % (len(recs), os.path.basename(path)))
+    files = ([os.path.join(path, f) for f in sorted(os.listdir(path))]
+             if os.path.isdir(path) else [path])
+    packs = names = 0
+    for fp in files:
+        if not os.path.isfile(fp):
+            continue
+        with open(fp, "rb") as f:
+            d = f.read()
+        if d[:4] != b"\x01\x00\x30\xb0":
+            if not os.path.isdir(path):
+                raise SystemExit("%s is not a texture pack" % fp)
+            continue
+        try:
+            recs, _ = hp2_tpk.parse_pack(d)
+        except Exception as e:
+            print("skipped %s (%s)" % (os.path.basename(fp), e))
+            continue
+        packs += 1
+        for r in recs:
+            if KNOWN.setdefault(name_hash(r["name"]), r["name"]) == r["name"]:
+                names += 1
+    print("learned %d texture names from %d pack%s in %s"
+          % (names, packs, "" if packs == 1 else "s", os.path.basename(path.rstrip("/")) or path))
 
 
 def name_report(paths):
@@ -432,10 +448,17 @@ def name_report(paths):
                     e[1].add(p["name"].split("_")[0])
     for kind in ("texture", "material"):
         items = [(k[1], v) for k, v in seen.items() if k[0] == kind]
-        named = sum(1 for h, _ in items if h in KNOWN)
-        print("%ss: %d distinct, %d named" % (kind, len(items), named))
+        named = [x for x in items if x[0] in KNOWN]
+        uses = sum(v[0] for _, v in items)
+        nuses = sum(v[0] for _, v in named)
+        print("%ss: %d distinct, %d named, covering %d of %d uses"
+              % (kind, len(items), len(named), nuses, uses))
+    for kind in ("texture", "material"):
+        items = [(k[1], v) for k, v in seen.items() if k[0] == kind]
+        print()
+        print("%ss used by more than one car:" % kind)
         for h, (n, cars) in sorted(items, key=lambda kv: -kv[1][0]):
-            if n > 1 or h in KNOWN:
+            if len(cars) > 1:
                 print("  %08x  %-28s used by %3d parts in %2d cars"
                       % (h, KNOWN.get(h, ""), n, len(cars)))
 
