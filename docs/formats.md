@@ -177,7 +177,36 @@ back as 8- or 4-bit pixels. Reproducing it needs the GS block and column
 tables; `tools/hp2_tpk.py` rebuilds the addressing from them, and PCSX2's
 `GSTables.cpp` is the reference for the table values themselves.
 
-Read with `tools/hp2_tpk.py`.
+Each mip level is laid out by **its own** dimensions, so a 256×128 8-bit
+texture has swizzled levels at 256×128 and 128×64 and linear ones below that,
+within the same pixel blob.
+
+### Replacing a texture
+
+Every layout above is a permutation of the stored bytes, so the same table that
+reads a texture writes it when used as a scatter instead of a gather. That
+makes the import an exact inverse, and `tools/hp2_tpk.py verify` holds it to
+that: for every texture and every mip level it takes the bytes as shipped,
+unpacks them to indices, packs them again, and requires the result to be
+identical — then does the same for the palette.
+
+Indices and palettes are checked separately and against the stored bytes rather
+than through a decoded picture, because a palette with two identical colours
+makes a pixel's index ambiguous; no round trip through RGBA could be byte-exact,
+and a test that went that way would be measuring the wrong thing.
+
+**A replacement cannot change size.** The slot is fixed and the GS has 4 MB of
+video memory, so a texture can be repainted but not enlarged; upscaling is a
+job for a port, not for the disc. Writing therefore keeps `width × height`,
+rebuilds every mip level from the new image, and re-swizzles each by its own
+dimensions.
+
+The palette is rebuilt from the new image by median cut — but **not** when the
+record's palette offset is shared with another texture, since rewriting it would
+damage the other one. In that case the shipped palette is kept and the new image
+is quantised to it, which costs quality; the tool says which it did.
+
+Read and write with `tools/hp2_tpk.py`.
 
 ---
 

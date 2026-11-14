@@ -102,6 +102,34 @@ python tools/hp2_iso.py write modded.iso NFSHP2/ZZDATA.BIN path/to/ZZDATA.BIN
 
 Then boot `modded.iso`. Work on a copy; your original image is the backup.
 
+### Replacing a texture
+
+A replacement must be exactly the dimensions of the slot: sizes never change,
+because the slot is fixed and the GS has 4 MB of video memory. A texture can be
+repainted but not enlarged — upscaling belongs to a port, not to the disc.
+
+```sh
+python tools/hp2_tpk.py list   extracted/241_73607f72.bin
+python tools/hp2_tpk.py write  extracted/241_73607f72.bin BARN1 new_barn.png out.tpk
+python tools/hp2_iso.py install-bank modded.iso 241 out.tpk
+```
+
+The palette is rebuilt from the new image, except when it is shared with
+another texture — rewriting it would damage that one, so the shipped palette is
+kept and the image quantised to it. Every mip level is regenerated.
+
+Before trusting any of it, hold the import to being an exact inverse of the
+export:
+
+```sh
+python tools/hp2_tpk.py verify extracted
+```
+
+For every texture and every mip level that takes the bytes as shipped, unpacks
+them to palette indices, packs them again and requires the same bytes back,
+then does the same for the palette. Anything that does not round-trip is a bug
+in the writer, and it is named.
+
 ### When a mod boots but nothing changed
 
 Three causes, and `hp2_verify.py` tells them apart:

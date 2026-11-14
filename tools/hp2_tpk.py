@@ -30,7 +30,18 @@ Handled:
 PS2 alpha 0..0x80 is scaled to 0..255.
 Not handled (listed and skipped): other palette sizes.
 
-Usage:  python hp2_tpk.py [extracted_dir] [output_dir]
+Usage:
+    python hp2_tpk.py [extracted_dir] [output_dir]     export every pack to PNG
+    python hp2_tpk.py list PACK.tpk                    what is in one pack
+    python hp2_tpk.py verify PACK.tpk | DIR            re-pack and demand the same bytes
+    python hp2_tpk.py write PACK NAME NEW.png OUT.tpk  put a PNG into one slot
+
+A replacement must have exactly the dimensions of the slot it goes into. Sizes
+never change: the slot is fixed and the graphics chip has 4 MB of memory, so a
+texture can be repainted but not enlarged. The palette is rebuilt from the new
+image unless it is shared with another texture, or --keep-palette is given; all
+mip levels are regenerated.
+
 Needs:  pip install pillow numpy
 """
 import hashlib
@@ -125,6 +136,62 @@ def positions4(w, h):
     return _cache[key]
 
 
+def unswizzle_indices(raw, w, h, bpp):
+    """Stored pixel bytes -> one palette index per pixel, row-major."""
+    if bpp == 8:
+        return raw[positions8(w, h)] if is_swizzled(w, h, 8) else raw
+    if is_swizzled(w, h, 4):
+        lay = positions4(w, h)
+        if lay is None:
+            return None
+        pos, odd = lay
+        b = raw[pos]
+        return np.where(odd == 1, b >> 4, b & 15).astype(np.uint8)
+    idx = np.empty(w * h, dtype=np.uint8)       # linear: low nibble is the left pixel
+    idx[0::2] = raw & 15
+    idx[1::2] = raw >> 4
+    return idx
+
+
+def swizzle_indices(idx, w, h, bpp):
+    """The exact inverse of unswizzle_indices: indices -> stored pixel bytes.
+
+    Every layout here is a permutation of the stored bytes, so the inverse is
+    the same table used as a scatter rather than a gather.
+    """
+    idx = np.ascontiguousarray(idx, dtype=np.uint8).ravel()
+    if bpp == 8:
+        if not is_swizzled(w, h, 8):
+            return idx.tobytes()
+        raw = np.zeros(w * h, dtype=np.uint8)
+        raw[positions8(w, h)] = idx
+        return raw.tobytes()
+    if is_swizzled(w, h, 4):
+        lay = positions4(w, h)
+        if lay is None:
+            return None
+        pos, odd = lay
+        raw = np.zeros(w * h // 2, dtype=np.uint8)
+        lo, hi = odd == 0, odd == 1
+        raw[pos[lo]] = idx[lo] & 15
+        raw[pos[hi]] |= (idx[hi] & 15) << 4
+        return raw.tobytes()
+    raw = (idx[0::2] & 15) | ((idx[1::2] & 15) << 4)
+    return raw.astype(np.uint8).tobytes()
+
+
+def levels_of(w, h, pix_sz, div):
+    """[(level_width, level_height, byte_offset, byte_size)] for every mip level."""
+    n = mip_levels(w, h, pix_sz, div)
+    out, at = [], 0
+    for k in range(n):
+        lw, lh = w >> k, h >> k
+        sz = lw * lh // div
+        out.append((lw, lh, at, sz))
+        at += sz
+    return out
+
+
 def chunks(d, start, end):
     pos = start
     while pos + 8 <= end:
@@ -189,6 +256,33 @@ def make_palette(raw, n, fix8):
     return p
 
 
+def pack_palette(p, fix8):
+    """The inverse of make_palette: RGBA entries -> stored palette bytes.
+
+    PS2 alpha runs 0..0x80, which export doubles to 0..255, so 255 came from
+    0x80 and every other exported value halves exactly. A hand-edited PNG can
+    hold odd values, which round.
+    """
+    q = np.ascontiguousarray(p, dtype=np.uint8).copy()
+    if fix8:
+        s = q.copy()
+        for blk in range(0, 256, 32):
+            s[blk + 8: blk + 16] = q[blk + 16: blk + 24]
+            s[blk + 16: blk + 24] = q[blk + 8: blk + 16]
+        q = s
+    a = q[:, 3].astype(np.int32)
+    q[:, 3] = np.where(a >= 255, 128, (a + 1) // 2).astype(np.uint8)
+    return q.tobytes()
+
+
+def pack_alpha32(img):
+    """Same alpha convention for 32-bit textures, which carry no palette."""
+    out = np.ascontiguousarray(img, dtype=np.uint8).copy()
+    a = out[:, :, 3].astype(np.int32)
+    out[:, :, 3] = np.where(a >= 255, 128, (a + 1) // 2).astype(np.uint8)
+    return out.tobytes()
+
+
 def is_swizzled(w, h, bpp):
     """Textures that fill whole GS memory pages are stored pre-swizzled; every
     smaller or odd-sized texture is stored as plain rows of pixels."""
@@ -210,7 +304,7 @@ def decode(d, base, r):
         raw = np.frombuffer(d[po: po + nbytes], dtype=np.uint8)
         if raw.size < nbytes:
             return "other"
-        idx = raw[positions8(w, h)] if is_swizzled(w, h, 8) else raw
+        idx = unswizzle_indices(raw, w, h, 8)
         pal = make_palette(d[base + r["pal_off"]: base + r["pal_off"] + 1024], 256, True)
         return pal[idx].reshape(h, w, 4)
     if r["pal_sz"] == 64 and w % 2 == 0 and mip_levels(w, h, r["pix_sz"], 2):
@@ -218,17 +312,9 @@ def decode(d, base, r):
         raw = np.frombuffer(d[po: po + nbytes], dtype=np.uint8)
         if raw.size < nbytes:
             return "other"
-        if is_swizzled(w, h, 4):
-            lay = positions4(w, h)
-            if lay is None:
-                return "4-bit-unverified"
-            pos, odd = lay
-            b = raw[pos]
-            idx = np.where(odd == 1, b >> 4, b & 15)
-        else:                                  # linear: low nibble is the left pixel
-            idx = np.empty(w * h, dtype=np.uint8)
-            idx[0::2] = raw & 15
-            idx[1::2] = raw >> 4
+        idx = unswizzle_indices(raw, w, h, 4)
+        if idx is None:
+            return "4-bit-unverified"
         pal = make_palette(d[base + r["pal_off"]: base + r["pal_off"] + 64], 16, False)
         return pal[idx].reshape(h, w, 4)
     if r["pal_sz"] == 0 and r["pix_sz"] == w * h * 4:
@@ -239,6 +325,238 @@ def decode(d, base, r):
         img[:, :, 3] = np.minimum(255, img[:, :, 3].astype(np.int32) * 2).astype(np.uint8)
         return img
     return "other"
+
+
+def fmt_of(r):
+    """(bits per pixel, palette entries, whether the 8-bit swap applies) or None."""
+    w, h = r["w"], r["h"]
+    if w <= 0 or h <= 0:
+        return None
+    if r["pal_sz"] == 1024 and mip_levels(w, h, r["pix_sz"], 1):
+        return 8, 256, True
+    if r["pal_sz"] == 64 and w % 2 == 0 and mip_levels(w, h, r["pix_sz"], 2):
+        return 4, 16, False
+    if r["pal_sz"] == 0 and r["pix_sz"] == w * h * 4:
+        return 32, 0, False
+    return None
+
+
+def verify(path):
+    """Re-pack every texture exactly as shipped and insist on the same bytes.
+
+    This is the test that the import path is a true inverse, and it avoids the
+    one thing a picture cannot settle: a palette with two identical colours
+    makes the index of a pixel ambiguous, so going through RGBA could never be
+    byte-exact. Indices and palettes are therefore checked separately, each
+    against the bytes actually on the disc, for every mip level.
+    """
+    d = open(path, "rb").read()
+    recs, base = parse_pack(d)
+    ok = bad = skip = 0
+    notes = []
+    for r in recs:
+        f = fmt_of(r)
+        if f is None:
+            skip += 1
+            continue
+        bpp, nent, fix8 = f
+        w, h = r["w"], r["h"]
+        good = True
+
+        if bpp == 32:
+            raw = d[base + r["pix_off"]: base + r["pix_off"] + w * h * 4]
+            img = np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4).copy()
+            img[:, :, 3] = np.minimum(255, img[:, :, 3].astype(np.int32) * 2)
+            if pack_alpha32(img) != raw:
+                good, why = False, "32-bit alpha"
+        else:
+            div = 1 if bpp == 8 else 2
+            for lw, lh, at, sz in levels_of(w, h, r["pix_sz"], div):
+                po = base + r["pix_off"] + at
+                raw = np.frombuffer(d[po: po + sz], dtype=np.uint8)
+                if raw.size < sz:
+                    good, why = False, "truncated"
+                    break
+                idx = unswizzle_indices(raw, lw, lh, bpp)
+                if idx is None:
+                    skip += 1
+                    good = None            # layout not understood; not a failure
+                    break
+                back = swizzle_indices(idx, lw, lh, bpp)
+                if back != raw.tobytes():
+                    good, why = False, "%dx%d level" % (lw, lh)
+                    break
+            if good:
+                praw = d[base + r["pal_off"]: base + r["pal_off"] + r["pal_sz"]]
+                if pack_palette(make_palette(praw, nent, fix8), fix8) != praw:
+                    good, why = False, "palette"
+                    hi = max(praw[3::4])
+                    if hi > 0x80:
+                        notes.append("%s: palette alpha reaches 0x%02X, above the "
+                                     "0x80 the format is meant to use" % (r["name"], hi))
+        if good is None:
+            continue
+        if good:
+            ok += 1
+        else:
+            bad += 1
+            if len(notes) < 12:
+                notes.append("%s %dx%d %d-bit: %s does not round-trip"
+                             % (r["name"], w, h, bpp, why))
+    return ok, bad, skip, notes
+
+
+def median_cut(cols, counts, n):
+    """A palette of at most n RGBA entries, splitting the widest box each time."""
+    boxes = [np.arange(len(cols))]
+    while len(boxes) < n:
+        bi, best = None, -1.0
+        for i, b in enumerate(boxes):
+            if len(b) < 2:
+                continue
+            ext = cols[b].max(0).astype(np.int64) - cols[b].min(0).astype(np.int64)
+            score = float(ext.max()) * float(counts[b].sum())
+            if score > best:
+                bi, best = i, score
+        if bi is None:
+            break
+        b = boxes.pop(bi)
+        ext = cols[b].max(0).astype(np.int64) - cols[b].min(0).astype(np.int64)
+        order = b[np.argsort(cols[b][:, int(np.argmax(ext))], kind="stable")]
+        w = counts[order].cumsum()
+        half = int(np.searchsorted(w, w[-1] / 2.0)) + 1
+        half = min(max(half, 1), len(order) - 1)
+        boxes += [order[:half], order[half:]]
+    pal = []
+    for b in boxes:
+        wt = counts[b].astype(np.float64)
+        pal.append((cols[b].astype(np.float64) * wt[:, None]).sum(0) / wt.sum())
+    return np.array(pal).round().clip(0, 255).astype(np.uint8)
+
+
+def build_palette(img, n):
+    """A palette for this image. Fewer than n distinct colours is kept exactly,
+    which makes re-importing an unmodified export lossless."""
+    flat = img.reshape(-1, 4)
+    cols, counts = np.unique(flat, axis=0, return_counts=True)
+    if len(cols) <= n:
+        pal = np.zeros((n, 4), dtype=np.uint8)
+        pal[:len(cols)] = cols
+        return pal, len(cols)
+    pal = median_cut(cols, counts, n)
+    out = np.zeros((n, 4), dtype=np.uint8)
+    out[:len(pal)] = pal
+    return out, len(pal)
+
+
+def to_indices(img, pal, used):
+    """Nearest palette entry for every pixel, alpha weighted like a colour."""
+    flat = img.reshape(-1, 4).astype(np.int32)
+    p = pal[:used].astype(np.int32)
+    out = np.zeros(len(flat), dtype=np.uint8)
+    step = 1 << 16
+    for s in range(0, len(flat), step):
+        blk = flat[s:s + step]
+        d = ((blk[:, None, :] - p[None, :, :]) ** 2).sum(2)
+        out[s:s + step] = np.argmin(d, axis=1).astype(np.uint8)
+    # anything present verbatim in the palette keeps that entry, so an
+    # unmodified export comes back with the indices it started with
+    for i, c in enumerate(pal[:used]):
+        m = (flat == c.astype(np.int32)).all(1)
+        if m.any():
+            out[m] = i
+    return out
+
+
+def downsample(img):
+    """Halve an RGBA image, averaging with alpha premultiplied."""
+    h, w = img.shape[:2]
+    a = img[:h // 2 * 2, :w // 2 * 2].astype(np.float64)
+    al = a[:, :, 3:4] / 255.0
+    pm = np.concatenate([a[:, :, :3] * al, a[:, :, 3:4]], axis=2)
+    pm = pm.reshape(h // 2, 2, w // 2, 2, 4).mean(axis=(1, 3))
+    al2 = np.maximum(pm[:, :, 3:4] / 255.0, 1e-6)
+    rgb = np.clip(pm[:, :, :3] / al2, 0, 255)
+    return np.concatenate([rgb, pm[:, :, 3:4]], axis=2).round().astype(np.uint8)
+
+
+def shared_palette(recs, r):
+    return sum(1 for o in recs if o["pal_off"] == r["pal_off"] and o["pal_sz"] == r["pal_sz"]) > 1
+
+
+def write_texture(path, name, png, out_path, keep_palette=False):
+    d = bytearray(open(path, "rb").read())
+    recs, base = parse_pack(bytes(d))
+    hit = [r for r in recs if r["name"].lower() == name.lower()]
+    if not hit:
+        raise SystemExit("no texture called %r in %s. Names in this pack:\n  %s"
+                         % (name, os.path.basename(path),
+                            "\n  ".join(r["name"] for r in recs[:40])))
+    r = hit[0]
+    f = fmt_of(r)
+    if f is None:
+        raise SystemExit("%s is in a format this tool does not write "
+                         "(%dx%d, pixels %d bytes, palette %d bytes)"
+                         % (r["name"], r["w"], r["h"], r["pix_sz"], r["pal_sz"]))
+    bpp, nent, fix8 = f
+    w, h = r["w"], r["h"]
+    img = np.array(Image.open(png).convert("RGBA"))
+    if img.shape[0] != h or img.shape[1] != w:
+        raise SystemExit("%s is %dx%d but the slot is %dx%d. A texture cannot change\n"
+                         "size on this console: the slot is fixed and the graphics chip\n"
+                         "has 4 MB of memory. Resize the PNG to %dx%d and try again."
+                         % (os.path.basename(png), img.shape[1], img.shape[0], w, h, w, h))
+    print("%s  %dx%d  %d-bit" % (r["name"], w, h, bpp))
+
+    if bpp == 32:
+        pix = pack_alpha32(img)
+        pal = b""
+    else:
+        if keep_palette or shared_palette(recs, r):
+            praw = bytes(d[base + r["pal_off"]: base + r["pal_off"] + r["pal_sz"]])
+            pal_rgba = make_palette(praw, nent, fix8)
+            used = nent
+            pal = praw
+            print("  palette: kept as shipped (%s)"
+                  % ("asked for" if keep_palette else "shared with another texture"))
+        else:
+            pal_rgba, used = build_palette(img, nent)
+            pal = pack_palette(pal_rgba, fix8)
+            print("  palette: rebuilt, %d of %d entries used" % (used, nent))
+        div = 1 if bpp == 8 else 2
+        lv = levels_of(w, h, r["pix_sz"], div)
+        print("  %d mip level%s" % (len(lv), "" if len(lv) == 1 else "s"))
+        cur = img
+        parts = []
+        for lw, lh, at, sz in lv:
+            if cur.shape[0] != lh or cur.shape[1] != lw:
+                cur = downsample(cur)
+            idx = to_indices(cur, pal_rgba, used)
+            b = swizzle_indices(idx, lw, lh, bpp)
+            if b is None:
+                raise SystemExit("the %dx%d mip level uses a 4-bit layout this tool "
+                                 "cannot write yet" % (lw, lh))
+            if len(b) != sz:
+                raise SystemExit("internal: %dx%d level made %d bytes, slot wants %d"
+                                 % (lw, lh, len(b), sz))
+            parts.append(b)
+        pix = b"".join(parts)
+
+    if len(pix) != r["pix_sz"]:
+        raise SystemExit("internal: built %d pixel bytes, slot holds %d"
+                         % (len(pix), r["pix_sz"]))
+    if len(pal) != r["pal_sz"]:
+        raise SystemExit("internal: built %d palette bytes, slot holds %d"
+                         % (len(pal), r["pal_sz"]))
+    before = len(d)
+    d[base + r["pix_off"]: base + r["pix_off"] + len(pix)] = pix
+    if pal:
+        d[base + r["pal_off"]: base + r["pal_off"] + len(pal)] = pal
+    if len(d) != before:
+        raise SystemExit("internal: the pack changed size")
+    open(out_path, "wb").write(bytes(d))
+    print("  wrote %s (%s bytes, unchanged in size)"
+          % (out_path, "{:,}".format(len(d))))
 
 
 def export(path, outdir):
@@ -259,8 +577,68 @@ def export(path, outdir):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else "extracted"
-    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(root.rstrip("\\/")), "textures")
+    a = sys.argv[1:]
+    keep = "--keep-palette" in a
+    a = [x for x in a if x != "--keep-palette"]
+
+    if a and a[0] == "list" and len(a) == 2:
+        d = open(a[1], "rb").read()
+        recs, _ = parse_pack(d)
+        print("%s: %d textures" % (os.path.basename(a[1]), len(recs)))
+        for r in recs:
+            f = fmt_of(r)
+            kind = "%d-bit" % f[0] if f else "unsupported"
+            sw = ""
+            if f and f[0] in (4, 8):
+                sw = "swizzled" if is_swizzled(r["w"], r["h"], f[0]) else "linear"
+                n = mip_levels(r["w"], r["h"], r["pix_sz"], 1 if f[0] == 8 else 2)
+                sw += ", %d mip level%s" % (n, "" if n == 1 else "s")
+            print("  %-26s %4dx%-4d %-12s %s" % (r["name"], r["w"], r["h"], kind, sw))
+        return
+
+    if a and a[0] == "verify":
+        if len(a) != 2:
+            print(__doc__)
+            return
+        targets = []
+        if os.path.isdir(a[1]):
+            for n in sorted(os.listdir(a[1])):
+                fp = os.path.join(a[1], n)
+                if os.path.isfile(fp) and open(fp, "rb").read(4) == b"\x01\x00\x30\xb0":
+                    targets.append(fp)
+        else:
+            targets = [a[1]]
+        tok = tbad = tskip = 0
+        for fp in targets:
+            try:
+                ok, bad, skip, notes = verify(fp)
+            except Exception as e:
+                print("%s: cannot parse (%s)" % (os.path.basename(fp), e))
+                continue
+            tok += ok
+            tbad += bad
+            tskip += skip
+            if bad or notes:
+                print("%s: %d exact, %d FAILED, %d skipped"
+                      % (os.path.basename(fp), ok, bad, skip))
+                for n in notes:
+                    print("    " + n)
+        print()
+        print("%d textures re-pack to the same bytes, %d do not, %d in formats not handled"
+              % (tok, tbad, tskip))
+        if tbad == 0:
+            print("the import path is an exact inverse of the export path")
+        return
+
+    if a and a[0] == "write":
+        if len(a) != 5:
+            print(__doc__)
+            return
+        write_texture(a[1], a[2], a[3], a[4], keep)
+        return
+
+    root = a[0] if a else "extracted"
+    out = a[1] if len(a) > 1 else os.path.join(os.path.dirname(root.rstrip("\\/")), "textures")
     seen = {}
     total_done = total_skip = 0
     for n in sorted(os.listdir(root)):
