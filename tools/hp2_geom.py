@@ -438,6 +438,8 @@ def runtime_textures(name, car, state="off"):
             out.append(base)
     if up == "TIRE" and car:
         out.append(car + "_TIRE")
+    if up.startswith("WINDOW_") and state == "damaged":
+        out.append("BROKEN_CARWINDOW")
     return out
 
 
@@ -475,9 +477,17 @@ def write_mtl(path, entries):
     with open(path, "w") as f:
         f.write("# texture per batch from byte 0 of its 0x00034004 record\n")
         for nm, png in entries:
-            f.write("\nnewmtl %s\nKd 1 1 1\n" % nm)
+            f.write("\nnewmtl %s\n" % nm)
+            tex = nm.split("__", 1)[-1]
+            stand = next((v for k, v in STAND_INS.items() if tex.startswith(k)), None)
             if png:
-                f.write("map_Kd %s\n" % png)
+                f.write("Kd 1 1 1\nmap_Kd %s\n" % png)
+                if tex.startswith("WINDOW_"):
+                    f.write("d 0.8\n")
+            elif stand:
+                f.write("# stand-in: no art for this slot in any pack\n" + stand)
+            else:
+                f.write("Kd 1 1 1\n")
 
 
 def draw_key(part, m, car):
@@ -539,13 +549,20 @@ for _n in ("WINDOW_FRONT", "WINDOW_REAR", "WINDOW_LEFT_FRONT", "WINDOW_RIGHT_FRO
            "FLARE_REVERSELIGHT_LEFT", "FLARE_REVERSELIGHT_RIGHT", "FLARE_BRAKELIGHT_MIDDLE",
            "CORNER_LEFT_FRONT", "CORNER_RIGHT_FRONT", "CORNER_LEFT_REAR", "CORNER_RIGHT_REAR",
            "SIDE_MIRROR_LEFT", "SIDE_MIRROR_RIGHT", "LICENSE_PLATE_FRONT", "LICENSE_PLATE_REAR",
-           "EXHAUST", "ENGINE", "TIRE", "BRAKES", "PLASTIC", "WHEEL_BLUR"):
+           "EXHAUST", "ENGINE", "TIRE", "BRAKES", "PLASTIC", "WHEEL_BLUR", "PIPES"):
     KNOWN[name_hash(_n)] = _n
 
 # Per-car texture names: <CAR> + one of these.
 CAR_SUFFIXES = ("_SKIN1", "_SKIN2", "_SKIN3", "_SKIN4", "_SKIN5", "_SKIN6", "_SKIN7",
                 "_TIRE", "_GLASS", "_LICENSE_PLATE",
-                "_HEADLIGHT_LEFT", "_HEADLIGHT_RIGHT", "_BRAKELIGHT_LEFT", "_BRAKELIGHT_RIGHT")
+                "_HEADLIGHT_LEFT", "_HEADLIGHT_RIGHT", "_BRAKELIGHT_LEFT", "_BRAKELIGHT_RIGHT",
+                "_WHEEL_BLUR", "_SHADOWIG", "_SHADOWFE")
+
+# Slots with no art in any pack: the windows and the underside. Until the
+# executable says what fills them, the .mtl gives them a plain stand-in so a
+# preview looks right - tinted see-through glass, a dark underside. With
+# --lights damaged the windows use the game's BROKEN_CARWINDOW.
+STAND_INS = {"WINDOW_": "Kd 0.10 0.12 0.15\nd 0.45\n", "CARBOTTOM": "Kd 0.08 0.08 0.08\n"}
 
 
 def learn_names(path):
@@ -984,7 +1001,7 @@ def main():
                             png = find_png(texdir, cand, car)
                             if png:
                                 break
-                        if texdir and not png:
+                        if texdir and not png and not any(tex.startswith(k) for k in STAND_INS):
                             missing.add(tex)
                         entries[key] = os.path.relpath(png, objdir) if png else None
                     write_mtl(os.path.join(objdir, nm + ".mtl"), sorted(entries.items()))
