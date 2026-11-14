@@ -29,6 +29,7 @@ is the work left to do.
 Needs: pip install pillow numpy
 """
 import csv
+import hashlib
 import os
 import sys
 
@@ -90,7 +91,7 @@ def box_to(rgb, w, h):
 
 def load_assets(root):
     """Every texture in every pack under `root`, decoded."""
-    assets = []
+    assets, seen, total = [], {}, 0
     for n in sorted(os.listdir(root)):
         fp = os.path.join(root, n)
         if not os.path.isfile(fp):
@@ -108,9 +109,24 @@ def load_assets(root):
             if isinstance(res, str):
                 continue
             rgb = np.ascontiguousarray(res[:, :, :3])
-            assets.append(dict(pack=os.path.splitext(n)[0], name=r["name"],
-                               w=r["w"], h=r["h"], rgb=rgb, fp=fingerprint(rgb)))
-    return assets
+            pack = os.path.splitext(n)[0]
+            total += 1
+            # The same picture is stored once per track pack, and sometimes
+            # under two names. Those are one candidate, not rivals: a file that
+            # matches it matches all of them.
+            key = (r["w"], r["h"], hashlib.sha1(rgb.tobytes()).digest())
+            a = seen.get(key)
+            if a is None:
+                a = dict(pack=pack, name=r["name"], w=r["w"], h=r["h"], rgb=rgb,
+                         fp=fingerprint(rgb), names=[], packs=[], uses=[])
+                seen[key] = a
+                assets.append(a)
+            if r["name"] not in a["names"]:
+                a["names"].append(r["name"])
+            if pack not in a["packs"]:
+                a["packs"].append(pack)
+            a["uses"].append((pack, r["name"]))
+    return assets, total
 
 
 IMAGES = (".png", ".jpg", ".jpeg", ".bmp", ".dds", ".tga", ".webp")
@@ -144,6 +160,30 @@ def load_pngs(root):
     return out
 
 
+def relation(w, h, aw, ah):
+    """How a file's size stands to the game texture it matched."""
+    if (w, h) == (aw, ah):
+        return "same size"
+    if w * ah == h * aw:
+        if w > aw:
+            return "upscaled %gx" % (w / aw)
+        return "smaller 1/%g" % (aw / w)
+    return "other shape"
+
+
+def compare(rgb, a):
+    """Fitted and raw error between a file and one game texture, measured at
+    whichever of the two sizes is smaller so neither side is invented."""
+    h, w = rgb.shape[:2]
+    if w * h < a["w"] * a["h"]:
+        x = rgb.astype(np.float64)
+        ref = box_to(a["rgb"], w, h)
+    else:
+        x = box_to(rgb, a["w"], a["h"])
+        ref = a["rgb"].astype(np.float64)
+    return fitted_error(x, ref), float(np.abs(x - ref).mean())
+
+
 def match(assets, pngs):
     F = np.array([a["fp"] for a in assets])
     rows, unmatched = [], []
@@ -151,40 +191,46 @@ def match(assets, pngs):
     for path, rgb in pngs:
         fp = fingerprint(rgb)
         d = np.abs(F - fp).mean(1)
-        order = np.argsort(d)[:6]
+        order = np.argsort(d)[:8]
+        h, w = rgb.shape[:2]
         scored = []
         for i in order:
             a = assets[i]
             try:
-                small = box_to(rgb, a["w"], a["h"])
+                err, raw = compare(rgb, a)
             except Exception:
                 continue
-            ref = a["rgb"].astype(np.float64)
-            raw = float(np.abs(small - ref).mean())
-            scored.append((fitted_error(small, ref), raw, i))
+            # a candidate of a different shape is a worse answer than one of
+            # the same shape that fits equally well
+            shape = 0 if w * a["h"] == h * a["w"] else 1
+            scored.append((shape, err, raw, i))
         if not scored:
             unmatched.append((path, None, None))
             continue
         scored.sort()
-        err, raw, i = scored[0]
-        runner = scored[1][0] if len(scored) > 1 else float("inf")
+        shape, err, raw, i = scored[0]
         a = assets[i]
-        h, w = rgb.shape[:2]
-        scale = "%gx" % (w / a["w"]) if a["w"] and w % a["w"] == 0 and w // a["w"] > 1 else \
-                ("same size" if (w, h) == (a["w"], a["h"]) else "%dx%d vs %dx%d" % (w, h, a["w"], a["h"]))
+        rivals = [s for s in scored[1:] if s[0] == shape]
+        runner = rivals[0][1] if rivals else float("inf")
         if err > MATCH_OK:
             unmatched.append((path, a["name"], err))
             continue
-        kind = "exact" if raw == 0 else ("close" if err < SURE else "likely")
-        # an additive term as well as the ratio, or two textures that are
-        # byte-identical both score zero and the tie goes unnoticed
-        if runner < err * AMBIGUOUS + 0.5:
+        rel = relation(w, h, a["w"], a["h"])
+        kind = "exact" if raw == 0 and rel == "same size" else \
+               ("close" if err < SURE else "likely")
+        flat = float(rgb.reshape(-1, 3).std(0).max()) < 2.0
+        # an additive term as well as the ratio, or two pictures that both
+        # score zero tie without it being noticed
+        if flat or runner < err * AMBIGUOUS + 0.5:
             kind = "ambiguous"
-        rows.append(dict(file=os.path.basename(path), asset=a["name"], pack=a["pack"],
-                         width=a["w"], height=a["h"], scale=scale,
-                         error="%.2f" % err, raw_error="%.2f" % raw, confidence=kind,
-                         runner_up=assets[scored[1][2]]["name"] if len(scored) > 1 else ""))
-        seen.add((a["pack"], a["name"]))
+        rows.append(dict(file=os.path.basename(path), asset=a["name"],
+                         also=" ".join(a["names"][1:]), packs=len(a["packs"]),
+                         width=a["w"], height=a["h"], file_width=w, file_height=h,
+                         relation=rel, error="%.2f" % err, raw_error="%.2f" % raw,
+                         confidence=kind,
+                         runner_up="(plain colour)" if flat else
+                                   (assets[rivals[0][3]]["name"] if rivals else "")))
+        seen.update(a["uses"])
     return rows, unmatched, seen
 
 
@@ -203,9 +249,9 @@ def main():
     root, texdir = a
 
     print("reading textures from the disc ...", flush=True)
-    assets = load_assets(root)
-    print("  %d textures in %d packs"
-          % (len(assets), len({x["pack"] for x in assets})))
+    assets, total = load_assets(root)
+    print("  %d textures in %d packs, %d different pictures"
+          % (total, len({p for x in assets for p in x["packs"]}), len(assets)))
     print("reading PNGs from %s ..." % texdir, flush=True)
     pngs = load_pngs(texdir)
     print("  %d PNG files" % len(pngs))
@@ -223,14 +269,27 @@ def main():
     regr = sum(1 for r in rows if r["confidence"] == "likely")
     amb = sum(1 for r in rows if r["confidence"] == "ambiguous")
     print()
-    print("%d matched: %d exact, %d close (upscaled), %d likely (recoloured), %d ambiguous"
+    print("%d matched: %d exact, %d close, %d likely, %d ambiguous"
           % (len(rows), exact, close, regr, amb))
     print("%d PNGs matched nothing in the game's own textures" % len(unmatched))
 
+    up = sum(1 for r in rows if r["relation"].startswith("upscaled"))
+    same = sum(1 for r in rows if r["relation"] == "same size")
+    small = sum(1 for r in rows if r["relation"].startswith("smaller"))
+    print("by size: %d larger than the disc texture, %d the same size, %d smaller"
+          % (up, same, small))
+    if small:
+        print("  smaller files are the reduced copies (mip levels) PCSX2 dumps"
+              " alongside each texture")
+    if exact and not up:
+        print("  nothing here is larger than the disc version and %d are pixel-identical"
+              " to it:\n  this looks like a dump of the game's own textures, not an"
+              " enhanced pack" % exact)
+
     for r in rows[:25]:
-        print("  %-40s -> %-24s %4dx%-4d %-10s err %-6s %s"
+        print("  %-40s -> %-24s %4dx%-4d %-12s err %-6s %s"
               % (r["file"][:40], r["asset"], r["width"], r["height"],
-                 r["scale"], r["error"], r["confidence"]))
+                 r["relation"], r["error"], r["confidence"]))
     if len(rows) > 25:
         print("  ... and %d more" % (len(rows) - 25))
 
@@ -258,23 +317,23 @@ def main():
             print("  %-40s %s" % (k[:40], ", ".join(v)))
 
     if show_missing:
-        miss = [x for x in assets if (x["pack"], x["name"]) not in seen]
+        miss = [u for x in assets for u in x["uses"] if u not in seen]
         print()
         print("%d of %d game textures have nothing matching them in the pack:"
-              % (len(miss), len(assets)))
+              % (len(miss), total))
         bypack = {}
-        for x in miss:
-            bypack.setdefault(x["pack"], []).append(x)
+        for pk, nm in miss:
+            bypack.setdefault(pk, []).append(nm)
         for p in sorted(bypack):
             v = bypack[p]
-            print("  %-22s %4d missing   e.g. %s"
-                  % (p, len(v), ", ".join(x["name"] for x in v[:4])))
+            print("  %-22s %4d missing   e.g. %s" % (p, len(v), ", ".join(v[:4])))
 
     if out:
         with open(out, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=["file", "asset", "pack", "width", "height",
-                                              "scale", "error", "raw_error", "confidence",
-                                              "runner_up"])
+            w = csv.DictWriter(f, fieldnames=["file", "asset", "also", "packs", "width",
+                                              "height", "file_width", "file_height",
+                                              "relation", "error", "raw_error",
+                                              "confidence", "runner_up"])
             w.writeheader()
             w.writerows(rows)
         print()
