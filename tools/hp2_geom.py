@@ -54,6 +54,9 @@ Usage:
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
                                             which texture and material hashes
                                             the pack's names account for
+    python hp2_geom.py extracted/* --guess --tpk extracted --strings SLUS_203.62
+                                            name unknown hashes as two pieces
+                                            joined, from names the game holds
     --tpk PACK may be given with any mode, more than once; PACK may be a
     folder, in which case every texture pack in it is read.
 """
@@ -423,7 +426,13 @@ def learn_names(path):
             continue
         packs += 1
         for r in recs:
-            if KNOWN.setdefault(name_hash(r["name"]), r["name"]) == r["name"]:
+            # The stored hash is of the full name; the name field holds only
+            # 23 characters, so for long names the two hashes differ. Models
+            # refer to the stored one.
+            nm = r["name"]
+            if r.get("hash") and r["hash"] != name_hash(nm):
+                nm += "..."
+            if KNOWN.setdefault(r.get("hash") or name_hash(r["name"]), nm) == nm:
                 names += 1
     print("learned %d texture names from %d pack%s in %s"
           % (names, packs, "" if packs == 1 else "s", os.path.basename(path.rstrip("/")) or path))
@@ -461,6 +470,70 @@ def name_report(paths):
             if len(cars) > 1:
                 print("  %08x  %-28s used by %3d parts in %2d cars"
                       % (h, KNOWN.get(h, ""), n, len(cars)))
+
+
+def model_hashes(paths):
+    """(set of texture/material hashes the models use, list of car names)"""
+    want, cars = set(), set()
+    for path in paths:
+        try:
+            with open(path, "rb") as f:
+                if struct.unpack("<I", f.read(4))[0] != HDR:
+                    continue
+            d, m = parse(path)
+        except Exception:
+            continue
+        car = os.path.basename(os.path.dirname(m["devpath"].replace("\\", "/")))
+        if car:
+            cars.add(car)
+        for p in m["parts"]:
+            want.update(p["tex"])
+            want.update(p["tex2"])
+            want.add(p.get("hash", 0))
+        for a in m["attach"]:
+            want.add(a["part"])
+    want.discard(0)
+    return want, sorted(cars)
+
+
+def guess_names(paths, string_files):
+    """Name unknown hashes as two pieces joined, drawn from texture names,
+    strings in given files (the executable), car names and their parts."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import hp2_hash
+    want, cars = model_hashes(paths)
+    unknown = {h for h in want if h not in KNOWN}
+    pool = set(cars) | {v.rstrip(".") for v in KNOWN.values()}
+    for fp in string_files:
+        got = hp2_hash.strings_in(fp)
+        print("%d strings from %s" % (len(got), os.path.basename(fp)))
+        for t in got:
+            t = t.strip()
+            if 2 <= len(t) <= 40:
+                pool.add(t)
+                if "%s" in t and t.count("%") == 1:
+                    for c in cars:
+                        pool.add(t.replace("%s", c))
+    words = set()
+    for t in list(pool):
+        for w in t.replace("\\", "_").replace("/", "_").replace(".", "_").split("_"):
+            if 2 <= len(w) <= 24:
+                words.add(w)
+    pool |= words
+    pool |= {t.upper() for t in pool}
+    prefixes = pool | {t + "_" for t in pool}
+    print("%d unknown hashes; trying %d prefixes x %d suffixes"
+          % (len(unknown), len(prefixes), len(pool)), flush=True)
+    found = hp2_hash.two_piece(unknown, prefixes, pool)
+    # prefer the shortest, then the one with fewest pieces
+    named = 0
+    for h in sorted(found):
+        opts = sorted({p + s for p, s in found[h]}, key=lambda x: (len(x), x))
+        KNOWN[h] = opts[0]
+        named += 1
+        print("  %08x  %-32s%s" % (h, opts[0],
+                                   "  (also " + ", ".join(opts[1:4]) + ")" if len(opts) > 1 else ""))
+    print("named %d of %d" % (named, len(unknown)))
 
 
 def survey(paths):
@@ -544,6 +617,11 @@ def main():
             raise SystemExit("--tpk needs a texture pack")
         learn_names(argv[i + 1])
         del argv[i:i + 2]
+    string_files = []
+    while "--strings" in argv:
+        i = argv.index("--strings")
+        string_files.append(argv[i + 1])
+        del argv[i:i + 2]
     args = [a for a in argv if not a.startswith("--")]
     check = "--check" in argv
     if not args:
@@ -557,6 +635,9 @@ def main():
         return
     if "--names" in argv:
         name_report(args)
+        return
+    if "--guess" in argv:
+        guess_names(args, string_files)
         return
 
     for path in args:

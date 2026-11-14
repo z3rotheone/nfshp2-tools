@@ -60,6 +60,47 @@ def solve_seed(target, suffix):
     return ((target - tail) & MASK) * inv % (1 << 32)
 
 
+def two_piece(targets, prefixes, suffixes):
+    """Find every target hash that is hash(prefix + suffix) for some prefix
+    and suffix from the two pools. Meet in the middle: solve each suffix back
+    to the seed it needs and look that seed up among the prefixes' hashes, so
+    the cost is pools x targets rather than pools squared.
+
+    Returns {target: [(prefix, suffix), ...]}. An empty prefix is always tried.
+    """
+    targets = set(targets)
+    by_hash = {SEED: [""]}
+    for p in set(prefixes):
+        by_hash.setdefault(name_hash(p), []).append(p)
+    out = {}
+    for sfx in set(suffixes):
+        b = sfx.encode("ascii", "replace")
+        tail = 0
+        for c in b:
+            tail = (tail * 33 + c) & MASK
+        inv = pow(pow(33, len(b), 1 << 32), -1, 1 << 32)
+        for t in targets:
+            seed = ((t - tail) & MASK) * inv % (1 << 32)
+            for p in by_hash.get(seed, ()):
+                out.setdefault(t, []).append((p, sfx))
+    return out
+
+
+def strings_in(path, least=3):
+    """Printable ASCII runs in a file, as the executable keeps its names."""
+    with open(path, "rb") as f:
+        d = f.read()
+    out, cur = set(), bytearray()
+    for c in d:
+        if 32 <= c < 127:
+            cur.append(c)
+        else:
+            if len(cur) >= least:
+                out.add(cur.decode("ascii"))
+            cur = bytearray()
+    return out
+
+
 def pack_names(path):
     """(name, stored hash) for every texture in a .tpk pack."""
     d = open(path, "rb").read()

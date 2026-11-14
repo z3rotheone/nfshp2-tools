@@ -235,7 +235,8 @@ def parse_pack(d):
         name = b[8:32].split(b"\0")[0].decode("ascii", "replace")
         w, h = struct.unpack_from("<HH", b, 36)
         pix_off, pal_off, pix_sz, pal_sz = struct.unpack_from("<IIII", b, 48)
-        recs.append(dict(name=name, w=w, h=h, pix_off=pix_off, pal_off=pal_off,
+        recs.append(dict(name=name, hash=struct.unpack_from("<I", b, 32)[0],
+                         w=w, h=h, pix_off=pix_off, pal_off=pal_off,
                          pix_sz=pix_sz, pal_sz=pal_sz))
     total = max((r["pix_off"] + r["pix_sz"] for r in recs), default=0)
     pad = dsz - total
