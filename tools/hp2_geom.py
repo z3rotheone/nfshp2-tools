@@ -54,6 +54,7 @@ Usage:
                                             own texture, from hp2_tpk.py's PNGs
           [--lights off|on|damaged]         which state light textures show
           [--game-axes]                     keep X forward / Z up instead of Y-up
+          [--skin N]                        draw with <CAR>_SKINn instead of SKIN1
     python hp2_geom.py extracted/* --survey one line per model file: do the
                                             decoded triangle counts match?
     python hp2_geom.py extracted/* --names --tpk PACK.tpk
@@ -420,6 +421,9 @@ def _key(name):
     return name.upper()[:PACK_NAME_LEN] + ".PNG"
 
 
+SKIN = 1   # which of the car's paint pages stands in for <CAR>_SKIN1 (--skin N)
+
+
 def runtime_textures(name, car, state="off"):
     """Texture names to try, in order, for a name the model asks for.
 
@@ -430,8 +434,10 @@ def runtime_textures(name, car, state="off"):
     CHALLENGE) do have _LEFT/_RIGHT brake light art, so the exact name is
     tried first. The generic TIRE slot is the car's own <CAR>_TIRE.
     This is inferred from the pack's names, not read from the executable."""
-    out = [name]
     up = name.upper()
+    if car and up == (car + "_SKIN1").upper() and SKIN != 1:
+        return [car + "_SKIN%d" % SKIN, name]
+    out = [name]
     for side in ("_LEFT", "_RIGHT"):
         if car and up.startswith(car.upper() + "_") and up.endswith(side):
             base = name[:-len(side)]
@@ -857,6 +863,11 @@ def main():
         out_csv = argv[i + 1]
         del argv[i:i + 2]
     keep_axes = "--game-axes" in argv
+    global SKIN
+    if "--skin" in argv:
+        i = argv.index("--skin")
+        SKIN = int(argv[i + 1])
+        del argv[i:i + 2]
     state = "off"
     if "--lights" in argv:
         i = argv.index("--lights")
