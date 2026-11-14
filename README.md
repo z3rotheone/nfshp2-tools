@@ -100,6 +100,23 @@ python tools/hp2_iso.py write modded.iso NFSHP2/ZZDATA.BIN path/to/ZZDATA.BIN
 
 Then boot `modded.iso`. Work on a copy; your original image is the backup.
 
+### When a mod boots but nothing changed
+
+Three causes, and `hp2_verify.py` tells them apart:
+
+```sh
+python tools/hp2_verify.py check modded.iso --orig game.iso --entry 321
+python tools/hp2_verify.py banks modded.iso
+python tools/hp2_verify.py hunt  modded.iso 321_ad921759.bin 15
+```
+
+`check` diffs the two images and maps every differing byte back to the archive
+entry it falls inside — if nothing differs, the patch never landed. `banks`
+lists every entry that parses as a music bank, since a second bank holding the
+same music is the usual reason a patched one has no effect. `hunt` fingerprints
+one track out of an unmodified bank and finds every copy of that audio anywhere
+in the image, inside the archive or out. All three are read-only.
+
 ### The launcher
 
 A standalone prototype of the settings file and input layer, so a port has
