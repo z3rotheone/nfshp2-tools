@@ -18,7 +18,7 @@ executable. Nothing here contains any game data — you supply your own disc.
 | **Executable** | 377 functions attributed to source files, 258 sites carrying file and line |
 | **Name hash** | solved — djb2 with a `-1` seed, verified against every texture name checked |
 | **Filenames** | 252 of 372 archive entries mapped back to their original paths |
-| **Car models** | `GEOMETRY.BIN` structure decoded; vertex positions extractable |
+| **Car models** | `GEOMETRY.BIN` decoded to triangles with normals, texture coordinates and vertex colours; exports OBJ. Checked on one car |
 
 [`docs/formats.md`](docs/formats.md) documents every format in detail, marking
 what is confirmed against the disassembly, what is verified against data, and
@@ -163,6 +163,25 @@ Do not trust its output for an enhanced pack.
 Note that PCSX2 texture replacement can load textures at any resolution,
 because it swaps them as the GS uploads them. Patching the disc cannot: that is
 what the fixed slot size above is about.
+
+### Exporting a car model
+
+```sh
+python tools/hp2_geom.py extracted/063_508439c9.bin --obj models
+python tools/hp2_geom.py extracted/* --survey
+```
+
+`--obj` writes one Wavefront OBJ per part: `_A`, `_B` and `_C` are the same
+car at three levels of detail, and the tyre is separate. Vertex colours ride
+on the `v` lines, which Blender and MeshLab read. Axes are left as stored (X
+forward, Z up), and faces are grouped by material index; which texture each
+index means is not yet known, so the OBJ has no `.mtl`.
+
+Every model file records how many triangles each batch should produce.
+`--survey` decodes every model it is given and reports whether it got that
+number, one line per file. For the one car examined so far it does, for all 77
+batches. Run it over the whole `extracted` folder before trusting it on the
+rest.
 
 ### When a mod boots but nothing changed
 

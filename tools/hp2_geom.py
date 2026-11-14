@@ -23,17 +23,33 @@ The file header's 6 records are wheel and attachment points: each holds a
 position, the hash of the part to attach, and the hash of the car's own base
 name. Their Y coordinates come in +/- pairs, which is the left/right symmetry.
 
-The geometry chunk is a PS2 VIF display list: UNPACK commands push vertex
-positions (V4_32 floats), texture coordinates (V2_32) and colours (V4_8 or
-V4_5551) into VU1 memory, then MSCAL runs the microprogram that builds the
-strips. Turning that into triangles needs the VU1 program's own layout, which
-is not decoded here -- this tool reports the packets and can dump the raw
-float blocks, which is enough to see the mesh.
+The geometry chunk is a PS2 VIF display list, one batch of at most 30
+vertices per MSCAL. Each batch unpacks, at fixed VU1 addresses:
+
+    0   V4_8     vertex count N, (N-1)/4, 3N, material index * 4
+    1   V4_32    strip masks, up to two 32-bit words (see strip_flags)
+    2   V4_32    positions, four vertices at a time and transposed: x0 x1 x2 x3,
+                 y0..y3, z0..z3. The N % 4 left over follow as three V1/V2/V3
+                 rows laid out the same way.
+    32  V4_32    texture coordinates, two vertices a quad as u0 v0 v1 u1; an
+                 odd last vertex follows as one V2_32
+    52  V4_5551  one colour per vertex
+    92  V4_8     normals as signed bytes, in transposed groups of four like the
+                 positions, the last group zero padded. Some materials have none.
+
+The batch is a run of triangle strips. Which vertices start a strip is in the
+masks at address 1, decoded by strip_flags(); every batch's resulting triangle
+count equals the count stored in its 64-byte record in chunk 0x00034004, which
+is the check `--check` runs. No VU1 microprogram was needed for any of this.
 
 Usage:
     python hp2_geom.py CAR.BIN              summary of parts and textures
     python hp2_geom.py CAR.BIN --vif        walk the VIF display lists
     python hp2_geom.py CAR.BIN --dump-verts write part_N.xyz point clouds
+    python hp2_geom.py CAR.BIN --check      verify triangle counts against the file
+    python hp2_geom.py CAR.BIN --obj DIR    write one Wavefront OBJ per part
+    python hp2_geom.py extracted/* --survey one line per model file: do the
+                                            decoded triangle counts match?
 """
 import os
 import struct
@@ -147,16 +163,262 @@ def parse(path):
     return d, out
 
 
+def batches(d, start, end):
+    """Yield one dict per MSCAL: {VU address: [(cmd, num, payload bytes)]}."""
+    cur = {}
+    for off, cmd, num, imm, po, pn in walk_vif(d, start, end):
+        if 0x60 <= cmd <= 0x7F:
+            cur.setdefault(imm & 0x3FF, []).append((cmd, num, d[po:po + pn]))
+        elif cmd in (0x14, 0x15, 0x17):
+            if cur:
+                yield cur
+            cur = {}
+    if cur:
+        yield cur
+
+
+def strip_flags(q1, n):
+    """Per vertex, 1 if it completes no triangle - the first two of each strip.
+
+    The quad at address 1 holds one or two non-zero 32-bit words. The first
+    describes the batch from its start: bit 14 is vertex 0, bit 13 vertex 1,
+    down to bit 0 for vertex 14. The second describes it from its end: with
+    the vertex count rounded up to a multiple of four as P, bit 1 is vertex P
+    and bit 17 is vertex P-16. Bits above those are set in the data but do not
+    mark strips. A strip start is always two flagged vertices in a row, and
+    vertex 15 can fall in the gap between the two words; it is flagged when
+    the pair on either side of it would otherwise be cut in half.
+    """
+    words = [w for w in struct.unpack_from("<4I", q1, 0) if w]
+    f = [0] * (n + 40)
+    if not words:
+        f[0] = f[1] = 1
+        return f[:n]
+    a = words[0]
+    for b in range(15):
+        if (a >> b) & 1:
+            f[14 - b] = 1
+    if len(words) > 1:
+        padded = (n + 3) // 4 * 4
+        for b in range(18):
+            v = padded + 1 - b
+            if v >= 15 and (words[1] >> b) & 1:
+                f[v] = 1
+        if f[16] and not f[17]:
+            f[15] = 1
+    if f[14] and not f[13]:
+        f[15] = 1
+    return f[:n]
+
+
+def _transposed(vals, n, groups_padded):
+    """Undo the x0 x1 x2 x3 / y0.. / z0.. grouping; returns n (x, y, z)."""
+    out = []
+    full = len(vals) // 12 if groups_padded else n // 4
+    for k in range(full):
+        g = vals[k * 12:k * 12 + 12]
+        for j in range(4):
+            out.append((g[j], g[4 + j], g[8 + j]))
+    return out[:n], full
+
+
+def decode_batch(b):
+    """Positions, normals, texture coordinates, colours and triangles of one batch."""
+    hdr = b[0][0][2]
+    n = hdr[0]
+    out = {"n": n, "material": hdr[3] >> 2, "normals": None}
+
+    pos_blocks = sorted((addr, e) for addr in b if 2 <= addr < 32 for e in b[addr])
+    first = pos_blocks[0][1]
+    vals = struct.unpack_from("<%df" % (len(first[2]) // 4), first[2])
+    pos, full = _transposed(vals, n, False)
+    rem = n - full * 4
+    if rem:
+        tail = pos_blocks[1][1]
+        t = struct.unpack_from("<%df" % (3 * rem), tail[2])
+        for j in range(rem):
+            pos.append((t[j], t[rem + j], t[2 * rem + j]))
+    out["pos"] = pos
+
+    uv = []
+    for addr, e in sorted((addr, e) for addr in b if 32 <= addr < 52 for e in b[addr]):
+        v = struct.unpack_from("<%df" % (len(e[2]) // 4), e[2])
+        if (e[0] >> 2) & 3 == 3:                       # V4: u0 v0 v1 u1
+            for k in range(0, len(v) - 3, 4):
+                uv.append((v[k], v[k + 1]))
+                uv.append((v[k + 3], v[k + 2]))
+        else:                                          # the odd last vertex
+            uv.append((v[0], v[1]))
+    out["uv"] = uv[:n]
+
+    col = []
+    if 52 in b:
+        raw = b[52][0][2]
+        for k in range(min(n, len(raw) // 2)):
+            c = struct.unpack_from("<H", raw, k * 2)[0]
+            col.append(((c & 31) / 31.0, ((c >> 5) & 31) / 31.0, ((c >> 10) & 31) / 31.0))
+    out["col"] = col
+
+    if 92 in b:
+        raw = b[92][0][2]
+        raw = raw[:len(raw) // 12 * 12]
+        nv, _ = _transposed(struct.unpack_from("<%db" % len(raw), raw), n, True)
+        out["normals"] = [(x / 127.0, y / 127.0, z / 127.0) for x, y, z in nv]
+
+    f = strip_flags(b[1][0][2], n) if 1 in b else [1, 1] + [0] * (n - 2)
+    out["flags"] = f
+    tris, k = [], 0
+    for v in range(n):
+        if f[v]:
+            k = 0
+            continue
+        if v < 2:
+            continue
+        # strips alternate their winding; the first triangle faces along its normals
+        tris.append((v - 2, v - 1, v) if k % 2 == 0 else (v - 1, v - 2, v))
+        k += 1
+    out["tris"] = tris
+    return out
+
+
+def batch_records(d, part):
+    """The 64-byte record chunk 0x00034004 keeps for each batch."""
+    if not part["submesh"]:
+        return []
+    o, sz = part["submesh"]
+    body = d[o:o + sz]
+    lead = len(body) % 64
+    out = []
+    for i in range(len(body) // 64):
+        r = body[lead + i * 64: lead + (i + 1) * 64]
+        out.append(dict(material=r[28], verts=r[29], tris=r[30],
+                        bbox=(struct.unpack_from("<3f", r, 16), struct.unpack_from("<3f", r, 32))))
+    return out
+
+
+def part_mesh(d, part):
+    """All batches of a part decoded, and how many disagree with their record."""
+    o, n = part["geom"]
+    recs = batch_records(d, part)
+    out, wrong = [], 0
+    for i, b in enumerate(batches(d, o, o + n)):
+        if 0 not in b or 2 not in b:
+            continue
+        m = decode_batch(b)
+        if i < len(recs) and (recs[i]["verts"] != m["n"] or recs[i]["tris"] != len(m["tris"])):
+            wrong += 1
+        out.append(m)
+    return out, wrong, len(recs)
+
+
+def write_obj(path, name, mesh):
+    """Wavefront OBJ: positions with vertex colours, texture coordinates, normals,
+    one group per material. X is forward, Y is left-right and Z is up, as stored."""
+    with open(path, "w") as f:
+        f.write("# %s\n# axes as stored: X forward, Y sideways, Z up\no %s\n" % (name, name))
+        vbase = nbase = 1
+        cur = None
+        for m in sorted(mesh, key=lambda m: m["material"]):
+            if m["material"] != cur:
+                cur = m["material"]
+                f.write("g material_%d\nusemtl material_%d\n" % (cur, cur))
+            for i, p in enumerate(m["pos"]):
+                c = m["col"][i] if i < len(m["col"]) else (1.0, 1.0, 1.0)
+                f.write("v %.6f %.6f %.6f %.4f %.4f %.4f\n" % (p + c))
+            for u, v in m["uv"]:
+                f.write("vt %.6f %.6f\n" % (u, 1.0 - v))
+            if m["normals"]:
+                for nx in m["normals"]:
+                    f.write("vn %.5f %.5f %.5f\n" % nx)
+            for a, b_, c in m["tris"]:
+                if m["normals"]:
+                    f.write("f %d/%d/%d %d/%d/%d %d/%d/%d\n" % (
+                        vbase + a, vbase + a, nbase + a, vbase + b_, vbase + b_, nbase + b_,
+                        vbase + c, vbase + c, nbase + c))
+                else:
+                    f.write("f %d/%d %d/%d %d/%d\n" % (vbase + a, vbase + a, vbase + b_,
+                                                       vbase + b_, vbase + c, vbase + c))
+            vbase += m["n"]
+            if m["normals"]:
+                nbase += m["n"]
+
+
 KNOWN = {0x2787edab: "INTERIOR", 0x6bfa56da: "MIRROR"}
 
 
+def survey(paths):
+    """One line per file: do the decoded triangle counts match the file's own?"""
+    tot = {"files": 0, "parts": 0, "batches": 0, "agree": 0, "tris": 0}
+    trouble = []
+    for path in paths:
+        if os.path.isdir(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                if struct.unpack("<I", f.read(4))[0] != HDR:
+                    continue
+            d, m = parse(path)
+        except Exception:
+            continue
+        car = os.path.basename(os.path.dirname(m["devpath"].replace("\\", "/"))) or "?"
+        nb = ok = tris = 0
+        notes = []
+        for p in m["parts"]:
+            if not p["geom"]:
+                continue
+            try:
+                mesh, wrong, nrec = part_mesh(d, p)
+            except Exception as e:
+                notes.append("%s: could not decode (%s)" % (p["name"], e))
+                continue
+            if nrec != len(mesh):
+                notes.append("%s: %d batches, %d records" % (p["name"], len(mesh), nrec))
+                continue
+            nb += nrec
+            ok += nrec - wrong
+            tris += sum(len(x["tris"]) for x in mesh)
+            if wrong:
+                notes.append("%s: %d of %d batches disagree" % (p["name"], wrong, nrec))
+        tot["files"] += 1
+        tot["parts"] += len(m["parts"])
+        tot["batches"] += nb
+        tot["agree"] += ok
+        tot["tris"] += tris
+        print("%-24s %-18s %2d parts %5d batches %6d triangles  %s"
+              % (os.path.basename(path)[:24], car[:18], len(m["parts"]), nb, tris,
+                 "ok" if not notes else "CHECK"))
+        for n in notes:
+            print("      " + n)
+        if notes:
+            trouble.append(os.path.basename(path))
+    print()
+    print("%d model files, %d parts, %d triangles" % (tot["files"], tot["parts"], tot["tris"]))
+    print("%d of %d batches give exactly the triangle count the file records"
+          % (tot["agree"], tot["batches"]))
+    if trouble:
+        print("files to look at: %s" % ", ".join(trouble))
+
+
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
+    objdir = None
+    if "--obj" in argv:
+        i = argv.index("--obj")
+        if i + 1 >= len(argv):
+            raise SystemExit("--obj needs a folder to write into")
+        objdir = argv[i + 1]
+        del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith("--")]
+    check = "--check" in argv
     if not args:
         print(__doc__)
         return
     show_vif = "--vif" in sys.argv
     dump = "--dump-verts" in sys.argv
+
+    if "--survey" in argv:
+        survey(args)
+        return
 
     for path in args:
         d, m = parse(path)
@@ -202,6 +464,35 @@ def main():
                               (off, lbl, num, imm, pn))
                         shown += 1
                 print("      ... %s" % ", ".join("%s x%d" % (k, v) for k, v in sorted(counts.items())))
+
+        if check or objdir:
+            stem = os.path.splitext(os.path.basename(path))[0]
+            if objdir:
+                os.makedirs(objdir, exist_ok=True)
+            print("\n  meshes:")
+            used = {}
+            for p in m["parts"]:
+                if not p["geom"]:
+                    continue
+                mesh, wrong, nrec = part_mesh(d, p)
+                tris = sum(len(x["tris"]) for x in mesh)
+                verts = sum(x["n"] for x in mesh)
+                if nrec != len(mesh):
+                    verdict = "%d batches but %d records - not checked" % (len(mesh), nrec)
+                elif wrong:
+                    verdict = "%d of %d batches DISAGREE with the file's own counts" % (wrong, nrec)
+                else:
+                    verdict = "all %d batches agree with the file's own counts" % nrec
+                print("    %-28s %5d vertices %5d triangles  %s"
+                      % (p["name"], verts, tris, verdict))
+                if objdir:
+                    nm = "%s_%s" % (stem, p["name"] or "part")
+                    used[nm] = used.get(nm, 0) + 1
+                    if used[nm] > 1:
+                        nm += "%d" % used[nm]
+                    out = os.path.join(objdir, nm + ".obj")
+                    write_obj(out, nm, mesh)
+                    print("        -> %s" % out)
 
         if dump:
             stem = os.path.splitext(os.path.basename(path))[0]

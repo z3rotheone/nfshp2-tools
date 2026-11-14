@@ -415,34 +415,83 @@ The sedan's are at x ≈ ±2.2 with y in ± pairs: wheel positions.
 `0x00034005` is a PS2 VIF packet stream, the format the hardware DMAs to the
 Vector Unit. It alternates `UNPACK` commands, which push data into VU1 memory
 at an address given by the tag's immediate, with `MSCAL`, which runs the
-microprogram that turns it into triangles. The sedan's largest part is 17 such
-batches.
+microprogram that draws it. Each `MSCAL` is one batch of at most 30 vertices;
+the sedan's body is 37 of them.
 
 Within a batch, by VU address:
 
-| Address | Data |
-|---|---|
-| 0 | `V4_8`, one quad: batch header |
-| 1 | `V4_32`, one quad, all zero |
-| **2** | **`V4_32`: vertex positions** |
-| 14, 23, 46 | `V2_32` / `S_32`: texture coordinates |
-| 32 | `V4_32`: a second vector stream, normals or lighting |
-| 52 | `V4_5551`: packed colours |
-| 92 | `V4_8` |
+| Address | Unpack | Data |
+|---|---|---|
+| 0 | `V4_8`, one quad | vertex count N, (N-1)/4, 3N, material index x 4 |
+| 1 | `V4_32`, one quad | strip masks (below) |
+| 2 | `V4_32` | positions for the first N - N%4 vertices |
+| after them | `S_32`/`V2_32`/`V3_32` x 3 | positions of the N%4 left over |
+| 32 | `V4_32` | texture coordinates, two vertices a quad |
+| after them | `V2_32` | texture coordinates of an odd last vertex |
+| 52 | `V4_5551` | one colour per vertex |
+| 92 | `V4_8` | normals, signed bytes; absent for some materials |
 
 **Positions are transposed for the VU1's SIMD registers.** Each group of three
-quads holds the X, then the Y, then the Z of the *same four vertices*, so a
-block of `num` quads yields `num/3 * 4` vertices and `num` is always a
-multiple of 3. Reading the quads as (x, y, z, w) per vertex produces noise.
+quads holds the X, then the Y, then the Z of the *same four vertices*. Reading
+the quads as (x, y, z, w) per vertex produces noise. The leftover vertices use
+the same arrangement at their own width: for two of them, `x0 x1`, `y0 y1`,
+`z0 z1`. Normals are grouped the same way, twelve bytes a group, and the last
+group is zero padded rather than narrowed; every decoded normal has length
+126 or 127.
+
+**Texture coordinates** come as `u0 v0 v1 u1` per quad: the second vertex's
+pair is stored reversed. Of the four orderings, this is the one under which
+vertices repeated within a batch mostly carry the same coordinates (281 of 377
+on the sedan; the rest sit on texture seams).
 
 One practical trap: VIF payloads are padded to a 4-byte boundary. A
 `V4_5551` run of 29 elements occupies 60 bytes, not 58, and a walker that
 misses this desynchronises partway through a batch.
 
-Turning the stream into triangles needs the VU1 microprogram's own strip
-logic, which is not decoded. `tools/hp2_geom.py` reports the structure and
-dumps the positions as a point cloud, which is enough to confirm a model and
-to measure it.
+### Strips
+
+A batch is a run of triangle strips with nothing shared between them: where
+two strips meet, the vertices are simply stored twice. A vertex either
+completes the triangle formed with the two before it, or it does not, and the
+first two vertices of every strip do not. Which is which is in the quad at
+address 1, as one or two non-zero 32-bit words (which of the four slots they
+occupy varies with the batch size and does not matter):
+
+- **The first word counts from the start of the batch.** Bit 14 is vertex 0,
+  bit 13 is vertex 1, down to bit 0 for vertex 14. Every batch therefore
+  begins `0x6...`: vertices 0 and 1 flagged.
+- **The second word counts from the end.** Round N up to a multiple of four
+  and call it P. Bit 1 is vertex P, bit 2 is vertex P-1, up to bit 17 for
+  vertex P-16. Only bits for vertex 15 and above are needed.
+- Bits 19-22 of either word are often set and are not strip flags. Their
+  meaning is unknown.
+- For the largest batches the two words leave vertex 15 uncovered. A strip
+  start is always two flagged vertices in a row, so vertex 15 is flagged when
+  vertex 14 is flagged alone or vertex 16 is flagged alone.
+
+Within a strip the winding alternates, and the first triangle faces the way
+its vertices' normals point.
+
+The file checks this itself. Chunk `0x00034004` holds one 64-byte record per
+batch, preceded in some parts by eight bytes of `0x11`:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x08 | u32 | offset of the batch within the geometry chunk |
+| 0x0C | u16 | its length in 16-byte units |
+| 0x10 | 3 x f32 | bounding box minimum |
+| 0x1C | u8 | material index |
+| 0x1D | u8 | vertex count |
+| 0x1E | u8 | **triangle count** |
+| 0x20 | 3 x f32 | bounding box maximum |
+
+Decoding the masks as above gives exactly the recorded triangle count for all
+77 batches of the one model examined (`CARS\4DR_SEDAN02`), and the result
+renders as a closed car body with consistent winding. `tools/hp2_geom.py
+--check` repeats the comparison and `--survey` runs it over every model file;
+that has not yet been done for the other cars.
+
+None of this needed the VU1 microprogram.
 
 ---
 
@@ -461,9 +510,11 @@ Things not yet worked out, roughly in order of how tractable they look:
   tried. They are probably composed at runtime from a table not yet found.
   `tools/hp2_hash.py --solve` narrows a guess: it gives the exact hash state
   any proposed prefix would have to produce.
-- **Triangle reconstruction from the VIF stream** (§10). Positions come out;
-  assembling them into strips needs the VU1 microprogram, which lives in the
-  executable's `.vutext` section.
+- **Which texture each material index selects** (§7). Batches carry a material
+  index of 0-5 and parts list texture hashes in two chunks, but the list
+  lengths do not match the index range, so the link is somewhere else.
+- **Bits 19-22 of the strip mask words** (§7).
+- **Whether the car layout holds for every model.** Verified on one car only.
 - **Track scenery** — the `eLabScenery0.bin` files, 7–11 MB each.
 - **Menu text** — the `FE_ENGLISH.bin` family. Strings are readable; the
   surrounding structure is not parsed.
