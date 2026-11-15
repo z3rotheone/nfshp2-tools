@@ -603,9 +603,6 @@ Things not yet worked out, roughly in order of how tractable they look:
 - **Bits 19-22 of the strip mask words** (§7).
 - **Track scenery** — models and placement are decoded (§11); the other
   top-level chunks of `eLabScenery99.bin` are not.
-- **Video** — 21 AVI files extract cleanly as containers, but the codec is
-  probably custom; the executable has `movieplayer/dctimage.cpp` among its
-  source paths.
 - **Three textures** with 128-byte and zero-length palettes.
 
 ---
@@ -1093,3 +1090,22 @@ out the menus.
 edited texts (`--write IN.json OUT`). Rebuilding unchanged reproduces all 8
 files byte for byte (`--check`); an edit changes only the edited strings. Not
 yet tried in game.
+
+## 15. Video
+
+The videos are 21 AVI files (entries 372–392), at 30 fps and 512×256 or
+256×384:
+
+- **Codecs:** twenty use FourCC `MV30` (MidiVid 3.0) and entry 390 uses
+  `MVDV` (MidiVid VQ). FFmpeg has decoded both since 4.3. The executable's
+  `movieplayer/dctimage.cpp` is the game's own MidiVid player.
+- **Audio:** ten files carry PCM audio (`pcm_u8`): the logos, the intro,
+  the making-of and the reward videos.
+- **Orientation:** FFmpeg's MV30 decoder ignores the AVI's bottom-up row order,
+  so MV30 frames come out upside down; MVDV comes out upright.
+  `tools/hp2_video.py EXTRACTED OUT` converts all of them to MP4, flipping
+  only MV30.
+- **Contents:** EA and BBG logos per language, the intro (`NFSINTRO_EN`/`FR`,
+  80 s), the making-of (`MAKEOF_EN`, 8 min), reward videos, and menu
+  backgrounds (`MAINMENU_MOVIE`, `OPTIONS_MOVIE`, `HOTPURSUIT_MOVIE`,
+  `WORLDRACING_ MOVIE`; the space is in the name).
