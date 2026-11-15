@@ -49,6 +49,8 @@ result, and `hp2_extract.py` writes it beside the files it extracts. A
 compressed asset lives under the same path with the extension `.LZC` in place
 of `.BIN`, which is how the archive carries both forms of the same file.
 
+Paths the executable builds at run time (`NIS\\%s.bin`, `REPLAY\\%s`, `TRACKS\\TRACKB%d.BUN`) are not literal strings, so they were found by solving the hash: it is linear, so the hash of an unknown prefix follows exactly from a known ending. `NIS\\NIS_` came out of both the arrest and ticket cutscenes (their own chunks hold COP_ARREST01, COP_TICKET04...). That named 17 more (270 of 372). The other 102 are identified by content in `tools/archive_contents.csv`: 36 developer ghost replays (chunk 0x39100 holds the driver name), 26 sound banks as body + header pairs (the header's id is the body's + 6, 'H' - 'B': a .VH/.VB-style pair; 18 are engines, one per engine tag 348, 993, BMW...), profile defaults, the police speech event list, four AVIs and the testers' QA notes.
+
 Read with `tools/hp2_extract.py`, then `tools/hp2_index.py`.
 
 ---
