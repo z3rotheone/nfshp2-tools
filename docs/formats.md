@@ -649,6 +649,9 @@ paths. `tools/hp2_hash.py` computes, verifies and solves.
 
 ## 11. Track scenery: `eLabScenery99.bin`
 
+**All 30 tracks.** The archive holds `TRACKS\\TRACKB11` to `TRACKB66` for locations 1, 2, 3, 4 and 6 (there is no location 5): 30 tracks. 8 are stored plain (`.BUN`, the entries named below); every one also exists as a `.LZC` that `hp2_comp.py` decompresses. The 8 that exist both ways decompress byte-identical to the plain copy. Each file carries its own devpath (`TRACK11\\Pipeline\\Scenery\\...`). Within a location, tracks n and n+3 hold the same sections, collision, routes and cameras (forward/reverse or day/night pairs?); the third and sixth have an open main route (point-to-point). `hp2_scenery.py` passes every check below on all 30: placement 97.8–100%, box tree in every section, collision heights 97.6–100%, every loop closes, every camera fits.
+
+
 One file per **location**, 9–11 MB, found with `grep -l eLabScenery`:
 entries 196, 198, 200 (TRACK24/25/26), 211, 213, 215 (TRACK44/45/46),
 221, 223 (TRACK65/66). Several tracks share a location's file.
@@ -896,7 +899,9 @@ All 231 sit on the drivable surface.
 | 24 | u32 | `0x467Cxx` |
 
 In `xx`, the high nibble is the difficulty (8 Easy, 9 Med, A Hard); it
-agrees with the name in all 416. The low nibble is 0 for B (89 of 92). F and
+agrees with the name in all 416 of the first 8 files. In TRACKB13/16 every
+roadblock is coded one level below its name ("Hard" = 9, "Med" = 8), so the
+code, not the name, is probably what the game uses. The low nibble is 0 for B (89 of 92). F and
 R share the codes 1/2 in bits 0–1 and 0–2 in bits 2–3 (meaning unknown).
 There's no heading, so the game probably lines roadblocks up with the road.
 All 416 sit on the drivable surface.
