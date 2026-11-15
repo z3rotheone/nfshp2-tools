@@ -808,6 +808,79 @@ name. All misses are in files that use sections of a neighbouring
 location. The plants are bushes, yuccas, prickly pears and shrubs in the
 desert; palms, ferns and dracaenas in TRACK65/66.
 
-Still unread: top-level chunks `80034015`, `80034019`, `80034020`,
-`35020`/`35021`, `34250`, `34026`, `80034147`, `80034405`, `80034425`,
-`80034500`, `80034800`, `80038000` and `34106`/`34121`/`34122`/`34130`/`34146`/`34200`/`34202`.
+
+### Road quads: `0x80034800`
+
+The road, as quads joined edge to edge down the middle of every road
+(533 in entry 196; 533–1,246 per file).
+
+**Header (`0x34801`):** `u32 n, u32 0, u32` (an address), `f32 min x, f32 max x,
+f32`, then 256 u16. Each u16 is the first quad whose min x reaches that slice,
+for 256 equal slices of x.
+
+**Quad (`0x34802`, 64 bytes):** 4 corners of 16 bytes each (3 × f32 + 4 spare
+bytes). The spare bytes hold:
+
+| Corner | Spare 4 bytes |
+|---|---|
+| 0 | the quad's min x |
+| 1 | its max x |
+| 2 | flags: low byte = corner count (4, or 3 with corner 3 zero); bits 0x100, 0x400, 0x1000, 0x4000 unknown |
+| 3 | 0 |
+
+Quads are sorted by min x. Nearly all have two neighbours; a few are
+junctions with 3–4.
+
+### Routes: `0x80034147`
+
+The race routes: a main route plus shortcuts.
+
+**Route (`0x34148`, 40 bytes):**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u8 | id |
+| 1 | u8 | 1 = closed loop |
+| 2 | u16 | first point |
+| 4 | u16 | end |
+| 6 | u16 | point count |
+| 8 | f32 | progress on the main route where it starts |
+| 12 | f32 | progress where it ends (the main route: 0 and its length) |
+| 16 | f32 | 1.0 or 1.4 (unknown) |
+| 20 | 2 × f32 | x, y of the first point |
+| 28 | 2 × f32 | x, y of the last point |
+
+**Point (`0x34149`, 20 bytes):**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | 2 × f32 | x, y |
+| 8 | 4 × u16 | 0, then up to three indices of other route points (0xFFFF = none) |
+| 16 | f32 | progress |
+
+On the main route, progress is the arc length of a smooth curve through
+the points, a little more than the straight lines between them. On a loop,
+the last point's progress plus the gap back to the start equals the stored
+length, within 1 unit, in all 5 looped tracks. On a shortcut, progress is
+the main route's progress at that point. It can be shorter than the
+shortcut itself, so race position works on any path.
+
+The main route is closed in 5 files and open in 3 (entries 200, 215, 223:
+probably the point-to-point tracks). Plotted over the collision mesh,
+every route point in entry 196 sits on the drivable surface.
+
+### Identified, not decoded
+
+| Chunk | What it holds |
+|---|---|
+| `80034405` | 129 replay cameras (`34450`, named "CamBeforeTunnel", "CamMineEntrance", "CamPreJump"…) |
+| `80034020` | physics shapes for smashable objects, one group of 5 per object (`34021` name, e.g. "CS_BarrelA_L", "CS_GasPump"; vertex/edge/face counts that satisfy Euler's formula), `34024` vertices, `34023` edges, `34022` face planes, `34025` state |
+| `80034500` | police: `34510` radar spots ("Radar21_83") and `34520` roadblocks ("RB21_East_B1") with positions; `34530` polygons |
+| `80038000` | ambient sound and effect emitters ("Crickets01", "PowerLine_01", "Sandstorm", "Waterfall01") |
+| `34200` | track description text |
+| `34202` | world bounds (6000, 5500, 2000) |
+| `34250` | contains "FOG<MAIN>": fog/environment settings? |
+| `34121` | about 360 records named "RAGNAR" |
+
+Still unread: `80034015` (name hash table), `80034019`, `35020`/`35021`, `34026`, `80034425`,
+`34106`, `34122`, `34130`, `34146`, and the inside of the chunks in the table above.

@@ -86,8 +86,45 @@ Prop collision: 0x80036000 (first chunk of the file)
     sits on a road or terrain mesh vertex (93% do, in x and y), its height
     matches that vertex's within 0.05 for 99.96%.
 
+Road quads: 0x80034800
+
+    0x00034801  u32 n, u32 0, u32 (address), f32 min x, f32 max x, f32,
+                then 256 u16: for each of 256 equal slices of x, the first
+                quad whose min x reaches it
+    0x00034802  n records of 64 bytes: 4 corners of 16 bytes (3 f32 + 4
+                spare bytes). Spare of corner 0 = the quad's min x, of
+                corner 1 = max x, of corner 2 = flags (low byte: corner
+                count, 4 or 3; then bits 0x100, 0x400, 0x1000, 0x4000
+                unknown), of corner 3 = 0. Sorted by min x. Quads join edge
+                to edge down the middle of every road: in entry 196, 508 of
+                533 have two neighbours, 18 are ends, 7 junctions.
+
+Routes: 0x80034147
+
+    0x00034148  one 40-byte record per route: u8 id, u8 loop (1 = the
+                closed main route), u16 first point, u16 end, u16 count,
+                f32 distance where it starts on the main route, f32 where it
+                ends (the main route's: 0 and its length), f32 (1.0 / 1.4),
+                f32 x, y of the first point, f32 x, y of the last
+    0x00034149  20-byte points: f32 x, f32 y, 4 x u16 (0, then up to three
+                indices of other route points, 0xFFFF none), f32 progress.
+                On the main route that is the arc length of a smooth curve
+                through the points (a little more than the straight lines;
+                on a loop, last + gap back to the start = the stored length,
+                within 1 unit in all 5 looped tracks). On a shortcut it is
+                the main route's progress at that point: it runs between the
+                shortcut's from/to distances and can be shorter than the
+                shortcut itself, so race position works on any path.
+                The main route is a loop (flag 1) in 5 files and open in 3
+                (entries 200, 215, 223: point-to-point tracks?).
+                In entry 196 the main route is 73 points, 7,343 units round;
+                two shortcuts leave it at 5,102 and 5,479 and rejoin at
+                5,702 and 6,033.
+
 Usage:
     hp2_scenery.py FILE...                 check every section and report
+    hp2_scenery.py FILE --routes OUT.obj [--game-axes]
+        road quads as faces and the routes as lines
     hp2_scenery.py FILE --collision OUT.obj [--game-axes]
         the collision polygons as an OBJ, one group per surface
     hp2_scenery.py FILE --list             one line per section
@@ -232,6 +269,129 @@ def check_props(d, secs, parts):
     top = sorted(kinds.items(), key=lambda x: -x[1])[:6]
     print("  prop collision: %d objects; %d sit exactly on the instance they name (%s)"
           % (len(objs), ok, ", ".join("%s %d" % kv for kv in top)))
+
+
+def road_quads(d):
+    """0x80034800: the road as connected quads. Returns (header, quads)."""
+    for cid, off, sz in g.chunks(d, 0, len(d)):
+        if cid != 0x80034800:
+            continue
+        kids = {c: _body(d, o, s) for c, o, s in g.chunks(d, off, off + sz)}
+        b, e = kids[0x34801]
+        n = struct.unpack_from("<I", d, b)[0]
+        lo, hi, _ = struct.unpack_from("<3f", d, b + 12)
+        bins = struct.unpack_from("<256H", d, b + 24)
+        b, e = kids[0x34802]
+        quads = []
+        for q in range(n):
+            r = b + 64 * q
+            corners = [struct.unpack_from("<3f", d, r + 16 * k) for k in range(4)]
+            flags = struct.unpack_from("<I", d, r + 44)[0]
+            quads.append(dict(v=corners[:flags & 0xFF], flags=flags,
+                              minx=struct.unpack_from("<f", d, r + 12)[0],
+                              maxx=struct.unpack_from("<f", d, r + 28)[0]))
+        return dict(lo=lo, hi=hi, bins=bins), quads
+    return None, []
+
+
+def routes(d):
+    """0x80034147: race routes. Returns [(route header, [points])]."""
+    for cid, off, sz in g.chunks(d, 0, len(d)):
+        if cid != 0x80034147:
+            continue
+        kids = {c: _body(d, o, s) for c, o, s in g.chunks(d, off, off + sz)}
+        b, e = kids[0x34149]
+        pts = []
+        for r in range(b, e - 19, 20):
+            x, y = struct.unpack_from("<2f", d, r)
+            pts.append(dict(x=x, y=y, links=struct.unpack_from("<4H", d, r + 8),
+                            dist=struct.unpack_from("<f", d, r + 16)[0]))
+        b, e = kids[0x34148]
+        out = []
+        for r in range(b, e - 39, 40):
+            rid, loop, start, end, count = struct.unpack_from("<BBHHH", d, r)
+            f = struct.unpack_from("<7f", d, r + 8)
+            out.append((dict(id=rid, loop=loop, start=start, end=end, count=count,
+                             from_dist=f[0], to_dist=f[1], f2=f[2],
+                             first=(f[3], f[4]), last=(f[5], f[6])),
+                        pts[start:start + count]))
+        return out
+    return []
+
+
+def check_routes(d):
+    hdr, quads = road_quads(d)
+    if quads:
+        edges = {}
+        for i, q in enumerate(quads):
+            vs = [tuple(round(c, 2) for c in v) for v in q["v"]]
+            for k in range(len(vs)):
+                edges.setdefault(frozenset((vs[k], vs[(k + 1) % len(vs)])), []).append(i)
+        deg = [0] * len(quads)
+        for lst in edges.values():
+            if len(lst) > 1:
+                for i in lst:
+                    deg[i] += 1
+        hist = {}
+        for x in deg:
+            hist[x] = hist.get(x, 0) + 1
+        sorted_ok = all(quads[i]["minx"] <= quads[i + 1]["minx"] for i in range(len(quads) - 1))
+        print("  road quads: %d (%d triangles); sorted by min x %s; neighbours per quad %s"
+              % (len(quads), sum(len(q["v"]) == 3 for q in quads), "yes" if sorted_ok else "NO",
+                 ", ".join("%d: %d" % kv for kv in sorted(hist.items()))))
+    for h, pts in routes(d):
+        chord = sum(math.hypot(pts[i]["x"] - pts[i - 1]["x"], pts[i]["y"] - pts[i - 1]["y"])
+                    for i in range(1, len(pts)))
+        rising = all(pts[i]["dist"] > pts[i - 1]["dist"] for i in range(1, len(pts)))
+        line = ("  route %d: %d points, %s, distance %.1f to %.1f; distances rise %s; "
+                "stored span %.1f, straight-line sum %.1f"
+                % (h["id"], len(pts), "loop" if h["loop"] else "branch", h["from_dist"],
+                   h["to_dist"], "yes" if rising else "NO",
+                   pts[-1]["dist"] - pts[0]["dist"], chord))
+        if h["loop"]:
+            gap = math.hypot(pts[-1]["x"] - pts[0]["x"], pts[-1]["y"] - pts[0]["y"])
+            line += "; last + gap back to start = %.1f" % (pts[-1]["dist"] + gap)
+        print(line)
+
+
+def export_routes(path, out, yup=True):
+    d, info = g.parse(path)
+    conv = g.to_yup if yup else (lambda v: tuple(v))
+    _, quads = road_quads(d)
+    got = collision(d)
+    ground = [(v, pl) for pl in got[2] if surface(pl["flags"]) != "wall" for v in pl["v"]] if got else []
+    grid = {}
+    for v, _ in ground:
+        grid.setdefault((int(v[0] // 16), int(v[1] // 16)), []).append(v)
+
+    def height(x, y):
+        best = None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for v in grid.get((int(x // 16) + dx, int(y // 16) + dy), ()):
+                    dd = (v[0] - x) ** 2 + (v[1] - y) ** 2
+                    if best is None or dd < best[0]:
+                        best = (dd, v[2])
+        return (best[1] if best else 0.0) + 1.0
+    k = 1
+    with open(out, "w") as f:
+        f.write("# road quads (0x80034800) and routes (0x80034147) of %s\n# axes: %s\n"
+                % (os.path.basename(path), "Y up" if yup else "as stored: Z up"))
+        f.write("o road_quads\n")
+        for q in quads:
+            for v in q["v"]:
+                f.write("v %.3f %.3f %.3f\n" % conv(v))
+            f.write("f %s\n" % " ".join(str(k + i) for i in range(len(q["v"]))))
+            k += len(q["v"])
+        for h, pts in routes(d):
+            f.write("o route_%d_%s\n" % (h["id"], "loop" if h["loop"] else "branch"))
+            for p in pts:
+                f.write("v %.3f %.3f %.3f\n" % conv((p["x"], p["y"], height(p["x"], p["y"]))))
+            idx = [str(k + i) for i in range(len(pts))] + ([str(k)] if h["loop"] else [])
+            f.write("l %s\n" % " ".join(idx))
+            k += len(pts)
+    print("wrote %s: %d road quads, %d routes (route heights from the collision mesh, +1)"
+          % (out, len(quads), len(routes(d))))
 
 
 def check_collision(d, parts):
@@ -416,6 +576,7 @@ def check(path, listing=False):
           % (t["models"] - t["unknown"], t["models"], len(unknown)))
     check_collision(d, info["parts"])
     check_props(d, secs, info["parts"])
+    check_routes(d)
     print()
 
 
@@ -507,6 +668,11 @@ def main():
         return None
     out, texdir, secs = opt("--obj"), opt("--textures"), opt("--sections")
     coll = opt("--collision")
+    rts = opt("--routes")
+    if rts:
+        files = [a for a in argv if not a.startswith("--")]
+        export_routes(files[0], rts, yup="--game-axes" not in argv)
+        return
     if coll:
         files = [a for a in argv if not a.startswith("--")]
         export_collision(files[0], coll, yup="--game-axes" not in argv)
