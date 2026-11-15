@@ -49,7 +49,7 @@ result, and `hp2_extract.py` writes it beside the files it extracts. A
 compressed asset lives under the same path with the extension `.LZC` in place
 of `.BIN`, which is how the archive carries both forms of the same file.
 
-Paths the executable builds at run time (`NIS\\%s.bin`, `REPLAY\\%s`, `TRACKS\\TRACKB%d.BUN`) are not literal strings, so they were found by solving the hash: it is linear, so the hash of an unknown prefix follows exactly from a known ending. `NIS\\NIS_` came out of both the arrest and ticket cutscenes (their own chunks hold COP_ARREST01, COP_TICKET04...). That named 17 more (270 of 372). The other 102 are identified by content in `tools/archive_contents.csv`: 36 developer ghost replays (chunk 0x39100 holds the driver name), 26 sound banks as body + header pairs (the header's id is the body's + 6, 'H' - 'B': a .VH/.VB-style pair; 18 are engines, one per engine tag 348, 993, BMW...), profile defaults, the police speech event list, four AVIs and the testers' QA notes.
+Paths the executable builds at run time (`NIS\\%s.bin`, `REPLAY\\%s`, `TRACKS\\TRACKB%d.BUN`) are not literal strings, so they were found by solving the hash: it is linear, so the hash of an unknown prefix follows exactly from a known ending. `NIS\\NIS_` came out of both the arrest and ticket cutscenes (their own chunks hold COP_ARREST01, COP_TICKET04...). That named 17 more, and the sound banks 52 (322 of 372). The other 50 are identified by content in `tools/archive_contents.csv`: 36 developer ghost replays (chunk 0x39100 holds the driver name), 26 sound banks, now all named `SOUND\\<NAME>.MSH` (headers) + `.MSB` (samples): COMMON, FRONTEND, INGAME, the five ambiences PARKLAND, DESERT, GREECE, ALPINE, TROPICS, and 18 engines `NEWE<engine>` named by the car database (§12). profile defaults, the police speech event list, four AVIs and the testers' QA notes.
 
 Read with `tools/hp2_extract.py`, then `tools/hp2_index.py`.
 
@@ -563,6 +563,31 @@ None of this needed the VU1 microprogram.
 
 ---
 
+### Car textures: what the executable fills in
+
+0x188790 builds each car's table of texture-name hashes from the model name
+(`%s` below). This confirms the exporter's rules, which had been inferred
+from names only:
+
+| Slot | Texture | Notes |
+|---|---|---|
+| `SKIN1` (paint) | `%s_SKIN<n>` | n = the colour chosen, byte 5 of the car's settings |
+| | `%s_SKIN<n>B` | only when the third argument is 0 |
+| | `%s_DASHSKIN<n>` | when byte 6 is set |
+| `HEADLIGHT_LEFT/RIGHT` | `%s_HEADLIGHT`, `_ON`, `_DAMAGE0` | three states; left and right use the same state texture |
+| `BRAKELIGHT_LEFT/RIGHT` | `%s_BRAKELIGHT`, `_ON`, `_DAMAGE0` | the same |
+| `REVERSELIGHT` | `%s_REVERSELIGHT`, `_ON` | |
+| shadow | `%s_SHADOWFE` / `%s_SHADOWIG` | front end / in game, chosen by the third argument |
+| tyre, wheel blur | `<record>_TIRE`, `<record>_WHEEL_BLUR` | built from the record name, not the model name (§12), so 911TURBOHP draws `911TURBOHP_TIRE` |
+| licence plate | `%s_LICENSE_PLATE` | |
+
+The window slots (`WINDOW_*`) and `CARBOTTOM` appear nowhere as names or
+constants in the executable. The window hashes are used only for the
+attachment points (glass-break effects, in `CarRenderInfo`, 0x11DC80). The
+game renders a 6-face environment map at run time (`TARGET_ENVMAP0F/R/B/L/U/D`,
+`ESTAGE_COMPOSE_ENVMAPS`). That is probably what the windows draw with, which
+would explain why no pack has window art. Not confirmed.
+
 ## 8. Open questions
 
 Things not yet worked out, roughly in order of how tractable they look:
@@ -581,7 +606,7 @@ Things not yet worked out, roughly in order of how tractable they look:
 - **Which texture each material draws with** (§7). Material names are known
   for some (`CARSKIN`, `RUBBER`, `MIRROR`, `INTERIOR`); how a material picks
   from the part's texture list is not.
-- **Where wheels attach.** Not in `GEOMETRY.BIN`.
+- ~~**Where wheels attach.**~~ In the car database (§12).
 - **Bits 19-22 of the strip mask words** (§7).
 - **Track scenery** — models and placement are decoded (§11); the other
   top-level chunks of `eLabScenery99.bin` are not.
@@ -962,3 +987,55 @@ area.
 
 Still unread: `80034015` (name hash table), `80034019`, `35020`/`35021`, `34026`, `80034425`,
 `34106`, `34122`, `34130`, `34146`, and the inside of the chunks in the table above.
+
+## 12. Car database: chunk `0x00034600`
+
+The car database is in `GLOBAL\\GLOBALB.BUN` (archive entry 302; the `.LZC` is
+entry 1). It holds 64 records of 0x560 bytes, from the first 16-byte boundary
+after the chunk header. `carinfo.cpp` loads it (0x187F98 keeps a pointer at
+`gp-0x5088`). `tools/hp2_carinfo.py` lists, checks and exports it (`--json`).
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x000 | char[32] | record name: `911TURBO`, `911TURBOHP` (the Hot Pursuit version), `BMWM5COP`, `TAXI`… |
+| 0x020 | char[32] | model name: the `GEOMETRY.BIN` and texture prefix; the HP record shares it |
+| 0x040 | char[32] | `CARS\\<model>\\GEOMETRY.BIN` |
+| 0x060 | char[32] | the same path, `.LZC` |
+| 0x0C0 | char[32] | make: `PORSCHE`, `FERRARI`… |
+| 0x120 | 4 × 32 bytes | the wheels, in the order front left, front right, rear right, rear left (layout below) |
+| 0x1E4 | 3 × f32 | length, width, height. All 26 traffic cars hold a 5 × 2 × 1.2 default |
+| 0x278 | f32 | final drive |
+| 0x288 | u32 | number of forward gears |
+| 0x290 | 8 × f32 | reverse, neutral (0), then the forward ratios |
+| 0x2B0 | 3 × f32 | idle rpm, a peak rpm, redline rpm |
+| 0x320 | f32 | top speed (mph?) |
+| 0x330 | char[32] | engine sound, "NewE" + a name |
+
+**Wheel record (32 bytes):**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | 3 × f32 | hub x, y, z, in the model's axes (+x front, +y left, +z up) |
+| 12 | f32 | radius |
+| 16 | f32 | tyre width |
+| 20 | u32 | index 0–3 |
+| 24 | f32 | toe/camber, ±0.01 |
+| 28 | 4 bytes | 0 |
+
+**Engine sound:** the bank is `SOUND\\NEWE<NAME>.MSH` (sample headers) plus
+`.MSB` (samples). All 49 records with an engine sound name a bank whose two
+files are in the archive.
+
+**Checks:**
+- The 911 Turbo's gears (3.82, 2.05, 1.41, 1.12, 0.92, 0.75), final drive 3.44,
+  tyres 225/295 mm and size 4.43 × 1.83 × 1.30 m are the real 996 Turbo's.
+- Against the 43 car models, the stored length and width agree within 12% for
+  41. The McLaren LM model is 14% wider and the Jaguar 11% narrower, so the
+  stored size is approximate (a collision box?).
+- Every car's wheels sit inside the body's footprint, with the tyres reaching
+  0.1–0.35 below the body: the ground clearance.
+- This answers "where do the wheels attach": not in `GEOMETRY.BIN`, here.
+
+The rest of the record (0x0F0–0x118, 0x1A0–0x1E0, 0x200–0x270, 0x2C0–0x310 (a
+0.4–0.7 curve, torque?), 0x350–0x550) is not read yet.
+
