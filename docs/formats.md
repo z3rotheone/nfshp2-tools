@@ -581,7 +581,8 @@ Things not yet worked out, roughly in order of how tractable they look:
   from the part's texture list is not.
 - **Where wheels attach.** Not in `GEOMETRY.BIN`.
 - **Bits 19-22 of the strip mask words** (§7).
-- **Track scenery** — the `eLabScenery0.bin` files, 7–11 MB each.
+- **Track scenery** — models and placement are decoded (§11); the other
+  top-level chunks of `eLabScenery99.bin` are not.
 - **Menu text** — the `FE_ENGLISH.bin` family. Strings are readable; the
   surrounding structure is not parsed.
 - **Video** — 21 AVI files extract cleanly as containers, but the codec is
@@ -644,3 +645,80 @@ paths. `tools/hp2_hash.py` computes, verifies and solves.
 
 ---
 
+## 11. Track scenery: `eLabScenery99.bin`
+
+One file per **location**, 9–11 MB, found with `grep -l eLabScenery`:
+entries 196, 198, 200 (TRACK24/25/26), 211, 213, 215 (TRACK44/45/46),
+221, 223 (TRACK65/66). Several tracks share a location's file.
+
+### Models
+
+The models sit in `0x80034000` containers, the same as the cars, and
+`hp2_geom.py` decodes them unchanged (7,883 parts across the 8 files, every
+`--check` passing). Roads (`RD_SECTIONnn_CHOPn`), dirt roads (`RDDRT_`,
+`DIRTRD_`), terrain (`TRN_`), the skydome and the `PANORAMA` ring are stored in
+world space. Props (`XT_` plants, `XW_` poles and windmills, `XS_` signs,
+`*_SHADOW_*`, `SHAD_*`) are stored once at the origin and placed by the
+sections below.
+
+### Sections: `0x80034100`
+
+One per track section (63–159 per file; numbers like 41–187), each followed
+by 504 zero bytes. Four children, any of which may start with `0x11` filler:
+
+| Chunk | Contents |
+|---|---|
+| `0x00034101` | 56 bytes: `u32 0, u32 0, u32 section number`, then zeros |
+| `0x00034102` | the models this section uses, 40 bytes each |
+| `0x00034103` | the instances, 48 bytes each |
+| `0x00034104` | a box tree over the instances, for culling |
+
+**Model record (`0x34102`, 40 bytes):**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u32 | part name hash |
+| 4, 8 | u32 | two more part hashes, 0 if none (probably lower-detail versions) |
+| 12, 14 | u16 | 0x10/0 for most; 10/20, 3/30, 50/70 on plants (probably LOD distances) |
+| 16 | u32 | 0, 3 or 10 (always 0 in TRACK44 onward) |
+| 20 | 16 bytes | zero |
+| 36 | f32 | radius of the model |
+
+The hash is a part of the same file for 98.5% of records (16,807 of 17,056).
+Most others are road and terrain sections of a neighbouring location
+(entry 200 uses TRACK24's SECTION70 pieces; 223 uses SECTION10 from another
+file). About 120 distinct hashes are parts of no extracted file: probably
+objects the game spawns itself.
+
+**Instance record (`0x34103`, 48 bytes):**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | 6 × s16 | world bounding box, min xyz then max xyz |
+| 12 | u16 | index into this section's model list |
+| 14 | u8 | 4 or 8 on a few dozen instances, else 0 (unknown) |
+| 15 | u8 | kind: 0 placed model, 1 ground shadow decal, 2 world-space part |
+| 16 | 3 × f32 | position |
+| 28 | 9 × s16 | 3×3 matrix, 0x4000 = 1.0, row-major |
+| 46 | u16 | 0 |
+
+`world = position + v · M`: each row of M is one of the model's axes in the
+world. M may carry a uniform scale (0.5, 0.75 on bushes and trees; 8,778 of
+20,573 instances in TRACK44). Kind 2 has position 0 and the identity matrix.
+
+**Check:** placing each model's vertices this way reproduces the instance's
+stored box within 1.5 units for 99.3–100% of instances in every file
+(`hp2_scenery.py FILE`). The transposed matrix fits clearly worse. The misses
+are a few oversized evergreens and the shadow decals, which sit about
+3 units off (projected onto the ground at run time?). Rendered section 41 of
+entry 196: pylons upright along the dirt trail, plants on the ground.
+
+**Box tree (`0x34104`):** nodes of `6 × s16 box, u16 n, n × s16 children`.
+Each node starts on an 8-byte boundary **of the file**, not of the chunk.
+The chunk may end in zero bytes. A child ≥ 0 is an instance, a child < 0 is
+node `-child`, and node 0 is the root. Every instance appears exactly once in
+all 891 sections.
+
+Still unread: top-level chunks `80034015`, `80034019`, `80034020`, `80036000`,
+`35020`/`35021`, `34250`, `34026`, `80034147`, `80034405`, `80034425`,
+`80034500`, `80034800`, `80038000` and `34106`/`34121`–`34133`/`34146`/`34200`/`34202`.
