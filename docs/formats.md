@@ -674,7 +674,7 @@ paths. `tools/hp2_hash.py` computes, verifies and solves.
 
 ## 11. Track scenery: `eLabScenery99.bin`
 
-**All 30 tracks.** The archive holds `TRACKS\\TRACKB11` to `TRACKB66` for locations 1, 2, 3, 4 and 6 (there is no location 5): 30 tracks. 8 are stored plain (`.BUN`, the entries named below); every one also exists as a `.LZC` that `hp2_comp.py` decompresses. The 8 that exist both ways decompress byte-identical to the plain copy. Each file carries its own devpath (`TRACK11\\Pipeline\\Scenery\\...`). Within a location, tracks n and n+3 hold the same sections, collision, routes and cameras (forward/reverse or day/night pairs?); the third and sixth have an open main route (point-to-point). `hp2_scenery.py` passes every check below on all 30: placement 97.8–100%, box tree in every section, collision heights 97.6–100%, every loop closes, every camera fits.
+**All 30 tracks.** The archive holds `TRACKS\\TRACKB11` to `TRACKB66` for locations 1, 2, 3, 4 and 6 (there is no location 5): 30 tracks. 8 are stored plain (`.BUN`, the entries named below); every one also exists as a `.LZC` that `hp2_comp.py` decompresses. The 8 that exist both ways decompress byte-identical to the plain copy. Each file carries its own devpath (`TRACK11\\Pipeline\\Scenery\\...`). Within a location, tracks n and n+3 hold the same sections, collision, routes and cameras: the same circuit at another time of day or in other weather (§13); the third and sixth have an open main route (point-to-point). `hp2_scenery.py` passes every check below on all 30: placement 97.8–100%, box tree in every section, collision heights 97.6–100%, every loop closes, every camera fits.
 
 
 One file per **location**, 9–11 MB, found with `grep -l eLabScenery`:
@@ -1039,3 +1039,30 @@ files are in the archive.
 The rest of the record (0x0F0–0x118, 0x1A0–0x1E0, 0x200–0x270, 0x2C0–0x310 (a
 0.4–0.7 curve, torque?), 0x350–0x550) is not read yet.
 
+## 13. Track list: chunk `0x00034201`
+
+The track list is in `GLOBAL\\GLOBALB.BUN`, next to the car database. It has
+66 slots of 0xA4 bytes, one per track number; 30 are used. The executable
+keeps it at `gp-0x55BC` (0x153608). `tools/hp2_tracklist.py` lists it and
+exports JSON.
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x00 | char[32] | name: "Coastal Parklands T11", "Wine Sunset T34"… |
+| 0x20 | char[32] | "track, NFS" |
+| 0x40 | u8 | 1 on a used slot |
+| 0x41 | u8 | track number: `TRACKS\\TRACKB<n>.LZC` |
+| 0x42 | u8 | the track whose scenery file contents it shares (14 → 11) |
+| 0x43 | u8 | 1 = point-to-point (the 3rd and 6th of each location) |
+| 0x44 | u32 | variant: 0 base, 1 overcast, 2 sunset/sunrise/dawn, 4 location 4's sunsets |
+| 0x50 | f32 | advertised length (miles?); the route length is 1,110–1,745 × this |
+| 0x5C | 3 × f32 | a point 2,000–3,400 units above the track (overview camera?) |
+| 0x84 | char[] | location: Parkland, Desert, Greece, Alpine, Tropics |
+
+**Tracks n and n+3 are not reversed.** They're the same circuit at another
+time of day or in other weather: "Coastal Parklands" / "Coastal Overcast",
+"Wine Country" / "Wine Sunset", "Fall Winds" / "Fall Sunset". The executable
+has `TN_TRACK%dR`, but no code uses it.
+
+The location names are the ambience banks' names (`SOUND\\PARKLAND.MSH`…),
+so location 3 is "Greece".
