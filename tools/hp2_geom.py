@@ -433,7 +433,11 @@ def runtime_textures(name, car, state="off"):
     lit or broken on its own. A few cars (CROWNVIC, JAGUAR, VANQUISH,
     CHALLENGE) do have _LEFT/_RIGHT brake light art, so the exact name is
     tried first. The generic TIRE slot is the car's own <CAR>_TIRE.
-    This is inferred from the pack's names, not read from the executable."""
+    Confirmed in the executable (0x188790 builds the car's texture table,
+    0x11FF68 the window table): the windows (WINDOW_FRONT, _REAR, the four
+    side windows) all draw the shared WINDOW from GlobalTextures.tpk inside
+    GLOBALB.BUN, and WINDOW_DAMAGE0/1/2 as each window breaks; --lights
+    damaged shows WINDOW_DAMAGE1."""
     up = name.upper()
     if car and up == (car + "_SKIN1").upper() and SKIN != 1:
         return [car + "_SKIN%d" % SKIN, name]
@@ -445,8 +449,8 @@ def runtime_textures(name, car, state="off"):
             out.append(base)
     if up == "TIRE" and car:
         out.append(car + "_TIRE")
-    if up.startswith("WINDOW_") and state == "damaged":
-        out.append("BROKEN_CARWINDOW")
+    if up.startswith("WINDOW_") and not up.startswith("WINDOW_DAMAGE"):
+        out += (["WINDOW_DAMAGE1"] if state == "damaged" else []) + ["WINDOW"]
     return out
 
 
@@ -512,7 +516,9 @@ def write_mtl(path, entries):
             if png:
                 f.write("Kd 1 1 1\nmap_Kd %s\n" % png)
                 if tex.startswith("WINDOW_"):
-                    f.write("d 0.8\n")
+                    # the glass texture carries its own alpha (see-through,
+                    # darker band at the top)
+                    f.write("map_d %s\n" % png)
             elif stand:
                 f.write("# stand-in: no art for this slot in any pack\n" + stand)
             else:
@@ -600,7 +606,9 @@ CAR_SUFFIXES = ("_SKIN1", "_SKIN2", "_SKIN3", "_SKIN4", "_SKIN5", "_SKIN6", "_SK
 # Slots with no art in any pack: the windows and the underside. Until the
 # executable says what fills them, the .mtl gives them a plain stand-in so a
 # preview looks right - tinted see-through glass, a dark underside. With
-# --lights damaged the windows use the game's BROKEN_CARWINDOW.
+# --lights damaged the windows use the game's BROKEN_CARWINDOW. The stand-ins
+# are only used when the PNGs of GlobalTextures.tpk (GLOBALB.BUN), which has
+# WINDOW, WINDOW_DAMAGE0-2 and CARBOTTOM, are not under --textures.
 STAND_INS = {"WINDOW_": "Kd 0.10 0.12 0.15\nd 0.45\n", "CARBOTTOM": "Kd 0.08 0.08 0.08\n"}
 
 

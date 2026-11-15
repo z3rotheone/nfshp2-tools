@@ -183,6 +183,10 @@ Each mip level is laid out by **its own** dimensions, so a 256×128 8-bit
 texture has swizzled levels at 256×128 and 128×64 and linear ones below that,
 within the same pixel blob.
 
+### Packs inside bundles
+
+Three bundles carry a pack inside them rather than being one: `GLOBAL\\GLOBALB.BUN` (`GlobalTextures.tpk`, 116 textures: windows, underside, plates, brakes, fonts), `GLOBAL\\INGAMEB.BUN` (`InGameTextures.tpk`, 121: HUD, debris, dials) and `FRONTEND\\FRONTB.BUN` (the front end, 361). `hp2_tpk.py embedded EXTRACTED OUTDIR` writes them out as `.tpk` files the other commands read.
+
 ### Replacing a texture
 
 Every layout above is a permutation of the stored bytes, so the same table that
@@ -581,12 +585,7 @@ from names only:
 | tyre, wheel blur | `<record>_TIRE`, `<record>_WHEEL_BLUR` | built from the record name, not the model name (§12), so 911TURBOHP draws `911TURBOHP_TIRE` |
 | licence plate | `%s_LICENSE_PLATE` | |
 
-The window slots (`WINDOW_*`) and `CARBOTTOM` appear nowhere as names or
-constants in the executable. The window hashes are used only for the
-attachment points (glass-break effects, in `CarRenderInfo`, 0x11DC80). The
-game renders a 6-face environment map at run time (`TARGET_ENVMAP0F/R/B/L/U/D`,
-`ESTAGE_COMPOSE_ENVMAPS`). That is probably what the windows draw with, which
-would explain why no pack has window art. Not confirmed.
+**Windows and the underside.** The six window slots (`WINDOW_FRONT`, `_REAR` and the four side windows) all draw one shared texture. `CarRenderInfo` (0x11E860 → 0x11FF68) builds a 12-entry substitution table; for each window it picks from the table at 0x2E0380 by that window's damage level: `WINDOW`, then `WINDOW_DAMAGE0`, `_DAMAGE1`, `_DAMAGE2`. These, and `CARBOTTOM`, live in `GlobalTextures.tpk`, a pack embedded in `GLOBAL\\GLOBALB.BUN` that the texture export had never opened. `WINDOW` is see-through tinted glass with a darker band along the top; the damage levels add more and more cracks. The pack also has every car's licence plate (`<CAR>_LICENSE_PLATE`), `BRAKESFRONT`/`REAR`, `TIREBACK`, `SKRATCHES`, `WINDOW_DASH`, `WINDOW_TRAFFIC`, the headlight flares, cop lights and fonts. That names three of the 911's hashes: `cd677a20` = BRAKESFRONT, `c8c5a8a4` = TIREBACK, `3d743a07` = SKRATCHES. The fourth, `ece04847`, is `WIPER01` (the 911 has `911TURBO_WIPER_LEFT`/`_RIGHT` parts), and no pack on the disc holds it. `hp2_geom.py --obj` now uses these textures, with `map_d` for the glass's alpha.
 
 ## 8. Open questions
 

@@ -49,6 +49,7 @@ Needs:  pip install pillow numpy
 """
 import hashlib
 import os
+import re
 import struct
 import sys
 
@@ -589,10 +590,45 @@ def export(path, outdir):
     return done, skipped, len(recs)
 
 
+def find_embedded(d):
+    """Texture packs inside a bundle (GLOBALB.BUN, INGAMEB.BUN, FRONTB.BUN):
+    a 0xB0300001 container whose first child is the 0x30300002 header, plus
+    the 0xB0300100 trailer when it follows. Yields (offset, bytes)."""
+    magic = struct.pack("<I", 0xB0300001)
+    i = d.find(magic)
+    while i != -1:
+        if i % 4 == 0 and i + 12 <= len(d):
+            sz = struct.unpack_from("<I", d, i + 4)[0]
+            if 0 < sz <= len(d) - i - 8 and struct.unpack_from("<I", d, i + 8)[0] == 0x30300002:
+                end = i + 8 + sz
+                if end + 8 <= len(d) and struct.unpack_from("<I", d, end)[0] == 0xB0300100:
+                    end += 8 + struct.unpack_from("<I", d, end + 4)[0]
+                yield i, d[i:end]
+                i = end - 4
+        i = d.find(magic, i + 4)
+
+
 def main():
     a = sys.argv[1:]
     keep = "--keep-palette" in a
     a = [x for x in a if x != "--keep-palette"]
+
+    if a and a[0] == "embedded" and len(a) == 3:
+        # write the packs found inside bundles as <entry>_<pack name>.tpk
+        os.makedirs(a[2], exist_ok=True)
+        for n in sorted(os.listdir(a[1])):
+            fp = os.path.join(a[1], n)
+            if not os.path.isfile(fp) or os.path.getsize(fp) > 60000000:
+                continue
+            d = open(fp, "rb").read()
+            for off, blob in find_embedded(d):
+                if off == 0:
+                    continue          # the file is itself a pack
+                name = blob[16:16 + 32].split(b"\0")[0].decode("latin1") or "pack"
+                out = os.path.join(a[2], "%s_%s.tpk" % (n.split("_")[0], re.sub(r"[^A-Za-z0-9]+", "_", name)))
+                open(out, "wb").write(blob)
+                print("%s: pack %r at 0x%x, %d bytes -> %s" % (n, name, off, len(blob), out))
+        return
 
     if a and a[0] == "list" and len(a) == 2:
         d = open(a[1], "rb").read()
