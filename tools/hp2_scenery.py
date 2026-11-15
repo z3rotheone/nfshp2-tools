@@ -394,6 +394,119 @@ def export_routes(path, out, yup=True):
           % (out, len(quads), len(routes(d))))
 
 
+def cameras(d):
+    """0x80034405 / 0x34450: replay cameras."""
+    out = []
+    for cid, off, sz in g.chunks(d, 0, len(d)):
+        if cid != 0x80034405:
+            continue
+        for c2, o2, s2 in g.chunks(d, off, off + sz):
+            if c2 != 0x34450:
+                continue
+            b, e = _body(d, o2, s2)
+            kind = struct.unpack_from("<I", d, b)[0]
+            name = d[b + 4:b + 0x24].split(b"\0")[0].decode("latin1")
+            if kind == 0:
+                p, t, c = struct.unpack_from("<3I", d, b + 0x74)
+                extra, q = 0, b + 0x2A0
+            else:
+                p, t, c, extra = struct.unpack_from("<4I", d, b + (0x48 if kind == 1 else 0x4C))
+                q = b + 0x270
+            fits = q - b + 32 * c + 16 * extra + 16 * t + 8 * p == e - b
+            cam = dict(kind=kind, name=name, size=e - b, fits=fits, points=[], second=[],
+                       tris=[], area=[])
+            if fits:
+                cam["points"] = [struct.unpack_from("<3f", d, q + 16 * i) for i in range(c)]
+                q += 16 * c
+                cam["second"] = [struct.unpack_from("<3f", d, q + 16 * i) for i in range(c)]
+                q += 16 * c + 16 * extra
+                cam["tris"] = [struct.unpack_from("<3I", d, q + 16 * i) for i in range(t)]
+                q += 16 * t
+                cam["area"] = [struct.unpack_from("<2f", d, q + 8 * i) for i in range(p)]
+            out.append(cam)
+    return out
+
+
+def police(d):
+    """0x80034500: radar spots (0x34510), roadblocks (0x34520), zones (0x34530)."""
+    radar, blocks, zones = [], [], []
+    for cid, off, sz in g.chunks(d, 0, len(d)):
+        if cid != 0x80034500:
+            continue
+        for c2, o2, s2 in g.chunks(d, off, off + sz):
+            b, e = _body(d, o2, s2)
+            n = struct.unpack_from("<I", d, b)[0]
+            if c2 == 0x34510:
+                for r in range(b + 4, b + 4 + 32 * n, 32):
+                    radar.append(dict(name=d[r:r + 16].split(b"\0")[0].decode("latin1"),
+                                      x=struct.unpack_from("<f", d, r + 16)[0],
+                                      y=struct.unpack_from("<f", d, r + 20)[0],
+                                      flags=struct.unpack_from("<2I", d, r + 24)))
+            elif c2 == 0x34520:
+                for r in range(b + 4, b + 4 + 28 * n, 28):
+                    code = struct.unpack_from("<I", d, r + 24)[0]
+                    blocks.append(dict(name=d[r:r + 16].split(b"\0")[0].decode("latin1"),
+                                       x=struct.unpack_from("<f", d, r + 16)[0],
+                                       y=struct.unpack_from("<f", d, r + 20)[0],
+                                       code=code, level=(code >> 4) & 15, low=code & 15))
+            elif c2 == 0x34530:
+                for r in range(b + 4, b + 4 + 60 * n, 60):
+                    k = struct.unpack_from("<I", d, r)[0]
+                    pts = struct.unpack_from("<12f", d, r + 4)
+                    zones.append(dict(corners=[(pts[2 * i], pts[2 * i + 1]) for i in range(k)],
+                                      value=struct.unpack_from("<I", d, r + 52)[0]))
+    return radar, blocks, zones
+
+
+def _ground(d):
+    got = collision(d)
+    grid = {}
+    if got:
+        for pl in got[2]:
+            if surface(pl["flags"]) != "wall":
+                for v in pl["v"]:
+                    grid.setdefault((int(v[0] // 8), int(v[1] // 8)), []).append(v)
+
+    def near(x, y):
+        best = 1e9
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for v in grid.get((int(x // 8) + dx, int(y // 8) + dy), ()):
+                    best = min(best, math.hypot(v[0] - x, v[1] - y))
+        return best
+    return near
+
+
+def check_police_cameras(d):
+    near = _ground(d)
+    radar, blocks, zones = police(d)
+    if radar or blocks:
+        lv = {}
+        for bl in blocks:
+            lv[bl["level"]] = lv.get(bl["level"], 0) + 1
+        named = sum(1 for bl in blocks
+                    if ("_%s_" % {8: "Easy", 9: "Med", 10: "Hard"}.get(bl["level"], "?")) in bl["name"])
+        print("  police: %d radar spots (%d on the drivable surface), %d roadblocks "
+              "(%d on it; level nibble agrees with the name in %d), %d zones"
+              % (len(radar), sum(near(r["x"], r["y"]) < 8 for r in radar), len(blocks),
+                 sum(near(b["x"], b["y"]) < 8 for b in blocks), named, len(zones)))
+    cams = cameras(d)
+    if cams:
+        kinds = {}
+        for c in cams:
+            kinds[c["kind"]] = kinds.get(c["kind"], 0) + 1
+        fits = sum(c["fits"] for c in cams)
+        fan = sum(1 for c in cams if c["fits"] and len(c["tris"]) == max(0, len(c["area"]) - 2)
+                  and all(max(t) < len(c["area"]) for t in c["tris"]))
+        world = [c for c in cams if c["kind"] == 0 and c["area"]]
+        on = sum(1 for c in world if near(sum(p[0] for p in c["area"]) / len(c["area"]),
+                                          sum(p[1] for p in c["area"]) / len(c["area"])) < 30)
+        print("  cameras: %d (%s); size formula fits %d; area triangles are a fan over the "
+              "area points in %d; %d of %d type-0 areas centred within 30 of the road"
+              % (len(cams), ", ".join("type %d: %d" % kv for kv in sorted(kinds.items())),
+                 fits, fan, on, len(world)))
+
+
 def check_collision(d, parts):
     got = collision(d)
     if not got:
@@ -577,6 +690,7 @@ def check(path, listing=False):
     check_collision(d, info["parts"])
     check_props(d, secs, info["parts"])
     check_routes(d)
+    check_police_cameras(d)
     print()
 
 

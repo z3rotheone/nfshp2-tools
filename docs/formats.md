@@ -869,13 +869,84 @@ The main route is closed in 5 files and open in 3 (entries 200, 215, 223:
 probably the point-to-point tracks). Plotted over the collision mesh,
 every route point in entry 196 sits on the drivable surface.
 
+### Police: `0x80034500`
+
+Three children, each starting with a u32 count. All sizes match the record
+layouts exactly in all 8 files.
+
+**`0x34510`: radar spots, 32 bytes each**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | char[16] | name, e.g. "Radar21_38"; one per file fills all 16 bytes, "Radar21_001_BeA…" |
+| 16 | 2 × f32 | x, y |
+| 24 | u32 | flag: 1 on that one record |
+| 28 | u32 | 1 on one other record, else 0 |
+
+All 231 sit on the drivable surface.
+
+**`0x34520`: roadblocks, 28 bytes each**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | char[16] | name `RB<track>_<Easy\|Med\|Hard>_<B\|F\|R><nn>` |
+| 16 | 2 × f32 | x, y |
+| 24 | u32 | `0x467Cxx` |
+
+In `xx`, the high nibble is the difficulty (8 Easy, 9 Med, A Hard); it
+agrees with the name in all 416. The low nibble is 0 for B (89 of 92). F and
+R share the codes 1/2 in bits 0–1 and 0–2 in bits 2–3 (meaning unknown).
+There's no heading, so the game probably lines roadblocks up with the road.
+All 416 sit on the drivable surface.
+
+**`0x34530`: zones, 60 bytes each**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u32 | corner count, 4–6 |
+| 4 | 6 × (f32 x, f32 y) | corners, room for 6 |
+| 52 | u32 | value, 2–238 (unknown) |
+| 56 | u32 | 0, once 1 |
+
+### Replay cameras: `0x80034405`
+
+`0x34440` (20 zero bytes), then one `0x34450` per camera: 120–363 per file,
+1,696 in all 8.
+
+**Header:**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u32 | type: 0 world camera (1,401), 1 (216), 2 (79). Onboard ones ("CamPOnboard_1") are type 1/2, with points in car-relative units |
+| 4 | char[] | name ("CamBeforeTunnelXD", "CamMineEntrance"…) |
+| 0x74 | 3 × u32 | type 0: area points p, triangles t, camera points c |
+| 0x48 | 4 × u32 | type 1: p, t, c, d |
+| 0x4C | 4 × u32 | type 2: p, t, c, d |
+
+Type 0 also has a float at 0x44 (0.199, field of view?) and, from 0x80,
+-3.0, 1, 0.5, 5000. Every type then has 32 slots of 16 bytes holding one
+float (15.0, or 71.5 on type 1/2).
+
+**Tail:** starts at 0x2A0 (type 0) or 0x270 (types 1/2):
+
+| Block | Size |
+|---|---|
+| camera points (3 × f32 + pad) | c × 16 |
+| a second block of the same shape (zeros in many) | c × 16 |
+| type 1/2 only: an extra block | d × 16 |
+| triangles (3 × u32 + pad) | t × 16 |
+| activation area (f32 x, y) | p × 8 |
+
+The size formula fits all 1,696 records. In 1,685 the triangles are a fan
+over the area points (t = p − 2), so the area is a polygon on the ground
+where the camera takes over. The type-0 camera points sit next to their
+area.
+
 ### Identified, not decoded
 
 | Chunk | What it holds |
 |---|---|
-| `80034405` | 129 replay cameras (`34450`, named "CamBeforeTunnel", "CamMineEntrance", "CamPreJump"…) |
 | `80034020` | physics shapes for smashable objects, one group of 5 per object (`34021` name, e.g. "CS_BarrelA_L", "CS_GasPump"; vertex/edge/face counts that satisfy Euler's formula), `34024` vertices, `34023` edges, `34022` face planes, `34025` state |
-| `80034500` | police: `34510` radar spots ("Radar21_83") and `34520` roadblocks ("RB21_East_B1") with positions; `34530` polygons |
 | `80038000` | ambient sound and effect emitters ("Crickets01", "PowerLine_01", "Sandstorm", "Waterfall01") |
 | `34200` | track description text |
 | `34202` | world bounds (6000, 5500, 2000) |
