@@ -1109,3 +1109,23 @@ The videos are 21 AVI files (entries 372–392), at 30 fps and 512×256 or
   80 s), the making-of (`MAKEOF_EN`, 8 min), reward videos, and menu
   backgrounds (`MAINMENU_MOVIE`, `OPTIONS_MOVIE`, `HOTPURSUIT_MOVIE`,
   `WORLDRACING_ MOVIE`; the space is in the name).
+
+## 16. Speech: `SOUND\\SPEECH\\<LANGUAGE>BAN.PCK` + `DAT.PCK`
+
+Police radio and commentary come in five languages (English, French, German,
+Italian, Spanish), 1,801–1,808 lines each.
+
+**`BAN.PCK` (the index):** `u32 n, u32 n × 16`, then n records of 16 bytes:
+`u32 0, u32 offset of the audio in DAT.PCK, u32 0, u32 offset of a 44-byte
+descriptor in BAN.PCK`. The last record is not a line. Descriptor word 0 is
+0xFFFF0000 plus a line number (0x227, 0x228…); the rest is not read.
+
+**`DAT.PCK` (the audio):** one standard Sony VAG per line ("VAGp", mono,
+24,000 Hz), on 256-byte boundaries. Every line in all five languages starts
+with a VAG header. Decoded, the first English lines are 1.0–1.7 s clips whose
+spectrogram shows syllables and voice harmonics.
+
+`SOUND\\SPEECH\\EVENTS.EVT` presumably maps game events to lines, and
+entry 367 holds the police event names ("arrest", "beginPursuitGeneral"…);
+neither is read yet. `tools/hp2_speech.py BAN DAT [--wav OUT FIRST COUNT]`
+lists the lines and writes them as WAV.
