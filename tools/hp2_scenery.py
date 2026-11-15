@@ -40,8 +40,40 @@ Each section has four children, any of which may start with 0x11 filler:
                 instance; a child < 0 is node -child. Node 0 is the root.
                 Every instance appears exactly once.
 
+Collision: 0x00034130-0x00034133 (top level, after the sections)
+
+    0x00034131  the cells of a 32-unit grid: u32 999999, u32 999999, u32 0,
+                then 12 bytes per cell: f32 x, f32 y (the cell's centre,
+                always 16 mod 32), u16 start, u16 count into 0x34133. The
+                starts chain: each is the previous start + count.
+    0x00034133  u16 polygon indices, the cells' lists back to back.
+    0x00034132  the polygons, 32 bytes each:
+                  +0  u16  high byte: four 2-bit fields, on quads a rotation
+                           of 0,1,2,3 (vertex order?); low byte 0
+                  +2  u16  surface. Low nibble, named from the textures the
+                           polygons sit on: 1 asphalt, 2 dirt, 3 gravel,
+                           4 puddle/leaves, 5 bridge, 6 grass, 7 shoulder,
+                           9 verge (mixed), b leaves, c sidewalk/curb, e blends.
+                           0x16xx and 0x12xx are walls with no visible mesh
+                           (invisible barriers); 0x0800 set on off-road
+                           terrain, 0x1000 on many road faces (meaning unknown)
+                  +4  s16  base height (whole units)
+                  +6  u16  0xFFFF, else a number (unknown)
+                  +8  4 x s16  x of 4 vertices, in 1/8 units
+                  +16 4 x s16  y, in 1/8 units
+                  +24 4 x s16  height above the base, in 1/256 units:
+                           z = base + v/256
+                A triangle repeats its third vertex as the fourth.
+    0x00034130  unknown (u16 table, starts 410, 13, 0, 1, 2 ...)
+
+    Every polygon overlaps the cell that lists it. Where a collision vertex
+    sits on a road or terrain mesh vertex (93% do, in x and y), its height
+    matches that vertex's within 0.05 for 99.96%.
+
 Usage:
     hp2_scenery.py FILE...                 check every section and report
+    hp2_scenery.py FILE --collision OUT.obj [--game-axes]
+        the collision polygons as an OBJ, one group per surface
     hp2_scenery.py FILE --list             one line per section
     hp2_scenery.py FILE --obj OUT.obj [--textures PNGDIR] [--sections 41-45,50]
                    [--no-shadows] [--game-axes]
@@ -103,6 +135,129 @@ def sections(d):
         rest = d[q:e].strip(b"\0")         # the chunk may end in zero padding
         out.append(dict(num=num, models=models, inst=inst, tree=tree, tree_rest=len(rest)))
     return out
+
+
+COLL_CELLS, COLL_POLYS, COLL_INDEX = 0x34131, 0x34132, 0x34133
+
+
+# Low nibble of a collision polygon's surface word, named from the textures
+# of the visible faces the polygons sit on (all 8 scenery files). 9 and e
+# sit on mixed textures; 0 is rare.
+SURFACES = {1: "asphalt", 2: "dirt", 3: "gravel", 4: "puddle", 5: "bridge", 6: "grass",
+            7: "shoulder", 9: "verge", 0xB: "leaves", 0xC: "sidewalk", 0xE: "blend"}
+
+
+def surface(flags):
+    if flags & 0xFF00 in (0x1600, 0x1200):
+        return "wall"
+    return SURFACES.get(flags & 0xF, "surface%x" % (flags & 0xF))
+
+
+def collision(d):
+    """(cells, index list, polygons) from the 0x3413x chunks, or None."""
+    ch = {}
+    for cid, off, sz in g.chunks(d, 0, len(d)):
+        if cid in (COLL_CELLS, COLL_POLYS, COLL_INDEX):
+            ch[cid] = _body(d, off, sz)
+    if len(ch) < 3:
+        return None
+    b, e = ch[COLL_POLYS]
+    polys = []
+    for r in range(b, e - 31, 32):
+        order, flags, base, extra = struct.unpack_from("<HHhH", d, r)
+        c = struct.unpack_from("<12h", d, r + 8)
+        vs = [(c[i] / 8.0, c[4 + i] / 8.0, base + c[8 + i] / 256.0) for i in range(4)]
+        if vs[3] == vs[2]:
+            vs = vs[:3]
+        polys.append(dict(order=order >> 8, flags=flags, extra=extra, v=vs))
+    b, e = ch[COLL_INDEX]
+    index = struct.unpack_from("<%dH" % ((e - b) // 2), d, b)
+    b, e = ch[COLL_CELLS]
+    cells = [struct.unpack_from("<2f2H", d, q) for q in range(b + 12, e - 11, 12)]
+    return cells, index, polys
+
+
+def check_collision(d, parts):
+    got = collision(d)
+    if not got:
+        print("  no collision chunks")
+        return
+    cells, index, polys = got
+    chain = all(cells[i][2] + cells[i][3] == cells[i + 1][2] for i in range(len(cells) - 1))
+    listed = inside = 0
+    for x, y, s, n in cells:
+        for k in index[s:s + n]:
+            listed += 1
+            if k >= len(polys):
+                continue
+            v = polys[k]["v"]
+            inside += (min(p[0] for p in v) <= x + 16.5 and max(p[0] for p in v) >= x - 16.5 and
+                       min(p[1] for p in v) <= y + 16.5 and max(p[1] for p in v) >= y - 16.5)
+    # heights against the visible road and terrain meshes
+    grid = {}
+    for p in parts:
+        if p["geom"] and p["name"].startswith(("RD", "DIRTRD", "TRN")):
+            for m in g.part_mesh(d, p)[0]:
+                for q in m["pos"]:
+                    grid.setdefault((int(q[0] // 2), int(q[1] // 2)), []).append(q)
+    on = good = 0
+    for pl in polys:
+        if surface(pl["flags"]) == "wall":   # stand above the ground they share x, y with
+            continue
+        for x, y, z in pl["v"]:
+            best = None
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for q in grid.get((int(x // 2) + dx, int(y // 2) + dy), ()):
+                        if abs(q[0] - x) < 0.25 and abs(q[1] - y) < 0.25:
+                            e = abs(q[2] - z)
+                            best = e if best is None else min(best, e)
+            if best is not None:
+                on += 1
+                good += best < 0.05
+    kinds = {}
+    for pl in polys:
+        k = surface(pl["flags"])
+        kinds[k] = kinds.get(k, 0) + 1
+    nverts = sum(len(pl["v"]) for pl in polys)
+    print("  collision: %d polygons (%s) in %d cells; starts chain %s; "
+          "%d of %d listed polygons overlap their cell"
+          % (len(polys), ", ".join("%d %s" % (v, k) for k, v in sorted(kinds.items(), key=lambda x: -x[1])),
+             len(cells), "yes" if chain else "NO", inside, listed))
+    print("  collision heights (walls left out): %d of %d vertices sit on a road/terrain "
+          "mesh vertex; %d of those (%.2f%%) match its height within 0.05"
+          % (on, nverts, good, 100.0 * good / max(1, on)))
+
+
+def export_collision(path, out, yup=True):
+    d, info = g.parse(path)
+    got = collision(d)
+    if not got:
+        raise SystemExit("no collision chunks in %s" % path)
+    polys = got[2]
+    conv = g.to_yup if yup else (lambda v: tuple(v))
+    colour = {"asphalt": (0.35, 0.35, 0.40), "dirt": (0.65, 0.50, 0.30),
+              "gravel": (0.60, 0.58, 0.50), "grass": (0.35, 0.65, 0.30),
+              "shoulder": (0.55, 0.50, 0.45), "verge": (0.50, 0.55, 0.35),
+              "bridge": (0.70, 0.70, 0.75), "sidewalk": (0.80, 0.80, 0.80),
+              "wall": (0.85, 0.20, 0.20)}
+    groups = {}
+    for pl in polys:
+        groups.setdefault(surface(pl["flags"]), []).append(pl)
+    k = 1
+    with open(out, "w") as f:
+        f.write("# collision of %s\n# axes: %s\n" % (os.path.basename(path),
+                                                    "Y up" if yup else "as stored: Z up"))
+        for name in sorted(groups):
+            c = colour.get(name, (0.8, 0.8, 0.2))
+            f.write("o collision_%s\n" % name)
+            for pl in groups[name]:
+                for p in pl["v"]:
+                    f.write("v %.3f %.3f %.3f %.2f %.2f %.2f\n" % (conv(p) + c))
+                f.write("f %s\n" % " ".join(str(k + i) for i in range(len(pl["v"]))))
+                k += len(pl["v"])
+    print("wrote %s: %d polygons (%s)" % (out, len(polys),
+          ", ".join("%d %s" % (len(v), n) for n, v in sorted(groups.items()))))
 
 
 def place(v, inst):
@@ -202,6 +357,7 @@ def check(path, listing=False):
     print("  box tree covers every instance once in %d of %d sections" % (t["tree_ok"], len(secs)))
     print("  model hashes: %d of %d are parts of this file; %d distinct others"
           % (t["models"] - t["unknown"], t["models"], len(unknown)))
+    check_collision(d, info["parts"])
     print()
 
 
@@ -292,6 +448,11 @@ def main():
             return v
         return None
     out, texdir, secs = opt("--obj"), opt("--textures"), opt("--sections")
+    coll = opt("--collision")
+    if coll:
+        files = [a for a in argv if not a.startswith("--")]
+        export_collision(files[0], coll, yup="--game-axes" not in argv)
+        return
     if texdir:
         print("named %d texture hashes from the PNG names under %s"
               % (g.learn_png_names(texdir), texdir))

@@ -719,6 +719,66 @@ The chunk may end in zero bytes. A child ≥ 0 is an instance, a child < 0 is
 node `-child`, and node 0 is the root. Every instance appears exactly once in
 all 891 sections.
 
+
+### Collision: `0x34130`–`0x34133`
+
+A separate collision mesh, found through a 32-unit grid. In entry 196 it has
+19,941 polygons in 923 cells.
+
+**Cells (`0x34131`):** `u32 999999, u32 999999, u32 0`, then 12 bytes per
+cell: `f32 x, f32 y` (the cell's centre, always 16 mod 32), `u16 start,
+u16 count` into `0x34133`. The starts chain (each start is the previous
+start + count), and every polygon a cell lists overlaps that cell, in all
+8 files.
+
+**Index list (`0x34133`):** u16 polygon indices, the cells' lists back to back.
+
+**Polygon (`0x34132`, 32 bytes):**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u16 | high byte: four 2-bit fields (a rotation of 0,1,2,3 on quads; vertex order?); low byte 0 |
+| 2 | u16 | surface (below) |
+| 4 | s16 | base height, whole units |
+| 6 | u16 | 0xFFFF, else a small number (about 5% of polygons; unknown) |
+| 8 | 4 × s16 | x of the 4 vertices, 1/8 units |
+| 16 | 4 × s16 | y, 1/8 units |
+| 24 | 4 × s16 | height above the base, 1/256 units: **z = base + v/256** |
+
+A triangle repeats its third vertex as the fourth.
+
+**Check:** most collision vertices sit on a road or terrain mesh vertex in
+x and y. Leaving out the walls, 97.6–100% of those (99.98% in entry 196)
+match that vertex's height within 0.05 units.
+
+**Surface word:** the low nibble is the surface. The names below come from
+the textures of the visible faces the polygons sit on:
+
+| Nibble | Surface |
+|---|---|
+| 1 | asphalt |
+| 2 | dirt |
+| 3 | gravel, packed dirt road |
+| 4 | puddles, leaves |
+| 5 | bridge deck |
+| 6 | grass |
+| 7 | road shoulder |
+| 9 | verge, forest floor (mixed) |
+| b | leaves on the road |
+| c | sidewalk, curb |
+| e | bridge and lava-road blends (mixed) |
+
+The upper byte `0x16` or `0x12` marks a **wall** with no visible mesh. 97% of
+walls run from z = -127 to +127, the full range the encoding allows: the
+track's boundary lines, extruded so nothing gets past them. The rest are
+10–50 units tall. `0x0800` is set on off-road terrain; `0x1000` is set on
+many road faces (meaning unknown).
+
+`0x34130` (4,304 bytes, a u16 table starting 410, 13, 0, 1, 2, …) is unread.
+
+`hp2_scenery.py FILE` checks all of this; `--collision OUT.obj` exports one
+group per surface.
+
 Still unread: top-level chunks `80034015`, `80034019`, `80034020`, `80036000`,
 `35020`/`35021`, `34250`, `34026`, `80034147`, `80034405`, `80034425`,
-`80034500`, `80034800`, `80038000` and `34106`/`34121`–`34133`/`34146`/`34200`/`34202`.
+`80034500`, `80034800`, `80038000` and `34106`/`34121`/`34122`/`34130`/`34146`/`34200`/`34202`.
