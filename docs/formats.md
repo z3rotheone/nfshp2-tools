@@ -962,6 +962,63 @@ over the area points (t = p − 2), so the area is a polygon on the ground
 where the camera takes over. The type-0 camera points sit next to their
 area.
 
+### Lights: `0x80034015`
+
+`34016` is a header, `34017` is a table (not read), and `34018` holds the
+lights, 96 bytes each (654 in TRACKB21):
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | char[32] | name |
+| 32 | u32 | the name hash (matches all 624 `ELAmbient_*` in TRACKB21) |
+| 36 | 4 bytes | flags |
+| 40 | u32 | 0 |
+| 44 | 4 × u8 | colour RGBA |
+| 48 | 3 × f32 | position |
+| 60 | f32 | radius |
+| 64 | 3 × f32 | direction, (0, 0, −1) |
+| 76 | f32 | 0.7–1.0 (intensity?) |
+| 80 | 2 × f32 | inner, outer: they fade between these |
+
+They come in three kinds:
+
+- **Shadow lights** (`ELAmbient_Shd_S/M/L/XL/XS/XXS_n`, `elambientbigshadow`…):
+  dark grey (40, 40, 40), most of them; about 60% sit within 20 units of the
+  road in locations 4 and 6. They darken cars under trees and bridges.
+- **Tunnel lights:** warm (128, 100, 35) or white.
+- **`…Sun`:** one per track. It isn't directional: a light covering the whole
+  location (radius 2,250–6,000) that sets the base ambient grey (110 in the
+  desert, 80 in the Alpine location).
+
+### Fog: `0x34250`
+
+A 16-byte header (`3, 3, 2, count`), then 128-byte records: `FOG<MAIN>`, plus
+local zones `FOG<TUNNEL>nn` and `FOG<SMOKE>nn`. Partly read:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x10 | char[] | name |
+| 0x54 | u32 | type? (1) |
+| 0x58 | 4 × u8 | colour RGBA |
+| 0x5C | f32 | start distance |
+| 0x64 | 3 × f32 | centre |
+| 0x70 | f32 | radius |
+| 0x74 | f32 | density |
+| 0x78 | f32 | radius again |
+
+| | Track 11 (sunny) | Track 14 (overcast) |
+|---|---|---|
+| colour | (150, 150, 210) | (100, 110, 140) |
+| start | 125 | 0 |
+| density | 0.15 | 0.65 |
+
+### What differs between a track and its n+3 variant
+
+Most of the file is the same. The differences are the fog (`34250`), `35020`/
+`35021` (more environment settings, not read), `34200`/`34202` (description,
+bounds), `34106`, `34121`, `34122`, `34130`, `34132`, `34026`, and in some
+locations a model container (the variant's own sky dome).
+
 ### Identified, not decoded
 
 | Chunk | What it holds |
@@ -973,7 +1030,7 @@ area.
 | `34250` | contains "FOG<MAIN>": fog/environment settings? |
 | `34121` | about 360 records named "RAGNAR" |
 
-Still unread: `80034015` (name hash table), `80034019`, `35020`/`35021`, `34026`, `80034425`,
+Still unread: `34017` (in the lights container), `80034019`, `35020`/`35021`, `34026`, `80034425`,
 `34106`, `34122`, `34130`, `34146`, and the inside of the chunks in the table above.
 
 ## 12. Car database: chunk `0x00034600`
