@@ -196,6 +196,8 @@ that: for every texture and every mip level it takes the bytes as shipped,
 unpacks them to indices, packs them again, and requires the result to be
 identical — then does the same for the palette.
 
+*Run on the real data (2026-11-15):* all 13,871 textures of the plain packs and all 598 of the packs inside bundles re-pack to the same bytes (22 are in formats not handled).
+
 Indices and palettes are checked separately and against the stored bytes rather
 than through a decoded picture, because a palette with two identical colours
 makes a pixel's index ambiguous; no round trip through RGBA could be byte-exact,
@@ -321,7 +323,7 @@ not agree:
 | Entry | Name | Interleave | Status |
 |---|---|---|---|
 | 321 | `SOUND\JUKEBOX.JBC` | 16 bytes — one ADPCM block | *measured*, channels correlate 0.80 |
-| 322 | `SOUND\JUKEBOXM.JBC` | not 16 bytes | *open* — see below |
+| 322 | `SOUND\JUKEBOXM.JBC` | 32,768 bytes (0x8000) | *measured* on all 23 untouched tracks: channels correlate 0.45–0.98 at 32,768 and near 0 at every other size, the whole-channel split included |
 
 Decode each channel with its own predictor history, reassembling it from its
 chunks first.
@@ -342,6 +344,8 @@ true split reaches 0.9. Candidates therefore run from one ADPCM block up to
 half a track.
 
 #### What is known about entry 322
+
+*Settled 2026-11-15:* `--probe` on the untouched bank gives 32,768 bytes for every one of the 23 tracks. Replacement tracks written by `hp2_music.py` (which measures the bank) already play clean in game. The notes below are kept as the history of how 16 and 2048 were ruled out.
 
 Patching it with a 16-byte interleave plays recognisable but badly distorted
 audio in an emulator, and so does a 2048-byte one, so neither is right.
@@ -591,17 +595,7 @@ from names only:
 
 Things not yet worked out, roughly in order of how tractable they look:
 
-- **The stereo interleave of music bank 322** (§6), the bank the game actually
-  plays. 16 bytes and 2048 bytes are both ruled out by ear, in the emulator and
-  on decoded originals. Sector alignment of each half points at one block per
-  channel; `tools/hp2_audio.py --probe` on an untouched track settles it.
-- **The remaining 120 archive filenames.** 252 of 372 are recovered (§1).
-  The rest are mostly unnamed blobs whose paths are not literal strings in the
-  executable — notably entries 23–58, a run of 36 files of 60–240 KB, which is
-  suggestively 6 locations x 6 sub-tracks but matches no `TRACKS\\...` pattern
-  tried. They are probably composed at runtime from a table not yet found.
-  `tools/hp2_hash.py --solve` narrows a guess: it gives the exact hash state
-  any proposed prefix would have to produce.
+- **The remaining archive filenames.** 322 of 372 are named; the other 50 (36 developer ghost replays, profile defaults, speech events, videos, QA notes) are identified by content in `tools/archive_contents.csv` (§1).
 - **Which texture each material draws with** (§7). Material names are known
   for some (`CARSKIN`, `RUBBER`, `MIRROR`, `INTERIOR`); how a material picks
   from the part's texture list is not.
