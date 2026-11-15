@@ -1145,8 +1145,9 @@ out the menus.
 
 **Tool.** `tools/hp2_lang.py` lists, exports JSON (`--json`) and rebuilds with
 edited texts (`--write IN.json OUT`). Rebuilding unchanged reproduces all 8
-files byte for byte (`--check`); an edit changes only the edited strings. Not
-yet tried in game.
+files byte for byte (`--check`); an edit changes only the edited strings.
+*Confirmed in game (2026-11-15):* "PRESS START" rewritten as "HP2 MOD OK!",
+installed with `hp2_iso.py install-bank ISO 3`, shows on the PCSX2 title screen.
 
 ## 15. Video
 

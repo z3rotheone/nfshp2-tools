@@ -25,6 +25,10 @@ Usage:
                                                     IN.json (by id); keys and
                                                     ids stay as they are
     hp2_lang.py FE_ENGLISH.BIN --check              rebuild unchanged and compare
+
+Confirmed in game: an edited string installed with
+`hp2_iso.py install-bank COPY.iso 3 FILE` shows in PCSX2. The file must keep
+its size for that, so an edit can only grow a string by what others shrink.
 """
 import json
 import struct
