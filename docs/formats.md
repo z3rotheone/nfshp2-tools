@@ -779,6 +779,35 @@ many road faces (meaning unknown).
 `hp2_scenery.py FILE` checks all of this; `--collision OUT.obj` exports one
 group per surface.
 
-Still unread: top-level chunks `80034015`, `80034019`, `80034020`, `80036000`,
+
+### Prop collision: `0x80036000`
+
+This is the first chunk of the file. It gives one placed plant per entry a
+collision size, so a car can drive into bushes, yuccas and cacti.
+
+| Chunk | Contents |
+|---|---|
+| `0x36001` | 24 bytes; the u32 at +12 holds the number of objects in its low half (771 in entry 196) |
+| `0x36002` | a box tree over the objects (f32 centre, two u16, f32 half size, u16 children); layout not fully read |
+| `0x36003` | the objects, 32 bytes each |
+
+**Object (`0x36003`, 32 bytes):**
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | u32 | hash, unique per object |
+| 4 | u16, u16 | 3, 1 |
+| 8 | u16 | instance index in that section's `0x34103` |
+| 10 | u16 | section number |
+| 12 | u32 | 0 |
+| 16 | 3 × f32 | position, the instance's own |
+| 28 | f32 | radius |
+
+**Check:** 3,853 of 3,956 objects (97.4%) sit exactly on the instance they
+name. All misses are in files that use sections of a neighbouring
+location. The plants are bushes, yuccas, prickly pears and shrubs in the
+desert; palms, ferns and dracaenas in TRACK65/66.
+
+Still unread: top-level chunks `80034015`, `80034019`, `80034020`,
 `35020`/`35021`, `34250`, `34026`, `80034147`, `80034405`, `80034425`,
 `80034500`, `80034800`, `80038000` and `34106`/`34121`/`34122`/`34130`/`34146`/`34200`/`34202`.

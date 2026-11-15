@@ -66,6 +66,22 @@ Collision: 0x00034130-0x00034133 (top level, after the sections)
                 A triangle repeats its third vertex as the fourth.
     0x00034130  unknown (u16 table, starts 410, 13, 0, 1, 2 ...)
 
+Prop collision: 0x80036000 (first chunk of the file)
+
+    0x00036001  24 bytes; u32 at +12 holds the number of objects (low half)
+    0x00036002  a box tree over the objects (f32 centre, u16 x2, f32 half
+                size, u16 children); layout not fully read
+    0x00036003  the objects, 32 bytes each:
+                  +0  u32  hash (unique per object)
+                  +4  u16  3,  +6 u16 1
+                  +8  u16  instance index in that section's 0x34103
+                  +10 u16  section number
+                  +12 u32  0
+                  +16 3 x f32  position (the instance's own)
+                  +28 f32  radius
+                Each points at a placed plant a car can drive into (bushes,
+                yuccas, cacti in entry 196): the radius is its collision size.
+
     Every polygon overlaps the cell that lists it. Where a collision vertex
     sits on a road or terrain mesh vertex (93% do, in x and y), its height
     matches that vertex's within 0.05 for 99.96%.
@@ -175,6 +191,47 @@ def collision(d):
     b, e = ch[COLL_CELLS]
     cells = [struct.unpack_from("<2f2H", d, q) for q in range(b + 12, e - 11, 12)]
     return cells, index, polys
+
+
+def prop_colliders(d):
+    """The 0x36003 objects: (hash, section, instance, position, radius)."""
+    out = []
+    for cid, off, sz in g.chunks(d, 0, len(d)):
+        if cid != 0x80036000:
+            continue
+        for c2, o2, s2 in g.chunks(d, off, off + sz):
+            if c2 != 0x36003:
+                continue
+            b, e = _body(d, o2, s2)
+            for r in range(b, e - 31, 32):
+                h, _a, _c, inst, sec = struct.unpack_from("<IHHHH", d, r)
+                out.append(dict(hash=h, section=sec, inst=inst,
+                                pos=struct.unpack_from("<3f", d, r + 16),
+                                radius=struct.unpack_from("<f", d, r + 28)[0]))
+    return out
+
+
+def check_props(d, secs, parts):
+    objs = prop_colliders(d)
+    if not objs:
+        print("  no prop collision objects")
+        return
+    by = {s["num"]: s for s in secs}
+    names = {p["hash"]: p["name"] for p in parts}
+    ok, kinds = 0, {}
+    for o in objs:
+        s = by.get(o["section"])
+        if not s or o["inst"] >= len(s["inst"]):
+            continue
+        i = s["inst"][o["inst"]]
+        if max(abs(i["pos"][k] - o["pos"][k]) for k in range(3)) < 0.05:
+            ok += 1
+            nm = names.get(s["models"][i["model"]]["hash"], "?")
+            nm = nm.split("_")[1] if nm.startswith("X") and "_" in nm else nm
+            kinds[nm] = kinds.get(nm, 0) + 1
+    top = sorted(kinds.items(), key=lambda x: -x[1])[:6]
+    print("  prop collision: %d objects; %d sit exactly on the instance they name (%s)"
+          % (len(objs), ok, ", ".join("%s %d" % kv for kv in top)))
 
 
 def check_collision(d, parts):
@@ -358,6 +415,7 @@ def check(path, listing=False):
     print("  model hashes: %d of %d are parts of this file; %d distinct others"
           % (t["models"] - t["unknown"], t["models"], len(unknown)))
     check_collision(d, info["parts"])
+    check_props(d, secs, info["parts"])
     print()
 
 
