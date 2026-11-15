@@ -15,7 +15,8 @@ For every material whose Principled BSDF takes its Base Color from a
 texture (or a flat colour), this puts texture x vertex colour x GAIN in
 between, clamped to 1 as the GS clamps to 255. Running it twice does
 nothing more: the nodes it adds are tagged and it skips materials that
-already have them.
+already have them. It also sets see-through materials (the windows) to
+smooth blending instead of Blender's speckled dithering.
 
 Blender works in linear light and turns both the PNGs and the OBJ's vertex
 colours from sRGB to linear when it loads them. The PS2 multiplies the sRGB
@@ -89,5 +90,35 @@ for mat in bpy.data.materials:
     m2.location = (x - 220, y)
     done += 1
 
-print("hp2_ps2: shaded %d materials, skipped %d without a Principled BSDF"
-      % (done, skipped))
+# Glass: the windows draw WINDOW, whose alpha makes them see-through. Blender's
+# OBJ import leaves such materials in dithered ("hashed") transparency, which
+# shows as speckles; switch them to smooth blending, and wire the texture's
+# alpha in if the import did not.
+glass = 0
+for mat in bpy.data.materials:
+    if not mat.use_nodes:
+        continue
+    nt = mat.node_tree
+    bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if bsdf is None:
+        continue
+    alpha = bsdf.inputs.get("Alpha")
+    if alpha is None:
+        continue
+    if not alpha.is_linked and "WINDOW" in mat.name.upper():
+        img = next((n for n in nt.nodes if n.type == 'TEX_IMAGE'), None)
+        if img is not None:
+            nt.links.new(img.outputs["Alpha"], alpha)
+    if not alpha.is_linked:
+        continue
+    if hasattr(mat, "surface_render_method"):      # Blender 4.2 and later
+        mat.surface_render_method = 'BLENDED'
+    else:
+        mat.blend_method = 'BLEND'
+        if hasattr(mat, "shadow_method"):
+            mat.shadow_method = 'NONE'
+    mat.use_backface_culling = False
+    glass += 1
+
+print("hp2_ps2: shaded %d materials, skipped %d without a Principled BSDF; "
+      "%d see-through materials set to smooth blending" % (done, skipped, glass))
