@@ -603,8 +603,6 @@ Things not yet worked out, roughly in order of how tractable they look:
 - **Bits 19-22 of the strip mask words** (§7).
 - **Track scenery** — models and placement are decoded (§11); the other
   top-level chunks of `eLabScenery99.bin` are not.
-- **Menu text** — the `FE_ENGLISH.bin` family. Strings are readable; the
-  surrounding structure is not parsed.
 - **Video** — 21 AVI files extract cleanly as containers, but the codec is
   probably custom; the executable has `movieplayer/dctimage.cpp` among its
   source paths.
@@ -1060,3 +1058,38 @@ has `TN_TRACK%dR`, but no code uses it.
 
 The location names are the ambience banks' names (`SOUND\\PARKLAND.MSH`…),
 so location 3 is "Greece".
+
+## 14. Menu text: `LANGUAGES\\FE_<LANGUAGE>.BIN`
+
+There's one file per language (entries 3–10: English, French, German, ID,
+Italian, Longest, Spanish, Swedish), each one chunk `0x00039000`:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0x08 | 2 × u32 | load-time values, kept as they are |
+| 0x10 | char[68] | the file's development path |
+| 0x54 | u32 | n, the number of strings: 2,437 in every language |
+| 0x58 | u32 | n again |
+| 0x5C | u32 | text size |
+| 0x60 | 3 × u32 | load-time values, kept |
+| 0x6C | n × (u32 key, u32 offset) | sorted by key as signed 32-bit, for a binary search |
+| then | n × (u32 id, u32 offset) | sorted by id: 10000, 10001… |
+| then | text | NUL-terminated Latin-1 strings, in no particular order |
+
+**Keys.** A key is the name hash (§10) of the string's English wording: it
+matches the English text for 2,218 of 2,437 strings (the rest were reworded
+later). Every language has the same keys, so the game finds a string by the
+hash of its original English wording.
+
+**Text.** Strings carry inline codes: `$RGB(134,96,48)`,
+`$FONT(FONT_IMPACTNORMAL)`. A few strings are reached only through the key
+table (three copies of "French" in English).
+
+**Special languages.** `FE_ID` holds each id as its text (a debug language).
+`FE_LONGEST` is presumably the longest string of every language, for laying
+out the menus.
+
+**Tool.** `tools/hp2_lang.py` lists, exports JSON (`--json`) and rebuilds with
+edited texts (`--write IN.json OUT`). Rebuilding unchanged reproduces all 8
+files byte for byte (`--check`); an edit changes only the edited strings. Not
+yet tried in game.
