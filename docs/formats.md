@@ -1149,6 +1149,18 @@ files byte for byte (`--check`); an edit changes only the edited strings.
 *Confirmed in game (2026-11-15):* "PRESS START" rewritten as "HP2 MOD OK!",
 installed with `hp2_iso.py install-bank ISO 3`, shows on the PCSX2 title screen.
 
+**Growing an entry.** `hp2_iso.py install ISO ENTRY FILE` accepts any size.
+The loader (`bLoadDirectoryFile`, 0x255ca0) adds ZZDATA's start sector to
+every ZDIR offset at boot and later looks entries up by id, picking the copy
+nearest the last read position (0x255e90); nothing compares an entry with the
+end of ZZDATA.BIN. An entry that fits its sectors is written in place;
+otherwise it is appended after the last file, ZDIR is repointed, and the
+ISO9660 volume size plus the UDF partition length, integrity size table and
+closing anchor (last sector) are updated. *Confirmed in game (2026-11-19):*
+a 111,680-byte FE_ENGLISH.BIN (original 107,576) shows "HP2 BIG FILE OK!".
+Repeated installs (several entries, or the same one again) were verified by
+reading back; a re-grown entry leaves its old copy as unused space.
+
 ## 15. Video
 
 The videos are 21 AVI files (entries 372–392), at 30 fps and 512×256 or
