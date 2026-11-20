@@ -6,10 +6,10 @@
  *                                       or extracted entries 21, 302, 3
  * options:
  *   --language NAME    FE_<NAME>.BIN with --disc (default ENGLISH)
- *   --jukebox FILE     with --files: the music bank (entry 322,
- *                      SOUND\JUKEBOXM.JBC) for the Jukebox screen; --disc
- *                      reads it from the archive. Only its song table is
- *                      read.
+ *   --jukebox FILE     the music bank (entry 322, SOUND\JUKEBOXM.JBC) for
+ *                      the Jukebox and the menu music, e.g. one you modded
+ *                      with hp2_music.py. Without it, --disc uses the
+ *                      archive's own bank.
  *   --config PATH      settings file (default hp2.ini, shared with the
  *                      launcher; saved when you leave the settings list)
  *   --size WxH         window size (default 1280x720)
@@ -68,9 +68,9 @@ static int load_files(files *f, const char *disc, const char *language, char **l
         f->frontb = hp2_zdir_load(&z, "FRONTEND\\FRONTB.BUN", &f->frontb_len);
         f->globalb = hp2_zdir_load(&z, "GLOBAL\\GLOBALB.BUN", &f->globalb_len);
         f->lang = hp2_zdir_load(&z, path, &f->lang_len);
-        f->bank = hp2_zdir_load_part(&z, "SOUND\\JUKEBOXM.JBC", hp2_jukebox_header_size(), &f->bank_len);
-        {
+        if (!bank) {
             uint32_t size;
+            f->bank = hp2_zdir_load_part(&z, "SOUND\\JUKEBOXM.JBC", hp2_jukebox_header_size(), &f->bank_len);
             if (hp2_zdir_locate(&z, "SOUND\\JUKEBOXM.JBC", &f->bank_base, &size) == 0)
                 snprintf(f->bank_path, sizeof f->bank_path, "%s", z.data);
         }
@@ -80,10 +80,12 @@ static int load_files(files *f, const char *disc, const char *language, char **l
         f->frontb = hp2_read_file(loose[0], &f->frontb_len);
         f->globalb = hp2_read_file(loose[1], &f->globalb_len);
         f->lang = hp2_read_file(loose[2], &f->lang_len);
-        if (bank) {
-            f->bank = hp2_read_file_part(bank, hp2_jukebox_header_size(), &f->bank_len);
-            snprintf(f->bank_path, sizeof f->bank_path, "%s", bank);
-        }
+    }
+    if (bank) {   /* a bank of your own, with --disc or --files */
+        f->bank = hp2_read_file_part(bank, hp2_jukebox_header_size(), &f->bank_len);
+        f->bank_base = 0;
+        snprintf(f->bank_path, sizeof f->bank_path, "%s", bank);
+        if (!f->bank) fprintf(stderr, "could not read the music bank %s\n", bank);
     }
     if (!f->frontb || !f->globalb) {
         fprintf(stderr, "could not read FRONTB.BUN and GLOBALB.BUN\n");

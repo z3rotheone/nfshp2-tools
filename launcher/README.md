@@ -128,9 +128,9 @@ changes it: a song set to Menu or On starts at once; one set to Off plays
 on to its end and is not picked again. *Default Jukebox*
 puts them all back. *Save/Load* is
 for player progress and does nothing yet; Player Names, Credits and
-Languages are left out. With `--files`, add `--jukebox` and the music bank
-(extracted entry 322) for the Jukebox; `--disc` reads it from the archive
-(only its 6 KB song table).
+Languages are left out. `--disc` takes the music from the archive's own bank;
+`--jukebox BANK` uses another one instead (extracted entry 322, or a bank you
+modded with `hp2_music.py`), with `--disc` or `--files`.
 
 **Menu music.** hp2fe plays the Jukebox's songs set to Menu or On one after
 another in random order, at the Menu Music volume, streamed from the music
