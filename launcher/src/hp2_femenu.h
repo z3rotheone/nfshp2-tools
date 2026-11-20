@@ -83,7 +83,7 @@ extern "C" {
 typedef enum {
     HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
     HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING,
-    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK, HP2_FEM_CHALLENGE, HP2_FEM_RACE_SETUP
+    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK, HP2_FEM_CHALLENGE, HP2_FEM_RACE_SETUP, HP2_FEM_TREE
 } hp2_fem_screen;
 /* HP2_IN_HELP (Triangle) switches the ticker between the row's help line
  * and the menu buttons (accept, back, help), on every screen. */
@@ -106,7 +106,7 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
-    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal, *cop, *rsetup;   /* NULL if missing */
+    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal, *cop, *rsetup, *tree;   /* NULL if missing */
     int                  track;     /* SELECT_TRACK: index into the course table */
     int                  tod;       /* 0 sunny, 1 the course's other lighting */
     int                  alt;       /* 1: the course the other way round */
@@ -121,6 +121,9 @@ typedef struct {
     int                  skill;     /* 0 Beginner, 1 Advanced, 2 Expert */
     int                  setup_val[8]; /* RACE_SETUP: the value of each setting (SU_*) */
     int                  setup_sel; /* RACE_SETUP's row when car select was opened */
+    int                  tree_kind; /* event tree: 0 Ultimate Racer (Championship), 1 Ultimate Fugitive (Hot Pursuit) */
+    int                  tree_ev;   /* the event on view, 0-based */
+    int                  tree_from; /* the screen the tree was opened from */
     int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
     int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
     int                  handling;  /* 0 Classic, 1 Extreme */

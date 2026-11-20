@@ -720,7 +720,9 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     hp2_femenu_input(&m, HP2_IN_UP);
     CHECK(m.sel == 3 && !strcmp(m.help, "Fill your ticket quota for big points!"), "up from the top wraps to You're The Pig");
     hp2_femenu_input(&m, HP2_IN_DOWN);
-    CHECK(m.sel == 1 && hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_HOT_PURSUIT, "Ultimate Fugitive does nothing yet");
+    CHECK(m.sel == 1 && hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_TREE, "Ultimate Fugitive opens the event tree");
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(m.screen == HP2_FEM_HOT_PURSUIT && m.sel == 1, "back: Hot Pursuit, on Ultimate Fugitive");
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu, on Hot Pursuit");
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(!strcmp(m.help, "Take on the world's best sports cars!"), "World Racing's help line");
@@ -947,6 +949,15 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu again");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        n = hp2_femenu_items(&m, it, 200);
+        CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 1 && find_text(it, n, "Opel Speedster Delivery") == 1
+              && find_text(it, n, "Event 2") == 1 && find_text(it, n, "Unlocked") == 1, "Ultimate Fugitive: event 2 on the tree");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back from the tree: Main Menu");
         hp2_femenu_input(&m, HP2_IN_DOWN);
         hp2_femenu_input(&m, HP2_IN_DOWN);
     }

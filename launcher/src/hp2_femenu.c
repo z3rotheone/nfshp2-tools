@@ -25,7 +25,7 @@
 /* Main Menu and the mode menus, as the port has them: each entry's label
  * (a string id, or the port's own name) and help line (FE_<LANG>.BIN
  * strings 10006-10017), in the port's order. */
-enum { GO_NONE, GO_HOT_PURSUIT, GO_WORLD_RACING, GO_QUICK, GO_OPTIONS, GO_CHALLENGE, GO_SETUP, GO_COP };
+enum { GO_NONE, GO_HOT_PURSUIT, GO_WORLD_RACING, GO_QUICK, GO_OPTIONS, GO_CHALLENGE, GO_SETUP, GO_COP, GO_TREE_WR, GO_TREE_HP };
 typedef struct {
     uint32_t    sid;        /* label string, 0 = name only */
     const char *name;       /* the port's own label, or the fallback */
@@ -41,7 +41,7 @@ static const list_entry MAIN_LIST[] = {
     { SID_OPTIONS_MAIN, "Options",      0, 10009, GO_OPTIONS },      /* Customize your settings. */
 };
 static const list_entry HOT_PURSUIT_LIST[] = {
-    { 10029, "Ultimate Fugitive",    1, 10013, GO_NONE },   /* Ultimate Racer: Beat the heat in 30 events. */
+    { 10029, "Ultimate Fugitive",    1, 10013, GO_TREE_HP },   /* Ultimate Racer: Beat the heat in 30 events. */
     { 10030, "Racing But With Pigs", 1, 10012, GO_CHALLENGE },   /* Challenge: One-player and two-player challenges. */
     { 10028, "You're The Pig",       1, 10014, GO_COP },   /* You're The Cop: Fill your ticket quota for big points! */
 };
@@ -59,7 +59,7 @@ static const list_entry COP_LIST[] = {      /* You're The Pig: no Race Type */
     { 20019, "Setup",       0, 0,     GO_SETUP },
 };
 static const list_entry WORLD_RACING_LIST[] = {
-    { 10026, "Ultimate Racer", 1, 10008, GO_NONE },   /* Championship: Real cars, real fast in 30 events. */
+    { 10026, "Ultimate Racer", 1, 10008, GO_TREE_WR },   /* Championship: Real cars, real fast in 30 events. */
     { 10025, "Just Race",      1, 10007, GO_CHALLENGE },   /* Challenge: One-player and two-player challenges. */
 };
 
@@ -77,6 +77,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_SELECT_TRACK 0x15417B53u
 #define SCR_CHALLENGE    0x2D62CFE2u
 #define SCR_COP          0xE55F1297u
+#define SCR_TREE_VIEW    0x492E86E9u
 #define SCR_RACE_SETUP   0xD1EADBCAu
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
@@ -539,7 +540,7 @@ static void refresh(hp2_femenu *m)
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
     } else if (list_screen(m)) {
         list_help(m);
-    } else if (m->screen == HP2_FEM_TITLE || m->screen == HP2_FEM_SELECT_CAR || m->screen == HP2_FEM_SELECT_TRACK) {
+    } else if (m->screen == HP2_FEM_TITLE || m->screen == HP2_FEM_SELECT_CAR || m->screen == HP2_FEM_SELECT_TRACK || m->screen == HP2_FEM_TREE) {
         /* no ticker */
     } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
                && m->orow[m->sel - 1] == OPT_JUKEBOX) {
@@ -589,6 +590,7 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->tracksel = hp2_fe_find_id(layout, SCR_SELECT_TRACK);
     m->chal = hp2_fe_find_id(layout, SCR_CHALLENGE);
     if (!hp2_fe_row(m->chal, 1)) m->chal = NULL;
+    m->tree = hp2_fe_find_id(layout, SCR_TREE_VIEW);
     m->rsetup = hp2_fe_find_id(layout, SCR_RACE_SETUP);
     if (!hp2_fe_row(m->rsetup, 1)) m->rsetup = NULL;
     m->setup_val[SU_OPPONENTS] = 6; m->setup_val[SU_CATCHUP] = 1; m->setup_val[SU_TRAFFIC] = 2; m->setup_val[SU_DAMAGE] = 1;
@@ -670,6 +672,30 @@ static int title_input(hp2_femenu *m, hp2_fem_input in)
     return HP2_FEM_REDRAW;
 }
 
+/* ---- event trees -------------------------------------------------------- */
+
+/* The two trees (the 0x80034A00 chunks of FRONTB): Championship (the port's
+ * Ultimate Racer, World Racing) has 31 events, Hot Pursuit (the port's
+ * Ultimate Fugitive) 32. Event k's title is string title + k and its blurb
+ * blurb + k. */
+static const struct { int events; uint32_t title, blurb; } TREES[2] = { { 31, 70000u, 70064u }, { 32, 70031u, 70095u } };
+
+static int tree_input(hp2_femenu *m, hp2_fem_input in)
+{
+    int n = TREES[m->tree_kind].events;
+    switch (in) {
+    case HP2_IN_LEFT:
+    case HP2_IN_UP:    m->tree_ev = (m->tree_ev + n - 1) % n; return HP2_FEM_REDRAW;
+    case HP2_IN_RIGHT:
+    case HP2_IN_DOWN:  m->tree_ev = (m->tree_ev + 1) % n; return HP2_FEM_REDRAW;
+    case HP2_IN_BACK:
+        m->screen = (hp2_fem_screen)m->tree_from;
+        m->sel = m->chal_sel;
+        return HP2_FEM_REDRAW;
+    default: return 0;
+    }
+}
+
 /* Customize: up/down settings, left/right values, accept goes on to car select. */
 static int setup_input(hp2_femenu *m, hp2_fem_input in)
 {
@@ -746,6 +772,14 @@ static int list_input(hp2_femenu *m, hp2_fem_input in)
         case GO_HOT_PURSUIT:  if (!m->hotp) return 0; m->screen = HP2_FEM_HOT_PURSUIT; break;
         case GO_WORLD_RACING: if (!m->world) return 0; m->screen = HP2_FEM_WORLD_RACING; break;
         case GO_OPTIONS:      m->screen = HP2_FEM_OPTIONS; break;
+        case GO_TREE_WR:
+        case GO_TREE_HP:
+            if (!m->tree) return 0;
+            m->tree_kind = e[m->sel - 1].go == GO_TREE_HP;
+            m->tree_ev = 0;
+            m->tree_from = m->screen; m->chal_sel = m->sel;
+            m->screen = HP2_FEM_TREE;
+            return HP2_FEM_REDRAW;
         case GO_CHALLENGE:
         case GO_COP:
             if (!(e[m->sel - 1].go == GO_COP ? m->cop : m->chal)) return 0;
@@ -808,6 +842,8 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         r = track_input(m, in);
     } else if (m->screen == HP2_FEM_TITLE) {
         r = title_input(m, in);
+    } else if (m->screen == HP2_FEM_TREE) {
+        r = tree_input(m, in);
     } else if (m->screen == HP2_FEM_RACE_SETUP) {
         r = setup_input(m, in);
     } else if (m->screen == HP2_FEM_CHALLENGE) {
@@ -1312,6 +1348,85 @@ static int track_items(hp2_femenu *m, list *l)
  * game fills at run time, and its other picture is a movie texture, so the
  * port shows Main Menu's backdrop (grid, blueprints, borders) with the NFS
  * logo in the middle, and the title's own PRESS START. */
+/* A flat rectangle (the solid stand-in texture, tinted) from any image widget. */
+static hp2_fe_item *rect(list *l, const hp2_fe_widget *tmpl, float x, float y, float w, float h,
+                         int r, int g, int b, int a, int layer)
+{
+    hp2_fe_item *it = push(l, tmpl, NULL);
+    int k;
+    if (!it) return NULL;
+    it->w.x = x; it->w.y = y; it->w.sx = w / 16.0f; it->w.sy = h / 16.0f;
+    it->w.texture = SOLID_TEXTURE; it->w.visible = 1; it->w.layer = (uint8_t)layer;
+    for (k = 0; k < 4; k++) {
+        it->w.vcol[k][0] = (uint8_t)(r * 128 / 255); it->w.vcol[k][1] = (uint8_t)(g * 128 / 255);
+        it->w.vcol[k][2] = (uint8_t)(b * 128 / 255); it->w.vcol[k][3] = (uint8_t)a;
+    }
+    return it;
+}
+
+/* The event tree with one event on view, placed as on a PCSX2 screenshot of
+ * the game (the layout is stored scrolled: its title sits at the bottom and
+ * its details at the top): the header of Challenge, a map panel, the event's
+ * star at the centre with its number, "Event n / Status / Reward" at its
+ * right and the event's title in a bar below. Every event is open. The
+ * game's map picture, the red lines to the next events and the ghosted car
+ * logo are not in the port yet. */
+static int tree_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = m->tree, *c = m->chal;
+    const hp2_fe_widget *tmpl = named(s, "FLAG");
+    static char num[24], evn[40], title[96], status[32], reward[64], tl[40];
+    int i, ev = m->tree_ev;
+    hp2_fe_item *it;
+    snprintf(num, sizeof num, "%d", ev + 1);
+    snprintf(tl, sizeof tl, "%s", lang_or(m, 70063u, "Event %d"));
+    { char *d = strstr(tl, "%d"); if (d) { snprintf(evn, sizeof evn, "%.*s%d%s", (int)(d - tl), tl, ev + 1, d + 2); } else snprintf(evn, sizeof evn, "Event %d", ev + 1); }
+    snprintf(title, sizeof title, "%s", lang_or(m, TREES[m->tree_kind].title + (uint32_t)ev, ""));
+    snprintf(status, sizeof status, "%s", lang_or(m, 62001u, "Unlocked"));
+    snprintf(reward, sizeof reward, "%s", lang_or(m, 67001u, "No reward"));
+    if (c) {      /* the backdrop and header of Challenge */
+        for (i = 0; i < c->count; i++) {
+            const hp2_fe_widget *w = &c->widgets[i];
+            hp2_fe_item *bi;
+            if (w->x >= 640.0f || w->y >= 480.0f) continue;
+            if (!strcmp(w->name, "CHALLENGE_TITLE")) push(l, w, m->tree_kind ? "Ultimate Fugitive" : "Ultimate Racer");
+            else if (w->kind == HP2_FE_TEXT && !strcmp(w->name, "NONAME")) push(l, w, hp2_femenu_text(m, w));
+            else if (w->kind == HP2_FE_IMAGE && (!strcmp(w->name, "GRID") || !strcmp(w->name, "MASTER_BP_OBJECT")
+                     || !strcmp(w->name, "FADING_BP_OBJECT") || (!strcmp(w->name, "NONAME") && w->sx > 1.0f && w->y < 70.0f)
+                     || (!strcmp(w->name, "GRID_SHADOW") && w->x == 0.0f))) { bi = push(l, w, NULL); if (bi) bi->w.layer = (uint8_t)(20 + (w->layer > 30 ? 30 : w->layer)); }
+        }
+    }
+    if (tmpl) {
+        rect(l, tmpl, 141.0f, 71.0f, 499.0f, 259.0f, 120, 130, 140, 0x30, 15);      /* the map panel */
+        rect(l, tmpl, 383.0f, 205.0f, 257.0f, 35.0f, 20, 20, 20, 0x50, 8);         /* Status */
+        rect(l, tmpl, 383.0f, 246.0f, 257.0f, 35.0f, 20, 20, 20, 0x50, 8);         /* Reward */
+        rect(l, tmpl, 383.0f, 201.0f, 257.0f, 2.0f, 240, 240, 240, 0x80, 7);       /* under "Event n" */
+    }
+    it = push(l, named(s, "EVENT_NUMBER"), num);
+    if (it) { it->w.x = 320.0f; it->w.y = 216.0f; it->w.align = HP2_FE_ALIGN_CENTRE; it->w.visible = 1; it->w.layer = 1; }
+    it = push(l, named(s, "EVENT_TITLE"), evn);
+    if (it) { it->w.sx = it->w.sy = 0.9f; it->w.x = 383.0f; it->w.y = 176.0f; it->w.visible = 1; it->w.layer = 0; }
+    for (i = 0; i < s->count; i++) {
+        const hp2_fe_widget *w = &s->widgets[i];
+        if (w->kind != HP2_FE_TEXT || strcmp(w->name, "NONAME") || w->y < 40.0f || w->y > 80.0f) continue;
+        it = push(l, w, hp2_femenu_text(m, w));      /* the "Status:" and "Reward:" labels */
+        if (it) {
+            it->w.x = 385.0f; it->w.y = w->y < 60.0f ? 206.0f : 247.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0;
+        }
+    }
+    it = push(l, named(s, "OVERLAY_STATUSTITLE"), status);
+    if (it) { it->w.x = 385.0f; it->w.y = 222.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0; }
+    it = push(l, named(s, "OVERLAY_REWARDTITLE"), reward);
+    if (it) { it->w.x = 385.0f; it->w.y = 263.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0; }
+    if (tmpl) {
+        it = push(l, named(s, "SCROLL_TEXT_CLIP"), NULL);     /* the title bar below the map */
+        if (it) { it->w.x = 116.0f; it->w.y = 333.0f; it->w.sx = 1.03f; it->w.sy = 0.78f; it->w.visible = 1; it->w.layer = 9; }
+    }
+    it = push(l, named(s, "EVENT_TITLE"), title);
+    if (it) { it->w.x = 127.0f; it->w.y = 336.0f; it->w.sx = it->w.sy = 0.75f; it->w.visible = 1; it->w.layer = 0; }
+    return l->n;
+}
+
 static int title_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->title, *bg = m->mainm;
@@ -1546,6 +1661,7 @@ int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
     l.cap = cap;
     if (m->screen == HP2_FEM_JUKEBOX) return jukebox_items(m, &l);
     if (m->screen == HP2_FEM_TITLE) return title_items(m, &l);
+    if (m->screen == HP2_FEM_TREE) return tree_items(m, &l);
     if (m->screen == HP2_FEM_SELECT_CAR) return car_items(m, &l);
     if (m->screen == HP2_FEM_SELECT_TRACK) return track_items(m, &l);
     if (list_screen(m)) return list_items(m, &l);
