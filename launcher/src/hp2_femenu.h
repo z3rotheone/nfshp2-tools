@@ -21,7 +21,9 @@
  *   Jukebox          the JUKEBOX_INGAME layout: a Genre row (left/right
  *                    picks the genre), then the genre's songs five at a
  *                    time, title above artist, with their play status;
- *                    left/right on a song changes where it plays. Needs
+ *                    left/right on a song steps where it plays, in the
+ *                    game's order: Off, World Racing, Hot Pursuit, Menu,
+ *                    Menu/Racing, Always. Needs
  *                    hp2_femenu_set_jukebox (the music bank's table).
  *
  * The selected row looks as in the game: orange label, the white

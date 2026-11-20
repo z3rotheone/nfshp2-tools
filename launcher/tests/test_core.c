@@ -325,6 +325,8 @@ static void test_jukebox_file(void)
     hp2_settings_default_jukebox(&s);
     CHECK(s.song[0] == -1 && s.song[63] == -1, "Default Jukebox");
     CHECK(!strcmp(hp2_play_label(HP2_PLAY_RACING), "World Racing") && !strcmp(hp2_play_key(HP2_PLAY_MENU_RACING), "menu_racing"), "names");
+    CHECK(HP2_PLAY_OFF == 0 && HP2_PLAY_HOT_PURSUIT == 2 && HP2_PLAY_MENU_RACING == 4 && HP2_PLAY_ALWAYS == 5,
+          "the game's order, which is the bank's numbering");
 }
 
 int main(void)

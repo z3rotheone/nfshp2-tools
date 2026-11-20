@@ -424,7 +424,13 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
             if (!strcmp(it[k].w.name, "SONG1") || !strcmp(it[k].w.name, "ARTIST1"))
                 CHECK(it[k].w.rgba[0] == 124 && it[k].w.rgba[1] == 64, "%s orange: title and artist both", it[k].w.name);
         r = hp2_femenu_input(&m, HP2_IN_RIGHT);
-        CHECK((r & HP2_FEM_CHANGED) && cfg.song[first] == HP2_PLAY_MENU_RACING, "right: next play status, kept in the settings");
+        CHECK((r & HP2_FEM_CHANGED) && cfg.song[first] == HP2_PLAY_MENU, "right: Hot Pursuit -> Menu (the game's order), kept in the settings");
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(cfg.song[first] == HP2_PLAY_RACING, "left twice: World Racing");
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(cfg.song[first] == HP2_PLAY_ALWAYS, "left past Off wraps to Always");
         for (k = 0; k < 25; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
         CHECK(m.jsel >= 1 && m.jsel - 1 >= m.jscroll && m.jsel - 1 < m.jscroll + HP2_FEM_SONGS, "scrolling keeps the song in view");
         n = hp2_femenu_items(&m, it, 160);

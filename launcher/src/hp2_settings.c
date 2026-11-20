@@ -12,8 +12,8 @@ static const char *AUDIO_MODE[] = { "stereo", "mono", "surround" };
 static const char *VOLUME_KEY[] = { "menu_music", "race_music", "ambient", "tires",
                                     "engine", "menu_sfx", "speech" };
 static const int VOLUME_DEFAULT[] = { 70, 70, 80, 80, 80, 80, 80 };
-static const char *PLAY_KEY[] = { "off", "menu", "racing", "hot_pursuit", "menu_racing", "always" };
-static const char *PLAY_LABEL[] = { "Off", "Menu", "World Racing", "Hot Pursuit", "Menu/Racing", "Always" };
+static const char *PLAY_KEY[] = { "off", "racing", "hot_pursuit", "menu", "menu_racing", "always" };
+static const char *PLAY_LABEL[] = { "Off", "World Racing", "Hot Pursuit", "Menu", "Menu/Racing", "Always" };
 static const char *GLYPHS[] = { "auto", "xbox", "playstation", "nintendo",
                                 "generic", "keyboard" };
 
@@ -339,7 +339,7 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
             if (s->song[i] < 0) continue;
             k = snprintf(buf ? buf + n : NULL, (size_t)n < cap ? cap - (size_t)n : 0, "%s%s%d = %s\n",
                          head ? "" : "\n[jukebox]              # play status of song n of the music bank:\n"
-                                     "                       # off, menu, racing, hot_pursuit, menu_racing, always\n",
+                                     "                       # off, racing, hot_pursuit, menu, menu_racing, always\n",
                          "song", i + 1, hp2_play_key((hp2_play)s->song[i]));
             if (k < 0) return 0;
             n += k;

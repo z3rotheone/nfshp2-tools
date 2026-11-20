@@ -118,8 +118,8 @@ screenshots). On OPTIONS, *Display* opens the
 Video page, *Controller* the Controls page and *Audio* the Audio page (the
 game's AUDIO_OPTIONS layout, volumes as its sliders). *Jukebox* on the Audio
 page lists the music bank's songs by genre, title over artist, with where
-each plays (Off, Menu, World Racing, Hot Pursuit, Menu/Racing, Always;
-left/right changes it); *Default Jukebox* puts them all back. *Save/Load* is
+each plays (Off, World Racing, Hot Pursuit, Menu, Menu/Racing, Always, the
+game's order; left/right changes it); *Default Jukebox* puts them all back. *Save/Load* is
 for player progress and does nothing yet; Player Names, Credits and
 Languages are left out. With `--files`, add `--jukebox` and the music bank
 (extracted entry 322) for the Jukebox; `--disc` reads it from the archive
@@ -160,7 +160,7 @@ speech = 80
 mode = stereo       # stereo, mono, surround
 
 [jukebox]           # only songs you changed; n = order in the music bank
-song2 = always      # off, menu, racing, hot_pursuit, menu_racing, always
+song2 = always      # off, racing, hot_pursuit, menu, menu_racing, always
 ```
 
 Unknown keys are ignored rather than rejected, so a newer game can read an

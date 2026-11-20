@@ -97,6 +97,7 @@ stubcheck:
 	@echo "stub compile-check passed"
 
 clean:
-	rm -f $(BIN) $(FEBIN) test_core test_pad test_menu test_fe test_assets hp2.ini *.o
+	rm -f $(BIN) $(FEBIN) test_core test_pad test_menu test_fe test_assets *.o
+	@# hp2.ini is the user's settings: never removed here
 
 .PHONY: all test fecheck stubcheck clean

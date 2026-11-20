@@ -81,12 +81,14 @@ typedef enum {
     HP2_VOL_COUNT
 } hp2_volume;
 
-/* Where a jukebox song plays (the game's Play Status words). */
+/* Where a jukebox song plays: the game's Play Status, in the order its
+ * Jukebox steps through them with right (confirmed in PCSX2), which is also
+ * the number the music bank stores as each song's default. */
 typedef enum {
     HP2_PLAY_OFF = 0,
-    HP2_PLAY_MENU,
     HP2_PLAY_RACING,       /* "World Racing" */
     HP2_PLAY_HOT_PURSUIT,
+    HP2_PLAY_MENU,
     HP2_PLAY_MENU_RACING,
     HP2_PLAY_ALWAYS,
     HP2_PLAY_COUNT

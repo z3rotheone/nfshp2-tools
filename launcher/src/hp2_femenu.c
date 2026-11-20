@@ -64,17 +64,12 @@ static int hidden_row(const hp2_fe_widget *w)
 
 /* ---- jukebox ------------------------------------------------------------- */
 
-/* The bank's play-status number -> hp2_play. 2 is Hot Pursuit and 4 is
- * Menu/Racing (the user's PCSX2 screenshots: instrumentals show Hot Pursuit,
- * vocal versions Menu/Racing); 0 (Matt Ragan and the techno tracks) is not
- * yet seen in the game and is taken as Off. */
+/* The bank's play-status number is the position in the game's own list
+ * (hp2_play): 0 Off, 2 Hot Pursuit, 4 Menu/Racing, as PCSX2 shows the
+ * factory settings. Anything else is taken as Off. */
 static hp2_play play_from_bank(int n)
 {
-    switch (n) {
-    case 2:  return HP2_PLAY_HOT_PURSUIT;
-    case 4:  return HP2_PLAY_MENU_RACING;
-    default: return HP2_PLAY_OFF;
-    }
+    return n >= 0 && n < HP2_PLAY_COUNT ? (hp2_play)n : HP2_PLAY_OFF;
 }
 
 hp2_play hp2_femenu_play(const hp2_femenu *m, int song)

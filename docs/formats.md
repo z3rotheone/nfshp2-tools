@@ -310,10 +310,12 @@ A different layout from the sound banks.
 | 8 | u32 | zero |
 | 12 | char[] | name as `Artist-Title-Album-Genre-Number`, NUL-terminated |
 
-The trailing number is the song's **default jukebox play status**:
-instrumental versions end in 2, vocal versions in 4, and Matt Ragan's and the
-techno tracks in 0. The game's Jukebox shows 2 as *Hot Pursuit* and 4 as
-*Menu/Racing* (PCSX2 screenshots, 2026-11-19); 0 is not yet seen in the game.
+The trailing number is the song's **default jukebox play status**, as its
+position in the list the game's Jukebox steps through with right: 0 Off,
+1 World Racing, 2 Hot Pursuit, 3 Menu, 4 Menu/Racing, 5 Always (*confirmed*
+in PCSX2, 2026-11-19: factory settings show the instrumentals, which end in
+2, as Hot Pursuit, the vocal versions, 4, as Menu/Racing, and Matt Ragan's
+and the techno tracks, 0, as Off).
 The status words are FE_ENGLISH 110041–110045 and 110052 (Off, World Racing,
 Menu, Always, Hot Pursuit, Menu/Racing); genres 110021–110029 (Rock, Techno,
 Electronica, R & B, Pop, Punk, Drum & Bass, Alternative, Top 40), of which
