@@ -1237,9 +1237,8 @@ clip, which is what you need to swap one voice line for another.
 
 `FRONTB.BUN` (entry 21, 14.4 MB) holds, at top level: `0x80034000` (17 pieces of
 front-end geometry), `0xB0300001` (12.5 MB of textures), `0x80010200` (the
-screen layouts), two `0x80034A00` and four `0x00015010` **fonts** (id =
-name hash: `FONT_IMPACTBIG` 0x2D213565, `FONT_IMPACTNORMAL` 0x5F3A4A3C; each
-glyph is a character code followed by a rectangle in floats).
+screen layouts), two `0x80034A00` (the "Championship" tree view, not fonts)
+and four `0x00015010` **fonts** (section 18).
 
 **Screens (`0x80010200`).** 41 screens on a 640 x 480 canvas, each
 `0x80010201` = one `0x00010203` header (u32 screen id at +8, canvas at +0x18,
@@ -1252,18 +1251,45 @@ of an upper-case name; 21 are solved: `OPTIONS` 0x95AD096B, `DISPLAY_OPTIONS`
 `MEMCARD_POPUP`, `POPUP`, `TITLE_SCREEN` 0xB5761D00, `SELECT_CAR`,
 `SELECT_TRACK`, `RACE_SETUP`, `CHALLENGE`, `CREDITS`, `CREDITS_SCREEN`,
 `TREE_VIEW`. The other 20 stay as hex (main-menu and mode screens, probably).
-Widget body: name hash +8, name `char[24]` +0x10, kind +0x28 (1 text, 2 image),
-position `f32 x, y` +0x30, scale +0x38; text widgets add font +0x50, capacity
-+0x54, RGBA +0x5C, **string id +0x60** and an inline default text; image
-widgets add a texture name hash +0x50. `tools/hp2_fescreens.py FRONTB.BUN
-[--screen NAME] [--strings en.json] [--json OUT]` reads all of it.
+Widget body:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| +0x08 | u32 | name hash |
+| +0x10 | char[24] | name (`MENUITEM_1`, `MI_1_MASK`, `NONAME`...) |
+| +0x28 | u8 | kind: 1 text, 2 image |
+| +0x29 | u8 | visible (0 = hidden until the screen's code shows it) |
+| +0x2A | u8 | layer: draw order, **lower is in front** (arrows 0, text 0, row masks 2–3, grid 8, blueprint 10) |
+| +0x30 | f32 x, y | position, canvas pixels (top-left; text: top of the line) |
+| +0x38 | f32 sx, sy | scale |
+| +0x50 | u32 | text: font (section 18); image: texture name hash |
+| +0x54 | u32 | text: capacity in characters |
+| +0x58 | u32 | text: alignment, 2 = left (x is the left edge), 4 = centred on x |
+| +0x58 | 4 × RGBA | image: corner colours, top-left, top-right, bottom-right, bottom-left (PS2 scale, 0x80 = 1.0) |
+| +0x5C | RGBA | text: colour (PS2 scale: rows 0x50, the selected row 0x80, values 0x64) |
+| +0x60 | u32 | text: **string id**; 0 = none |
+| +0x64 | char[] | text: inline default text |
+| +0x70 | 4 × (f32 u, v) | image: UVs, same corner order (all images are 0x90 bytes) |
+
+An image is its texture's size times its scale (WHITE16X16 × 40 × 30 covers
+the canvas; the 512 x 384 GRID × 1.25 does too). Textures come from the pack
+in `FRONTB.BUN` or `GlobalTextures.tpk` in `GLOBALB.BUN`. Widgets the code
+moves are parked off the canvas (`ANIMATING_MENUITEM` at y 531, the selected
+row's white copy; `ANIMATE_SELECTION`). `tools/hp2_fescreens.py FRONTB.BUN
+[--screen NAME] [--strings en.json] [--json OUT]` reads the common fields;
+`launcher/src/hp2_fe.c` reads them all.
 
 The row text is a string id into `FE_<LANGUAGE>.BIN` (`Audio` 100001,
 `Controller` 100002, `Display` 100004, `Track Map` 140001, `Rearview Mirror`
 140009, `Menu Music` 110001...), so renaming a row is a text edit (section 14).
-Rows sit 37 px apart from y = 71 (`MENUITEM_1`...), with value widgets at
-x = 500 (`TRACKMAP`, `REARVIEW_ONOFF`, `UNITS`, `MONOSTEREO`) between
-`LEFT_ARROW` and `RIGHT_ARROW`. `OPTIONS` has 7 rows (Audio, Controller,
+Rows sit about 37 px apart from y = 71 (`MENUITEM_1`...; placed by hand, up
+to 2 px off, and stored out of order), with value widgets centred at
+x ≈ 502 (`TRACKMAP`, `REARVIEW_ONOFF`, `UNITS`, `MONOSTEREO`) between
+`LEFT_ARROW` (389) and `RIGHT_ARROW` (604), in `FONT_STATS`.
+`DISPLAY_OPTIONS` scrolls: its rows are clipped to `SCROLLING_MENU_CLIP_REG`
+(x 20, y 73, 690 x 260: seven rows), with `UP_ARROW` / `DOWN_ARROW` beside
+them. The white and orange lines at y 353 and 381 frame the help ticker
+(`SCROLLING_TEXT`, clipped to `SCROLL_TEXT_CLIP`), not the selection. `OPTIONS` has 7 rows (Audio, Controller,
 Display, Save/Load, Player Names, Credits, Languages); `DISPLAY_OPTIONS` has 9
 (Track Map, Rearview Mirror, Units, Leaderboard, Jump Cams, Zone Cams, Player
 1/2 Options, Calibrate Display Offset); `AUDIO_OPTIONS` 11.
@@ -1282,3 +1308,48 @@ bind the rows to its own settings (`launcher/hp2_menu`).
 `TITLE_IMAGE`). The constructor takes state 1 when the word at gp-0x59FC is
 set. `tools/hp2_skipintro.py` turns the `beqz` at 0x16F094 into a nop, so the
 game boots straight to the title screen; `--undo` restores it.
+
+## 18. Fonts: chunk `0x00015010`
+
+Four in `FRONTB.BUN`, four in `GLOBALB.BUN`. The font id is the name hash of
+the font, and the font's glyphs are drawn from the texture with that same
+hash (FONT_IMPACTSMALL draws from the texture FONT_IMPACTSMALL).
+
+| Font | Id | Glyphs | Kerning pairs | Line | Where |
+|---|---|---|---|---|---|
+| FONT_IMPACTSMALL | 0xFB79E54C | 130 | 779 | 27 | FRONTB (menu rows) |
+| FONT_IMPACTBIG | 0x2D213565 | 130 | 11,245 | 61 | FRONTB (titles) |
+| FONT_IMPACTNORMAL | 0x5F3A4A3C | 130 | 1,300 | 43 | FRONTB |
+| FONT_EVENTNUMBERS | 0xFC357093 | 10 (digits) | (50 of filler) | 98 | FRONTB |
+| FONT_A | 0x5C10A676 | 130 | 1,211 | 20 | GLOBALB |
+| BUTTONSOUT | 0xB85DE386 | 29 | 0 | 28 | GLOBALB (controller button glyphs: `k` is a button) |
+| FONT_HUD | 0xA2D444F6 | 130 | 9,488 | 43 | GLOBALB (help ticker, HUD) |
+| FONT_STATS | 0xA9BFDA04 | 130 | 1,722 | 24 | GLOBALB (menu values) |
+
+Header (the offsets count from the chunk's own id word):
+
+| Offset | Type | Meaning |
+|---|---|---|
+| +0x08 | u32 | font id (name hash) |
+| +0x0C | u32 | glyph count n |
+| +0x10 | u32 | kerning pair count k |
+| +0x14 | u32 | offset of the glyphs (0x1C) |
+| +0x18 | u32 | offset of the kerning table (0x1C + 32 n) |
+
+Glyph, 32 bytes: u16 character (Latin-1: space, `!`..`z`, then accented
+letters and ™ 0x99), u16 kerning count, f32 x, y, w, h (rectangle in the
+texture, pixels), f32 advance (the pen step; can be narrower than w), f32 x
+offset (0 except in FONT_EVENTNUMBERS), u32 first kerning index.
+
+Kerning pair, 8 bytes: u32 character, f32 adjustment. A glyph's pairs name
+the characters that may come **before** it: T lists L (−3 in
+FONT_IMPACTNORMAL), so "LT" closes up while L's own list is empty.
+FONT_EVENTNUMBERS claims 50 pairs over 0xCD filler that no glyph uses.
+
+Strings in `FE_<LANGUAGE>.BIN` carry `$RGB(r,g,b)` and `$FONT(NAME)` codes and
+`@` as a line break; `$TARGET_TIME` and the like are filled in by the game.
+
+`launcher/src/hp2_font.c` reads fonts and string codes; `hp2_tex.c` decodes
+the textures (identical to `tools/hp2_tpk.py` on all 481 front-end and global
+textures); `hp2fe` (`launcher/src/fe_main.c`) draws the OPTIONS screen and a
+settings list in the DISPLAY_OPTIONS layout with them.

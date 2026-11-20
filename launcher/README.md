@@ -27,6 +27,13 @@ dropped in later.
   FIT (4:3 with bars), STRETCH (fills, distorts) or EXPAND (4:3 at window
   height, side room for a background). It does not draw; nothing of the game
   is compiled in.
+- **The original Options menus, drawn by the port** (`hp2fe`): the OPTIONS
+  screen with the game's own rows and text, and the `hp2_menu` settings in
+  the DISPLAY_OPTIONS layout (scrolling list, arrows, row masks, help ticker),
+  using the game's textures (`hp2_tex`, a C port of `tools/hp2_tpk.py`'s
+  decoder) and bitmap fonts (`hp2_font`), with text from FE_<LANGUAGE>.BIN
+  (`hp2_lang`). Everything is read at run time from your own disc copy
+  (`hp2_zdir`: ZDIR.BIN + ZZDATA.BIN); nothing of the game is in the repo.
 - **Axis shaping** with a dead zone that rescales the remaining travel, so the
   stick still reaches full tilt instead of being clipped short.
 
@@ -39,6 +46,13 @@ dropped in later.
 | `src/hp2_glyphs.c` | no | yes |
 | `src/hp2_pad.c` | no | yes |
 | `src/hp2_fe.c` | no | yes, and against the real FRONTB.BUN |
+| `src/hp2_tex.c` | no | yes; identical to `hp2_tpk.py` on 481 textures |
+| `src/hp2_font.c` | no | yes, and on the real fonts |
+| `src/hp2_lang.c` | no | yes, and on FE_ENGLISH.BIN |
+| `src/hp2_zdir.c` | no | yes, and through the real archive |
+| `src/hp2_femenu.c` | no | yes, on the real layouts |
+| `src/hp2_fedraw.c` | yes | screenshots, offscreen |
+| `src/fe_main.c` | yes | screenshots, offscreen |
 | `src/hp2_input.c` | yes | compile-checked |
 | `src/main.c` | yes | compile-checked |
 
@@ -55,6 +69,7 @@ make stubcheck   # compile-check the SDL sources without SDL installed
 make fecheck FRONTB=~/hp2work/extracted/021_14c57a19.bin
                  # hp2_fe on the real bundle, compared with hp2_fescreens.py
 make             # build the launcher (needs SDL2)
+make hp2fe       # build the front-end menus (needs SDL2 2.0.18 or newer)
 ```
 
 SDL2:
@@ -78,6 +93,26 @@ With no arguments it loads `hp2.ini` (writing one if absent), opens the first
 controller it finds, prints which pad it detected and the bindings in that
 pad's own button names, then shows live steering, throttle, brake and the
 actions currently held. Escape or Ctrl+C to quit.
+
+### The menus (`hp2fe`)
+
+```sh
+./hp2fe --disc /path/to/disc/NFSHP2          # the folder with ZDIR.BIN + ZZDATA.BIN
+./hp2fe --files 021_14c57a19.bin 302_4c937012.bin 003_0e1049ed.bin
+                                              # or extracted FRONTB.BUN, GLOBALB.BUN, FE_ENGLISH.BIN
+./hp2fe --disc ... --fit expand --size 2560x1080
+./hp2fe --disc ... --shot options.bmp --keys down,down,accept   # one frame, offscreen
+```
+
+Arrows move, Enter/Space accepts, Esc/Backspace goes back; on a controller the
+d-pad or left stick, A (south) and B (east). On OPTIONS, *Display* opens the
+settings list at the video rows and *Controller* at the control rows; the other
+rows do nothing yet. Left/right change a setting; `hp2.ini` (the same file the
+launcher reads, `--config` to choose another) is saved when you leave the list.
+The window follows the aspect setting: 4:3 draws the 640 x 480 canvas with
+side bars (FIT), anything else keeps it at full height and tiles the
+background into the sides (EXPAND); `--fit` overrides. Window mode applies at
+once; the other video settings are for the game, which does not exist yet.
 
 ## The settings file
 
@@ -141,7 +176,20 @@ identical to `tools/hp2_fescreens.py`. The rows are about 37 px apart from
 y = 71 but placed by hand (up to 2 px off) and stored out of order, so look
 them up with `hp2_fe_row`, not by position in the list.
 
-The two SDL files compile cleanly but have **never been run**, because the
+`test_assets` covers the renderer's asset modules: the string codes, fonts,
+language files and texture packs built in the test (every cut of each, under
+the sanitizers), and on the real files 8 fonts (kerning "LT" −3 in
+FONT_IMPACTNORMAL), 481 textures, 2,437 strings, FRONTB.BUN read through the
+archive, and the menus: OPTIONS' 7 rows in FE_ENGLISH's words, the settings
+list showing 7 of the 12 rows with the selection always among them. `make
+fecheck` adds `tests/check_tex.py`: every texture decoded by `hp2_tex` and by
+`hp2_tpk.py`, all 481 identical.
+
+`hp2fe` has been run only offscreen (`--shot`, SDL's software renderer) in a
+machine with no display or controller: the screenshots match the layouts, but
+the window, vsync and controller paths are untested until it runs on a desktop.
+
+The two launcher SDL files compile cleanly but have **never been run**, because the
 machine they were written on has no SDL. The first real run is the test: plug
 in a controller and check that the detected name and button labels match the
 pad in your hands.

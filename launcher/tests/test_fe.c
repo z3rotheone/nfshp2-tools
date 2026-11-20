@@ -86,6 +86,8 @@ static void text_widget(buf *scr, const char *name, float x, float y, uint32_t s
     set32(w + 0x54, 32);
     w[0x5C] = 0xFF; w[0x5D] = 0x80; w[0x5E] = 0x10; w[0x5F] = 0x7F;
     set32(w + 0x60, sid);
+    set32(w + 0x58, sid ? 2 : 4);                 /* rows left, an id-less one centred */
+    w[0x29] = 1;
     memcpy(w + 0x64, txt, n);
     put(&t, w, 0x64 + n + 1);
     chunk(scr, 0x00010212, &t);
@@ -94,7 +96,8 @@ static void text_widget(buf *scr, const char *name, float x, float y, uint32_t s
 
 static void image_widget(buf *scr, const char *name, float x, float y, uint32_t tex)
 {
-    uint8_t w[0x80] = { 0 };
+    uint8_t w[0x90] = { 0 };
+    int k;
     buf t = { 0 };
     set32(w + 8, hp2_fe_hash(name));
     memcpy(w + 16, name, strlen(name));
@@ -103,6 +106,10 @@ static void image_widget(buf *scr, const char *name, float x, float y, uint32_t 
     putf(w + 0x38, 10.0f);
     putf(w + 0x3C, 6.0f);
     set32(w + 0x50, tex);
+    w[0x28] = 2; w[0x29] = 1; w[0x2A] = 5;
+    for (k = 0; k < 16; k++) w[0x58 + k] = (uint8_t)(0x10 + k);     /* corner colours */
+    putf(w + 0x70, 0.0f); putf(w + 0x74, 0.25f); putf(w + 0x78, 1.0f); putf(w + 0x7C, 0.25f);
+    putf(w + 0x80, 1.0f); putf(w + 0x84, 1.0f); putf(w + 0x88, 0.0f); putf(w + 0x8C, 1.0f);
     put(&t, w, sizeof w);
     chunk(scr, 0x00010210, &t);
     free(t.b);
@@ -185,6 +192,13 @@ static void test_parse(void)
         w = &s->widgets[19];
         CHECK(w->kind == HP2_FE_IMAGE && w->texture == 0x1010u && !strcmp(w->name, "MI_16_MASK"), "last image");
         CHECK(NEAR(w->x, 66) && NEAR(w->sx, 10) && NEAR(w->sy, 6), "image place");
+        CHECK(w->visible == 1 && w->layer == 5, "visible, layer");
+        CHECK(w->vcol[0][0] == 0x10 && w->vcol[3][3] == 0x1F, "corner colours TL..BL");
+        CHECK(NEAR(w->uv[0][1], 0.25f) && NEAR(w->uv[1][0], 1.0f) && NEAR(w->uv[2][1], 1.0f) && NEAR(w->uv[3][0], 0.0f), "corner UVs");
+        w = hp2_fe_row(s, 1);
+        CHECK(w && w->align == HP2_FE_ALIGN_LEFT && w->visible, "row is left-aligned, visible");
+        w = hp2_fe_row(s, 3);
+        CHECK(w && w->align == HP2_FE_ALIGN_CENTRE, "centred text");
     }
     s = hp2_fe_find(&l, "DISPLAY_OPTIONS");
     CHECK(s && s->count == 0 && hp2_fe_row_count(s) == 0, "empty screen");

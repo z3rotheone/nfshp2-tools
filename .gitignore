@@ -32,6 +32,8 @@ test_core
 test_pad
 test_menu
 test_fe
+test_assets
+hp2fe
 *.o
 *.exe
 hp2.ini

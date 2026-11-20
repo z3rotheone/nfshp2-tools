@@ -45,16 +45,33 @@ static int parse_widget(const uint8_t *b, size_t sz, int text, hp2_fe_widget *w)
     w->y = rdf(b + 0x34);
     w->sx = rdf(b + 0x38);
     w->sy = rdf(b + 0x3C);
+    w->visible = b[0x29];
+    w->layer = b[0x2A];
     if (text) {
         if (sz < 0x64) return -1;
         w->font = rd32(b + 0x50);
         w->capacity = rd32(b + 0x54);
+        w->align = rd32(b + 0x58);
         memcpy(w->rgba, b + 0x5C, 4);
         w->string_id = rd32(b + 0x60);
         for (n = 0; n < sizeof w->text - 1 && 0x64 + n < sz && b[0x64 + n]; n++)
             w->text[n] = (char)b[0x64 + n];
     } else {
+        static const float unit[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+        int i;
         w->texture = rd32(b + 0x50);
+        /* Every image in the shipped file is 0x90 bytes; a shorter one gets
+         * white corners and the whole texture. */
+        if (sz >= 0x90) {
+            memcpy(w->vcol, b + 0x58, 16);
+            for (i = 0; i < 4; i++) {
+                w->uv[i][0] = rdf(b + 0x70 + 8 * i);
+                w->uv[i][1] = rdf(b + 0x74 + 8 * i);
+            }
+        } else {
+            memset(w->vcol, 0x80, sizeof w->vcol);
+            memcpy(w->uv, unit, sizeof w->uv);
+        }
     }
     return 0;
 }

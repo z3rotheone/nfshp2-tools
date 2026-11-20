@@ -21,20 +21,32 @@ extern "C" {
 
 typedef enum { HP2_FE_TEXT = 1, HP2_FE_IMAGE = 2 } hp2_fe_kind;
 
+/* Text alignment word. Rows use LEFT (x is the left edge); the value column
+ * uses CENTRE (x is the middle, between the two arrows). y is the top of the
+ * line in both. */
+#define HP2_FE_ALIGN_LEFT    2u
+#define HP2_FE_ALIGN_CENTRE  4u
+
 typedef struct {
     hp2_fe_kind kind;
     char     name[25];       /* "MENUITEM_1", "MI_1_MASK", "NONAME" */
     uint32_t name_hash;
     float    x, y;           /* canvas pixels */
-    float    sx, sy;         /* scale */
+    float    sx, sy;         /* scale: an image is its texture's size times this */
+    uint8_t  visible;        /* +0x29: 0 = hidden until the screen's code shows it */
+    uint8_t  layer;          /* +0x2A: draw order, lower is in front */
     /* text */
     uint32_t font;           /* 0x2D213565 = FONT_IMPACTBIG, 0x5F3A4A3C = FONT_IMPACTNORMAL */
     uint32_t capacity;
     uint8_t  rgba[4];
     uint32_t string_id;      /* key into FE_<LANGUAGE>.BIN; 0 = none */
     char     text[64];       /* the layout's own placeholder text */
+    uint32_t align;          /* +0x58: HP2_FE_ALIGN_* bits */
     /* image */
-    uint32_t texture;        /* name hash of a texture in the FE pack */
+    uint32_t texture;        /* name hash of a texture (FE or global pack) */
+    uint8_t  vcol[4][4];     /* corner colours TL, TR, BR, BL; PS2 scale,
+                                0x80 = 1.0 (alpha 0x80 = opaque) */
+    float    uv[4][2];       /* texture coordinates, same corner order */
 } hp2_fe_widget;
 
 typedef struct {
@@ -48,6 +60,18 @@ typedef struct {
     int            count;
     hp2_fe_screen *screens;
 } hp2_fe_layout;
+
+/* One thing to draw: a widget copy (moved, recoloured, hidden as needed),
+ * optionally with other text and a clip rectangle. hp2_femenu builds lists
+ * of these; hp2_fedraw draws them. */
+typedef struct {
+    hp2_fe_widget w;        /* a copy: move it, recolour it, hide it */
+    const char   *str;      /* text to draw instead of w.text, or NULL */
+    int           clip;     /* 1: clip to clip_rect (canvas units) */
+    float         clip_rect[4];   /* x, y, w, h */
+    int           extend;   /* 1: tile this image sideways into the margins
+                               (full-width backgrounds on wide windows) */
+} hp2_fe_item;
 
 /* djb2 variant used for every name in the front end: seed 0xFFFFFFFF, x33. */
 uint32_t hp2_fe_hash(const char *name);
