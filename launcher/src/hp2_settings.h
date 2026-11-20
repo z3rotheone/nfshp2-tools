@@ -13,6 +13,10 @@
  *     aspect = 16:9
  *     window = borderless
  *     vsync = on
+ *     frame_cap = 60
+ *     msaa = 4
+ *     aniso = 8
+ *     show_fps = off
  *     [input]
  *     scheme = modern
  *     glyphs = auto
@@ -71,6 +75,10 @@ typedef enum {
 #define HP2_MAX_WIDTH   7680
 #define HP2_MAX_HEIGHT  4320
 
+/* Frame cap in frames per second; 0 means no limit. */
+#define HP2_MIN_FRAME_CAP  20
+#define HP2_MAX_FRAME_CAP  1000
+
 typedef struct {
     /* video */
     int             internal_width;
@@ -78,6 +86,10 @@ typedef struct {
     hp2_aspect      aspect;
     hp2_window_mode window;
     int             vsync;          /* 0 or 1 */
+    int             frame_cap;      /* fps limit, 0 = none, else 20..1000 */
+    int             msaa;           /* anti-aliasing samples: 0, 2, 4 or 8 */
+    int             aniso;          /* anisotropic filtering: 1, 2, 4, 8, 16 */
+    int             show_fps;       /* 0 or 1 */
 
     /* input */
     hp2_scheme      scheme;
@@ -86,8 +98,8 @@ typedef struct {
     int             rumble;         /* 0 or 1 */
 } hp2_settings;
 
-/* Fill with the defaults: 1920x1080, 16:9, borderless, vsync on,
- * modern controls, automatic glyphs. */
+/* Fill with the defaults: 1920x1080, 16:9, borderless, vsync on, 60 fps cap,
+ * 4x MSAA, 8x anisotropic, modern controls, automatic glyphs. */
 void hp2_settings_defaults(hp2_settings *s);
 
 /* Clamp every field into range. Always leaves `s` usable. Returns the number

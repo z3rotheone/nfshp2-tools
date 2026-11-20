@@ -9,6 +9,12 @@ dropped in later.
 
 - **A settings file** both the launcher and the game read and write, so the
   same options exist in both places rather than being duplicated.
+- **An options menu model** (`hp2_menu`): the settings as rows, with labels,
+  value text and what left/right does, so the launcher and the in-game Options
+  screen show one list and cannot drift apart. Video: internal resolution
+  (PS2 640x448 up to 4K), aspect ratio, window mode, VSync, frame cap, anti-
+  aliasing, anisotropic filtering, FPS counter. Controls: scheme, button icons,
+  dead zone, vibration. A front end only draws rows and forwards input.
 - **Controller detection** that works out which button names to show. The same
   physical button is `A` on an Xbox pad, `Cross` on a PlayStation pad and `B`
   on a Nintendo pad — binding by position and labelling separately is the only
@@ -21,6 +27,7 @@ dropped in later.
 | File | Needs SDL | Tested |
 |---|---|---|
 | `src/hp2_settings.c` | no | yes |
+| `src/hp2_menu.c` | no | yes |
 | `src/hp2_glyphs.c` | no | yes |
 | `src/hp2_pad.c` | no | yes |
 | `src/hp2_input.c` | yes | compile-checked |
@@ -51,6 +58,7 @@ SDL2:
 ```sh
 ./hp2launcher                                   # live input display
 ./hp2launcher --show                            # print settings and bindings
+./hp2launcher --menu                            # the options menu rows as the game shows them
 ./hp2launcher --set glyphs=playstation --show
 ./hp2launcher --config /path/to/hp2.ini
 ```

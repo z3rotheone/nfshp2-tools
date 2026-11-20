@@ -30,6 +30,7 @@ orig/
 hp2launcher
 test_core
 test_pad
+test_menu
 *.o
 *.exe
 hp2.ini

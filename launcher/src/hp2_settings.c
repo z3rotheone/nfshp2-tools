@@ -56,6 +56,10 @@ void hp2_settings_defaults(hp2_settings *s)
     s->aspect          = HP2_ASPECT_16_9;
     s->window          = HP2_WINDOW_BORDERLESS;
     s->vsync           = 1;
+    s->frame_cap       = 60;
+    s->msaa            = 4;
+    s->aniso           = 8;
+    s->show_fps        = 0;
     s->scheme          = HP2_SCHEME_MODERN;
     s->glyphs          = HP2_GLYPHS_AUTO;
     s->deadzone        = 0.20f;
@@ -90,6 +94,18 @@ int hp2_settings_validate(hp2_settings *s)
 
     if (s->vsync  != 0 && s->vsync  != 1) { s->vsync  = 1; n++; }
     if (s->rumble != 0 && s->rumble != 1) { s->rumble = 1; n++; }
+    if (s->show_fps != 0 && s->show_fps != 1) { s->show_fps = 0; n++; }
+
+    if (s->frame_cap != 0) {
+        CLAMP_INT(frame_cap, HP2_MIN_FRAME_CAP, HP2_MAX_FRAME_CAP);
+    }
+    if (s->msaa != 0 && s->msaa != 2 && s->msaa != 4 && s->msaa != 8) {
+        s->msaa = 4; n++;
+    }
+    if (s->aniso != 1 && s->aniso != 2 && s->aniso != 4 &&
+        s->aniso != 8 && s->aniso != 16) {
+        s->aniso = 8; n++;
+    }
 
     /* NaN fails every comparison, so test for the good range and correct
      * anything else; that catches NaN without needing math.h. */
@@ -171,6 +187,18 @@ int hp2_settings_parse(hp2_settings *s, const char *text)
             if (i >= 0) { s->window = (hp2_window_mode)i; understood++; }
         } else if (!strcmp(key, "vsync")) {
             if (parse_bool(val, &s->vsync)) understood++;
+        } else if (!strcmp(key, "frame_cap")) {
+            if (!strcmp(val, "off") || !strcmp(val, "none") || !strcmp(val, "unlimited"))
+                s->frame_cap = 0;
+            else
+                s->frame_cap = atoi(val);
+            understood++;
+        } else if (!strcmp(key, "msaa")) {
+            s->msaa = !strcmp(val, "off") ? 0 : atoi(val); understood++;
+        } else if (!strcmp(key, "aniso")) {
+            s->aniso = !strcmp(val, "off") ? 1 : atoi(val); understood++;
+        } else if (!strcmp(key, "show_fps")) {
+            if (parse_bool(val, &s->show_fps)) understood++;
         } else if (!strcmp(key, "scheme")) {
             int i = lookup(val, SCHEME, HP2_SCHEME_COUNT);
             if (i >= 0) { s->scheme = (hp2_scheme)i; understood++; }
@@ -192,7 +220,10 @@ int hp2_settings_parse(hp2_settings *s, const char *text)
 size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
 {
     int n;
+    char cap_text[16];
     if (!s) return 0;
+    if (s->frame_cap > 0) snprintf(cap_text, sizeof(cap_text), "%d", s->frame_cap);
+    else                  snprintf(cap_text, sizeof(cap_text), "off");
     n = snprintf(buf, cap,
         "# Need for Speed: Hot Pursuit 2 - settings\n"
         "# Written by the launcher; safe to edit by hand.\n"
@@ -203,6 +234,10 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
         "aspect = %-10s # auto, 4:3, 16:9, 16:10\n"
         "window = %-10s # windowed, borderless, fullscreen\n"
         "vsync = %s\n"
+        "frame_cap = %-10s # off, or frames per second (20-1000)\n"
+        "msaa = %-10d # 0, 2, 4, 8\n"
+        "aniso = %-10d # 1, 2, 4, 8, 16\n"
+        "show_fps = %s\n"
         "\n"
         "[input]\n"
         "scheme = %-10s # modern, classic\n"
@@ -213,6 +248,8 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
         hp2_aspect_name(s->aspect),
         hp2_window_name(s->window),
         s->vsync ? "on" : "off",
+        cap_text, s->msaa, s->aniso,
+        s->show_fps ? "on" : "off",
         hp2_scheme_name(s->scheme),
         hp2_glyph_set_name(s->glyphs),
         (double)s->deadzone,
@@ -225,7 +262,7 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
  * is exactly one place that knows the key names. */
 int hp2_settings_set(hp2_settings *s, const char *assignment)
 {
-    char buf[1400];
+    char buf[2048];
     size_t n;
     hp2_settings before;
 
@@ -282,7 +319,7 @@ int hp2_settings_load(hp2_settings *s, const char *path)
 
 int hp2_settings_save(const hp2_settings *s, const char *path)
 {
-    char buf[1024];
+    char buf[2048];
     size_t need;
     FILE *f;
 

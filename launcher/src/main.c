@@ -12,6 +12,7 @@
  *   hp2launcher --set internal_width=2560 --set glyphs=playstation --show
  */
 #include "hp2_settings.h"
+#include "hp2_menu.h"
 #include "hp2_glyphs.h"
 #include "hp2_pad.h"
 #include "hp2_input.h"
@@ -28,6 +29,11 @@ static void print_settings(const hp2_settings *s)
     printf("  aspect               %s\n", hp2_aspect_name(s->aspect));
     printf("  window               %s\n", hp2_window_name(s->window));
     printf("  vsync                %s\n", s->vsync ? "on" : "off");
+    if (s->frame_cap) printf("  frame cap            %d fps\n", s->frame_cap);
+    else              printf("  frame cap            off\n");
+    printf("  anti-aliasing        %d\n", s->msaa);
+    printf("  anisotropic          %dx\n", s->aniso);
+    printf("  show fps             %s\n", s->show_fps ? "on" : "off");
     printf("  control scheme       %s\n", hp2_scheme_name(s->scheme));
     printf("  button glyphs        %s\n", hp2_glyph_set_name(s->glyphs));
     printf("  dead zone            %.2f\n", (double)s->deadzone);
@@ -61,15 +67,16 @@ int main(int argc, char **argv)
     hp2_settings cfg;
     hp2_input *in;
     hp2_input_state st;
-    int i, show_only = 0, existed;
+    int i, show_only = 0, existed, show_menu = 0;
     int sets = 0;
 
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--config") && i + 1 < argc) path = argv[++i];
         else if (!strcmp(argv[i], "--show")) show_only = 1;
+        else if (!strcmp(argv[i], "--menu")) show_menu = 1;
         else if (!strcmp(argv[i], "--set") && i + 1 < argc) sets++;
         else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
-            printf("usage: %s [--config PATH] [--show] [--set key=value ...]\n", argv[0]);
+            printf("usage: %s [--config PATH] [--show] [--menu] [--set key=value ...]\n", argv[0]);
             return 0;
         }
     }
@@ -89,6 +96,21 @@ int main(int argc, char **argv)
             printf("wrote %s\n\n", path);
         else
             printf("could not write %s\n\n", path);
+    }
+
+    if (show_menu) {
+        const char *section = "";
+        for (i = 0; i < hp2_menu_row_count(); i++) {
+            char v[HP2_MENU_VALUE];
+            if (strcmp(section, hp2_menu_section(i)) != 0) {
+                section = hp2_menu_section(i);
+                printf("%s\n", section);
+            }
+            hp2_menu_value(&cfg, i, v, sizeof v);
+            printf("  %-22s %s%s\n", hp2_menu_label(i), v,
+                   hp2_menu_needs_restart(i) ? "   (restart)" : "");
+        }
+        return 0;
     }
 
     print_settings(&cfg);

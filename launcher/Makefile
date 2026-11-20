@@ -12,7 +12,7 @@
 
 CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -O2
-SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c
+SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c
 SDLSRC   = src/hp2_input.c src/main.c
 BIN      = hp2launcher
 
@@ -33,17 +33,22 @@ $(BIN): $(SRC) $(SDLSRC)
 	fi
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc -o $@ $(SRC) $(SDLSRC) $(SDL_LIBS) -lm
 
-test: test_core test_pad
+test: test_core test_pad test_menu
 	@echo
 	@./test_core
 	@echo
 	@./test_pad
+	@echo
+	@./test_menu
 
 test_core: tests/test_core.c $(SRC)
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_core.c $(SRC) -lm
 
 test_pad: tests/test_pad.c $(SRC)
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_pad.c $(SRC) -lm
+
+test_menu: tests/test_menu.c $(SRC)
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_menu.c $(SRC) -lm
 
 # Compiles the SDL-dependent sources against a stand-in header, to catch
 # mistakes in them on a machine with no SDL. Never links, never run.
@@ -53,6 +58,6 @@ stubcheck:
 	@echo "stub compile-check passed"
 
 clean:
-	rm -f $(BIN) test_core test_pad hp2.ini *.o
+	rm -f $(BIN) test_core test_pad test_menu hp2.ini *.o
 
 .PHONY: all test stubcheck clean
