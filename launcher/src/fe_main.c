@@ -15,6 +15,7 @@
  *   --size WxH         window size (default 1280x720)
  *   --fit fit|stretch|expand    how the 640x480 canvas fills the window
  *                      (default: fit for aspect 4:3, else expand)
+ *   --options          start on Options instead of the title screen
  *   --no-music         no menu music (it plays the Jukebox's songs set to
  *                      Menu or On, at Menu Music volume). The Next Song
  *                      button (default: right stick click; N on the
@@ -199,7 +200,7 @@ int main(int argc, char **argv)
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     static hp2_jukebox jb;
     char *loose[3] = { NULL, NULL, NULL };
-    int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1, shot_song = -1;
+    int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1, shot_song = -1, start_options = 0;
     hp2_fe_layout glayout;
     songbox box;
     SDL_AudioDeviceID audio = 0;
@@ -222,6 +223,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
         else if (!strcmp(argv[i], "--jukebox") && i + 1 < argc) bankpath = argv[++i];
         else if (!strcmp(argv[i], "--no-music")) music = 0;
+        else if (!strcmp(argv[i], "--options")) start_options = 1;
         else if (!strcmp(argv[i], "--songbox") && i + 1 < argc) shot_song = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
@@ -233,7 +235,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--keys") && i + 1 < argc) keys = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
-                            "       [--language NAME] [--jukebox BANK] [--no-music] [--config PATH] [--size WxH]\n"
+                            "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--config PATH] [--size WxH]\n"
                             "       [--fit fit|stretch|expand]\n"
                             "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back]\n", argv[0]);
             return 2;
@@ -256,6 +258,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "FRONTB.BUN lacks the OPTIONS / DISPLAY_OPTIONS screens\n");
         return 1;
     }
+    if (!start_options && !hp2_femenu_start(&menu, HP2_FEM_TITLE)) hp2_femenu_start(&menu, HP2_FEM_MAIN);
     if (f.bank && hp2_jukebox_parse(&jb, f.bank, f.bank_len) == 0) hp2_femenu_set_jukebox(&menu, &jb);
     memset(&box, 0, sizeof box);
     box.song = box.last = -1;

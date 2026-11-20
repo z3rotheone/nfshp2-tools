@@ -655,6 +655,63 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
     CHECK(hp2_femenu_items(&m, it, 3) == 3, "never more than cap");
 }
 
+/* title -> Main Menu -> the mode menus and Options, and back */
+static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
+{
+    static hp2_fe_item it[160];
+    hp2_settings cfg;
+    hp2_femenu m;
+    int n;
+    printf("main menu flow\n");
+    hp2_settings_defaults(&cfg);
+    CHECK(hp2_femenu_init(&m, L, lang, &cfg) == 0 && hp2_femenu_start(&m, HP2_FEM_TITLE) && m.screen == HP2_FEM_TITLE, "starts on the title");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "PRESS START") == 1 && count_named(it, n, "TITLE_FULLSCREEN") == 0 && count_named(it, n, "TITLE_LETTERBOX") == 0,
+          "PRESS START, not the placeholder splash");
+    CHECK(count_named(it, n, "TITLE_SCREEN_TITLE") == 1 && count_named(it, n, "GRID") == 1, "the logo on Main Menu's backdrop");
+    CHECK(hp2_femenu_input(&m, HP2_IN_UP) == 0, "only accept or back on the title");
+    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 1, "accept: Main Menu");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "Main Menu") == 1 && find_text(it, n, "Hot Pursuit") == 1 && find_text(it, n, "World Racing") == 1
+          && find_text(it, n, "Options") == 1, "its title and three rows");
+    CHECK(find_text(it, n, "Unlocked") == 0 && find_text(it, n, "Easter Egg") == 0, "no progress line yet");
+    CHECK(!strcmp(m.help, "Be the cops or beat the cops!"), "Hot Pursuit's help line, got '%s'", m.help);
+    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_HOT_PURSUIT, "Hot Pursuit opens its modes");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "Quick Race") == 1 && find_text(it, n, "You're The Cop") == 1 && find_text(it, n, "Challenge") == 1
+          && find_text(it, n, "Ultimate Racer") == 1, "four modes");
+    CHECK(!strcmp(m.help, "Go straight into the action!"), "Quick Race's help line");
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(!strcmp(m.help, "Fill your ticket quota for big points!"), "You're The Cop's help line");
+    hp2_femenu_input(&m, HP2_IN_UP);
+    hp2_femenu_input(&m, HP2_IN_UP);
+    CHECK(m.sel == 4 && !strcmp(m.help, "Beat the heat in 30 events."), "up from the top wraps to Ultimate Racer");
+    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_HOT_PURSUIT, "a mode does nothing yet");
+    CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu, on Hot Pursuit");
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(!strcmp(m.help, "Take on the world's best sports cars!"), "World Racing's help line");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(m.screen == HP2_FEM_WORLD_RACING && find_text(it, n, "Championship") == 1, "World Racing opens its modes");
+    hp2_femenu_input(&m, HP2_IN_UP);
+    CHECK(m.sel == 3 && !strcmp(m.help, "Real cars, real fast in 30 events."), "Championship's help line");
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(m.screen == HP2_FEM_MAIN && m.sel == 2, "back: on World Racing");
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(!strcmp(m.help, "Customize your settings."), "Options' help line");
+    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_OPTIONS && m.sel == 1, "Options opens OPTIONS");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK(m.screen == HP2_FEM_SETTINGS && !strcmp(hp2_femenu_page(&m), "Audio"), "and its pages work as before");
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 3,
+          "back from OPTIONS: Main Menu, on Options (not quit)");
+    CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_TITLE, "back: the title");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK(m.screen == HP2_FEM_MAIN && m.sel == 3, "Main Menu remembers its row");
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(hp2_femenu_input(&m, HP2_IN_BACK) & HP2_FEM_QUIT, "back from the title quits");
+}
+
 static void test_real(const char *fb, const char *gb, const char *lf, const char *disc, const char *bank)
 {
     static hp2_jukebox jb;
@@ -712,6 +769,7 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
         free(B);
     }
     if (Lb && lang.count) test_menu(&L, &lang, have_jb ? &jb : NULL);
+    if (Lb && lang.count) test_flow(&L, &lang);
     hp2_fe_free(&L);
 
     {   /* GLOBALB.BUN's layouts: the song box shown when a song starts */

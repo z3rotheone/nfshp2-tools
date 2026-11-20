@@ -15,6 +15,30 @@
 #define SID_LANGUAGES  100007u
 #define SID_CREDITS    100008u
 #define SID_HELP_BASE  100019u
+#define SID_HOT_PURSUIT  10023u
+#define SID_WORLD_RACING 10022u
+#define SID_OPTIONS_MAIN 10005u
+#define SID_PROGRESS     62001u     /* "Unlocked" on Main Menu */
+
+/* Main Menu and mode menus: the help line of a row, by its string id
+ * (FE_<LANG>.BIN strings 10006-10017). */
+static const uint32_t ROW_HELP[][2] = {
+    { 10023, 10016 },   /* Hot Pursuit:    Be the cops or beat the cops! */
+    { 10022, 10015 },   /* World Racing:   Take on the world's best sports cars! */
+    { 10005, 10009 },   /* Options:        Customize your settings. */
+    { 10027, 10017 },   /* HP Quick Race:  Go straight into the action! */
+    { 10028, 10014 },   /* You're The Cop: Fill your ticket quota for big points! */
+    { 10030, 10012 },   /* HP Challenge:   One-player and two-player challenges. */
+    { 10029, 10013 },   /* Ultimate Racer: Beat the heat in 30 events. */
+    { 10024, 10006 },   /* WR Quick Race:  Go straight into the action! */
+    { 10025, 10007 },   /* WR Challenge:   One-player and two-player challenges. */
+    { 10026, 10008 },   /* Championship:   Real cars, real fast in 30 events. */
+};
+
+/* screen ids (the hash of their names is unknown) */
+#define SCR_MAIN         0xAE0F8AA1u
+#define SCR_HOT_PURSUIT  0x5B35F533u
+#define SCR_WORLD_RACING 0x033E7771u
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
 
@@ -177,6 +201,31 @@ static const char *options_text(const hp2_femenu *m, int sel)
     return s ? s : "Jukebox";
 }
 
+/* Main Menu and the mode menus: plain lists, row k in its own place. */
+static const hp2_fe_screen *list_screen(const hp2_femenu *m)
+{
+    switch (m->screen) {
+    case HP2_FEM_MAIN:         return m->mainm;
+    case HP2_FEM_HOT_PURSUIT:  return m->hotp;
+    case HP2_FEM_WORLD_RACING: return m->world;
+    default:                   return NULL;
+    }
+}
+
+static int list_rows(const hp2_fe_screen *s) { return s ? hp2_fe_row_count(s) : 0; }
+
+static void list_help(hp2_femenu *m, const hp2_fe_screen *s)
+{
+    const hp2_fe_widget *w = hp2_fe_row(s, m->sel);
+    size_t i;
+    if (!w || !m->lang) return;
+    for (i = 0; i < sizeof ROW_HELP / sizeof ROW_HELP[0]; i++)
+        if (ROW_HELP[i][0] == w->string_id) {
+            const char *h = hp2_lang_by_id(m->lang, ROW_HELP[i][1]);
+            if (h) snprintf(m->help, sizeof m->help, "%s", h);
+        }
+}
+
 static void refresh(hp2_femenu *m)
 {
     int i;
@@ -187,6 +236,10 @@ static void refresh(hp2_femenu *m)
         snprintf(m->help, sizeof m->help, "Press the button for %s. Esc cancels.", hp2_menu_label(m->capture));
     } else if (m->screen == HP2_FEM_SETTINGS) {
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
+    } else if (list_screen(m)) {
+        list_help(m, list_screen(m));
+    } else if (m->screen == HP2_FEM_TITLE) {
+        /* no ticker */
     } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
                && m->orow[m->sel - 1] == OPT_JUKEBOX) {
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(HP2_ROW_JUKEBOX));
@@ -227,6 +280,14 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->display = hp2_fe_find(layout, "DISPLAY_OPTIONS");
     m->audio = hp2_fe_find(layout, "AUDIO_OPTIONS");
     m->jbscreen = hp2_fe_find(layout, "JUKEBOX_INGAME");
+    m->title = hp2_fe_find(layout, "TITLE_SCREEN");
+    m->mainm = hp2_fe_find_id(layout, SCR_MAIN);
+    m->hotp = hp2_fe_find_id(layout, SCR_HOT_PURSUIT);
+    m->world = hp2_fe_find_id(layout, SCR_WORLD_RACING);
+    if (!hp2_fe_row(m->mainm, 1)) m->mainm = NULL;
+    if (!hp2_fe_row(m->hotp, 1)) m->hotp = NULL;
+    if (!hp2_fe_row(m->world, 1)) m->world = NULL;
+    m->main_sel = 1;
     if (!m->options || !m->display || !hp2_fe_row(m->display, 1)) return -1;
     if (m->audio && !hp2_fe_row(m->audio, 1)) m->audio = NULL;
     build_options(m);
@@ -256,6 +317,70 @@ static void open_page(hp2_femenu *m, const char *section)
     m->sel = m->scroll = m->first;
 }
 
+int hp2_femenu_start(hp2_femenu *m, hp2_fem_screen s)
+{
+    const hp2_fe_screen *need = s == HP2_FEM_TITLE ? m->title : s == HP2_FEM_MAIN ? m->mainm
+                              : s == HP2_FEM_HOT_PURSUIT ? m->hotp : s == HP2_FEM_WORLD_RACING ? m->world
+                              : s == HP2_FEM_OPTIONS ? m->options : NULL;
+    if (!need) return 0;
+    m->screen = s;
+    m->sel = 1;
+    m->options_from_main = s != HP2_FEM_OPTIONS;
+    refresh(m);
+    return 1;
+}
+
+/* Main Menu's row whose label has string id sid, or 1. */
+static int main_row_of(const hp2_femenu *m, uint32_t sid)
+{
+    int k, n = list_rows(m->mainm);
+    for (k = 1; k <= n; k++)
+        if (hp2_fe_row(m->mainm, k)->string_id == sid) return k;
+    return 1;
+}
+
+static int title_input(hp2_femenu *m, hp2_fem_input in)
+{
+    if (in == HP2_IN_BACK) return HP2_FEM_QUIT;
+    if (in != HP2_IN_ACCEPT || !m->mainm) return 0;
+    m->screen = HP2_FEM_MAIN;
+    m->sel = m->main_sel;
+    m->options_from_main = 1;
+    return HP2_FEM_REDRAW;
+}
+
+static int list_input(hp2_femenu *m, hp2_fem_input in)
+{
+    const hp2_fe_screen *s = list_screen(m);
+    const hp2_fe_widget *w = hp2_fe_row(s, m->sel);
+    int n = list_rows(s);
+    switch (in) {
+    case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : n; return HP2_FEM_REDRAW;
+    case HP2_IN_DOWN: m->sel = m->sel < n ? m->sel + 1 : 1; return HP2_FEM_REDRAW;
+    case HP2_IN_ACCEPT:
+        if (m->screen != HP2_FEM_MAIN || !w) return 0;     /* the race modes: not yet */
+        m->main_sel = m->sel;
+        if (w->string_id == SID_HOT_PURSUIT && m->hotp) m->screen = HP2_FEM_HOT_PURSUIT;
+        else if (w->string_id == SID_WORLD_RACING && m->world) m->screen = HP2_FEM_WORLD_RACING;
+        else if (w->string_id == SID_OPTIONS_MAIN) m->screen = HP2_FEM_OPTIONS;
+        else return 0;
+        m->sel = 1;
+        return HP2_FEM_REDRAW;
+    case HP2_IN_BACK:
+        if (m->screen == HP2_FEM_MAIN) {
+            m->main_sel = m->sel;
+            if (!m->title) return HP2_FEM_QUIT;
+            m->screen = HP2_FEM_TITLE;
+            m->sel = 1;
+        } else {
+            m->screen = HP2_FEM_MAIN;
+            m->sel = m->main_sel;
+        }
+        return HP2_FEM_REDRAW;
+    default: return 0;
+    }
+}
+
 const char *hp2_femenu_page(const hp2_femenu *m)
 {
     return m->screen == HP2_FEM_SETTINGS ? hp2_menu_section(m->first) : "";
@@ -271,6 +396,10 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
     }
     if (m->screen == HP2_FEM_JUKEBOX) {
         r = jukebox_input(m, in);
+    } else if (m->screen == HP2_FEM_TITLE) {
+        r = title_input(m, in);
+    } else if (list_screen(m)) {
+        r = list_input(m, in);
     } else if (m->screen == HP2_FEM_OPTIONS) {
         int n = m->orows;
         const hp2_fe_widget *w = options_row(m, m->sel);
@@ -292,7 +421,15 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
             else if (w->string_id == SID_AUDIO) open_page(m, "Audio");
             if (m->screen == HP2_FEM_SETTINGS) r = HP2_FEM_REDRAW;
             break;
-        case HP2_IN_BACK: r = HP2_FEM_QUIT; break;
+        case HP2_IN_BACK:
+            if (m->options_from_main && m->mainm) {
+                m->screen = HP2_FEM_MAIN;
+                m->sel = main_row_of(m, SID_OPTIONS_MAIN);
+                r = HP2_FEM_REDRAW;
+            } else {
+                r = HP2_FEM_QUIT;
+            }
+            break;
         default: break;
         }
     } else {
@@ -416,6 +553,66 @@ static int options_items(hp2_femenu *m, list *l)
     }
     if (sel) selection_lines(m, l, s, sel->y);
     help_bar(m, l, s);
+    return l->n;
+}
+
+/* Main Menu and the mode menus: as OPTIONS, each row in its own place. */
+static int list_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = list_screen(m);
+    const hp2_fe_widget *sel = hp2_fe_row(s, m->sel);
+    char mask[24];
+    int i;
+    snprintf(mask, sizeof mask, "MI_%d_MASK", m->sel);
+    for (i = 0; i < s->count; i++) {
+        const hp2_fe_widget *w = &s->widgets[i];
+        int row = row_number(w);
+        hp2_fe_item *it;
+        if (animated(w) || is_line(w) || !strcmp(w->name, "SCROLLING_TEXT")) continue;
+        /* the progress line ("Unlocked", the easter egg): no progress yet */
+        if (w->string_id == SID_PROGRESS || !strcmp(w->name, "EASTER_EGG_STRING")) continue;
+        it = push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
+        if (!it) continue;
+        if (row) {
+            if (w == sel) memcpy(it->w.rgba, ORANGE, 4);
+            else grey(it, 0x50);
+        }
+        if (!strcmp(w->name, mask)) it->w.visible = 0;
+    }
+    if (sel) selection_lines(m, l, s, sel->y);
+    help_bar(m, l, s);
+    return l->n;
+}
+
+/* The title screen. Its splash (SPLASH_SCREEN) is a black placeholder the
+ * game fills at run time, and its other picture is a movie texture, so the
+ * port shows Main Menu's backdrop (grid, blueprints, borders) with the NFS
+ * logo in the middle, and the title's own PRESS START. */
+static int title_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = m->title, *bg = m->mainm;
+    int i;
+    for (i = 0; bg && i < bg->count; i++) {
+        const hp2_fe_widget *w = &bg->widgets[i];
+        hp2_fe_item *it;
+        if (w->kind != HP2_FE_IMAGE || animated(w) || is_line(w)) continue;
+        if (has_prefix(w->name, "MI_") || !strcmp(w->name, "BOTTOM_MASK") || !strcmp(w->name, "SCROLL_TEXT_CLIP")
+            || !strcmp(w->name, "WHITEOUT_BAR") || (w->y > 60.0f && w->y < 80.0f && w->x > 100.0f)) continue;
+        it = push(l, w, NULL);
+        if (it && !strcmp(w->name, "TITLE_SCREEN_TITLE")) {   /* the logo, 296 x 80, centred */
+            it->w.x = 320.0f - 148.0f;
+            it->w.y = 170.0f;
+        }
+    }
+    for (i = 0; i < s->count; i++) {   /* PRESS START on its band, in front of the backdrop */
+        const hp2_fe_widget *w = &s->widgets[i];
+        hp2_fe_item *it = NULL;
+        if (w->kind == HP2_FE_TEXT && !animated(w) && !row_number(w)) {
+            if ((it = push(l, w, hp2_femenu_text(m, w))) != NULL) it->w.layer = 0;
+        } else if (w->kind == HP2_FE_IMAGE && w->y > 270.0f && w->y < 290.0f) {
+            if ((it = push(l, w, NULL)) != NULL) it->w.layer = 1;
+        }
+    }
     return l->n;
 }
 
@@ -624,5 +821,7 @@ int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
     l.n = 0;
     l.cap = cap;
     if (m->screen == HP2_FEM_JUKEBOX) return jukebox_items(m, &l);
+    if (m->screen == HP2_FEM_TITLE) return title_items(m, &l);
+    if (list_screen(m)) return list_items(m, &l);
     return m->screen == HP2_FEM_OPTIONS ? options_items(m, &l) : settings_items(m, &l);
 }

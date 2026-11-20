@@ -1,6 +1,14 @@
-/* hp2_femenu - the Options menus of the port, drawn from the original
- * layouts and driven by hp2_menu.
+/* hp2_femenu - the front end's menus, drawn from the original layouts;
+ * the settings are driven by hp2_menu.
  *
+ *   TITLE            the title screen: the splash (letterboxed) and PRESS
+ *                    START; accept goes on to the Main Menu.
+ *   MAIN             Main Menu: Hot Pursuit, World Racing, Options.
+ *   HOT_PURSUIT      its modes: Quick Race, You're The Cop, Challenge,
+ *                    Ultimate Racer.
+ *   WORLD_RACING     its modes: Quick Race, Challenge, Championship.
+ *                    (Picking a mode does nothing yet: the screens after
+ *                    it are not in the port so far.)
  *   OPTIONS          the game's own screen with the rows the port keeps:
  *                    Audio, Controller, Display, Save/Load (player
  *                    progress; does nothing yet). Player Names, Credits
@@ -46,13 +54,17 @@
 extern "C" {
 #endif
 
-typedef enum { HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX } hp2_fem_screen;
+typedef enum {
+    HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
+    HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING
+} hp2_fem_screen;
 typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT, HP2_IN_BACK } hp2_fem_input;
 
 /* hp2_femenu_input result bits */
 #define HP2_FEM_REDRAW   1    /* something on screen changed */
 #define HP2_FEM_CHANGED  2    /* a setting changed (save it at some point) */
-#define HP2_FEM_QUIT     4    /* back out of OPTIONS: leave the menus */
+#define HP2_FEM_QUIT     4    /* back out of the title screen (or of OPTIONS
+                                 when it was the first screen): leave */
 
 #define HP2_FEM_VISIBLE  7    /* settings rows shown at once */
 #define HP2_FEM_SONGS    5    /* jukebox songs shown at once */
@@ -60,6 +72,9 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
+    const hp2_fe_screen *title, *mainm, *hotp, *world;   /* NULL if missing */
+    int                  main_sel;  /* where Main Menu was left */
+    int                  options_from_main;   /* back from OPTIONS: Main Menu */
     const hp2_fe_screen *page;      /* settings: the layout in use */
     int                  first, rows;   /* settings: the page's hp2_menu rows */
     const hp2_lang      *lang;      /* may be NULL: placeholder text is used */
@@ -84,8 +99,13 @@ typedef struct {
     char                 help[96];
 } hp2_femenu;
 
-/* -1 when the layout lacks OPTIONS or DISPLAY_OPTIONS. */
+/* -1 when the layout lacks OPTIONS or DISPLAY_OPTIONS. Starts on OPTIONS;
+ * hp2_femenu_start moves to another screen (the front end starts on TITLE). */
 int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *lang, hp2_settings *cfg);
+
+/* Opens TITLE, MAIN, HOT_PURSUIT, WORLD_RACING or OPTIONS on its first row.
+ * 0 if that screen is not in the layout. */
+int hp2_femenu_start(hp2_femenu *m, hp2_fem_screen s);
 
 int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in);
 
