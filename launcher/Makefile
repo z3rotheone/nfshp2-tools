@@ -20,7 +20,8 @@
 CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -O2
 SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c src/hp2_fe.c \
-           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_femenu.c src/hp2_jukebox.c
+           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_femenu.c src/hp2_jukebox.c \
+           src/hp2_vag.c src/hp2_jbplay.c
 SDLSRC   = src/hp2_input.c src/main.c
 FESRC    = src/hp2_fedraw.c src/fe_main.c
 BIN      = hp2launcher
@@ -86,6 +87,7 @@ fecheck: test_fe test_assets
 	python3 tests/check_fe.py ./test_fe "$(FRONTB)"
 	./test_assets --frontb "$(FRONTB)" --globalb "$(GLOBALB)" --lang "$(FELANG)" $(if $(BANK),--jukebox "$(BANK)") $(if $(DISC),--disc "$(DISC)")
 	python3 tests/check_tex.py ./test_assets "$(FRONTB)" "$(GLOBALB)"
+	$(if $(BANK),python3 tests/check_vag.py ./test_assets "$(BANK)")
 
 # Compiles the SDL-dependent sources against a stand-in header, to catch
 # mistakes in them on a machine with no SDL. Never links, never run.

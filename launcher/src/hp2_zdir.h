@@ -38,6 +38,10 @@ uint8_t *hp2_zdir_load_id(const hp2_zdir *z, uint32_t id, size_t *len);
  * song table without its 193 MB of audio. */
 uint8_t *hp2_zdir_load_part(const hp2_zdir *z, const char *path, size_t max, size_t *len);
 
+/* Where a file sits inside ZZDATA.BIN (z->data): its byte offset and
+ * size, to stream it in place. 0 on success, -1 if absent. */
+int hp2_zdir_locate(const hp2_zdir *z, const char *path, long long *offset, uint32_t *size);
+
 /* Reads a whole loose file (an extracted entry). */
 uint8_t *hp2_read_file(const char *path, size_t *len);
 uint8_t *hp2_read_file_part(const char *path, size_t max, size_t *len);

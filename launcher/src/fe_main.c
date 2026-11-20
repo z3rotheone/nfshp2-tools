@@ -15,6 +15,8 @@
  *   --size WxH         window size (default 1280x720)
  *   --fit fit|stretch|expand    how the 640x480 canvas fills the window
  *                      (default: fit for aspect 4:3, else expand)
+ *   --no-music         no menu music (it plays the Jukebox's songs set to
+ *                      Menu, Menu/Racing or Always, at Menu Music volume)
  *   --shot OUT.bmp     render one frame offscreen, save it, exit
  *   --keys LIST        inputs to apply first, e.g. down,down,accept,right
  *
@@ -23,6 +25,7 @@
  */
 #include "hp2_fe.h"
 #include "hp2_fedraw.h"
+#include "hp2_jbplay.h"
 #include "hp2_femenu.h"
 #include "hp2_font.h"
 #include "hp2_lang.h"
@@ -40,6 +43,8 @@
 typedef struct {
     uint8_t *frontb, *globalb, *lang, *bank;
     size_t   frontb_len, globalb_len, lang_len, bank_len;
+    char      bank_path[1024];   /* where the music bank's audio is streamed from */
+    long long bank_base;
 } files;
 
 static int load_files(files *f, const char *disc, const char *language, char **loose, const char *bank)
@@ -57,13 +62,21 @@ static int load_files(files *f, const char *disc, const char *language, char **l
         f->globalb = hp2_zdir_load(&z, "GLOBAL\\GLOBALB.BUN", &f->globalb_len);
         f->lang = hp2_zdir_load(&z, path, &f->lang_len);
         f->bank = hp2_zdir_load_part(&z, "SOUND\\JUKEBOXM.JBC", hp2_jukebox_header_size(), &f->bank_len);
+        {
+            uint32_t size;
+            if (hp2_zdir_locate(&z, "SOUND\\JUKEBOXM.JBC", &f->bank_base, &size) == 0)
+                snprintf(f->bank_path, sizeof f->bank_path, "%s", z.data);
+        }
         hp2_zdir_close(&z);
         if (!f->lang) fprintf(stderr, "%s not in the archive; showing the layouts' own text\n", path);
     } else {
         f->frontb = hp2_read_file(loose[0], &f->frontb_len);
         f->globalb = hp2_read_file(loose[1], &f->globalb_len);
         f->lang = hp2_read_file(loose[2], &f->lang_len);
-        if (bank) f->bank = hp2_read_file_part(bank, hp2_jukebox_header_size(), &f->bank_len);
+        if (bank) {
+            f->bank = hp2_read_file_part(bank, hp2_jukebox_header_size(), &f->bank_len);
+            snprintf(f->bank_path, sizeof f->bank_path, "%s", bank);
+        }
     }
     if (!f->frontb || !f->globalb) {
         fprintf(stderr, "could not read FRONTB.BUN and GLOBALB.BUN\n");
@@ -113,7 +126,9 @@ int main(int argc, char **argv)
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     static hp2_jukebox jb;
     char *loose[3] = { NULL, NULL, NULL };
-    int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0;
+    int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1;
+    SDL_AudioDeviceID audio = 0;
+    hp2_jbplay player;
     files f;
     hp2_fe_layout layout;
     hp2_texset tex = { 0 };
@@ -131,6 +146,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--files") && i + 3 < argc) { loose[0] = argv[++i]; loose[1] = argv[++i]; loose[2] = argv[++i]; }
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
         else if (!strcmp(argv[i], "--jukebox") && i + 1 < argc) bankpath = argv[++i];
+        else if (!strcmp(argv[i], "--no-music")) music = 0;
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
         else if (!strcmp(argv[i], "--fit") && i + 1 < argc) {
@@ -141,7 +157,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--keys") && i + 1 < argc) keys = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
-                            "       [--language NAME] [--jukebox BANK] [--config PATH] [--size WxH] [--fit fit|stretch|expand]\n"
+                            "       [--language NAME] [--jukebox BANK] [--no-music] [--config PATH] [--size WxH]\n"
+                            "       [--fit fit|stretch|expand]\n"
                             "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back]\n", argv[0]);
             return 2;
         }
@@ -200,12 +217,40 @@ int main(int argc, char **argv)
         dirty = 0;      /* a screenshot never writes the settings file */
     } else {
         apply_window_mode(win, &cfg);
+        /* menu music: the Jukebox's songs, streamed from the bank */
+        if (music && menu.jb && f.bank_path[0] && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+            SDL_AudioSpec want, have;
+            memset(&want, 0, sizeof want);
+            want.freq = jb.rate;
+            want.format = AUDIO_S16SYS;
+            want.channels = 2;
+            want.samples = 2048;
+            audio = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);   /* SDL converts if it must */
+            if (audio) {
+                hp2_jbplay_init(&player, &jb, &cfg, f.bank_path, f.bank_base, (uint32_t)SDL_GetTicks() | 1u);
+                SDL_PauseAudioDevice(audio, 0);
+            } else {
+                fprintf(stderr, "no sound: %s\n", SDL_GetError());
+            }
+        }
     }
 
     while (!quit) {
         SDL_Event e;
         int ow, oh;
-        if (!SDL_WaitEvent(&e)) break;
+        if (audio) {
+            /* keep about half a second queued: a volume change or a song
+             * switched off is heard within that */
+            static int16_t pcm[2 * 2048];
+            while (SDL_GetQueuedAudioSize(audio) < (Uint32)(jb.rate * 4 / 2)) {
+                int n = hp2_jbplay_fill(&player, pcm, 2048);
+                if (n <= 0) break;
+                SDL_QueueAudio(audio, pcm, (Uint32)n * 4);
+            }
+            if (!SDL_WaitEventTimeout(&e, 40)) continue;
+        } else if (!SDL_WaitEvent(&e)) {
+            break;
+        }
         do {
             hp2_fem_input in;
             int have = 0;
@@ -269,6 +314,10 @@ int main(int argc, char **argv)
     if (dirty && !hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);   /* 1 = saved */
 
     hp2_fedraw_free(&d);
+    if (audio) {
+        SDL_CloseAudioDevice(audio);
+        hp2_jbplay_close(&player);
+    }
     if (pad) SDL_GameControllerClose(pad);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);

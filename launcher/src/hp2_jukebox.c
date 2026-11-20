@@ -58,6 +58,8 @@ int hp2_jukebox_parse(hp2_jukebox *jb, const uint8_t *buf, size_t len)
     n = rd32(buf + 0x20);
     if (n == 0 || n > HP2_JB_MAX || (size_t)HEAD + (size_t)REC * n > len) return -1;
     copy(jb->name, sizeof jb->name, (const char *)buf + 0x24, nlen((const char *)buf + 0x24, 0x3C));
+    jb->rate = (int)rd32(buf + 8);
+    if (jb->rate < 2000 || jb->rate > 48000) jb->rate = 32000;
     for (i = 0; i < n; i++) {
         const char *txt = (const char *)buf + HEAD + REC * i + TEXT;
         char line[REC - TEXT + 1];
@@ -65,6 +67,8 @@ int hp2_jukebox_parse(hp2_jukebox *jb, const uint8_t *buf, size_t len)
         memcpy(line, txt, L);
         line[L] = 0;
         if (split(line, &jb->track[i]) != 0) { memset(jb, 0, sizeof *jb); return -1; }
+        jb->track[i].offset = rd32(buf + HEAD + REC * i);
+        jb->track[i].size = rd32(buf + HEAD + REC * i + 4);
     }
     jb->count = (int)n;
     for (i = 0; i < n; i++) {

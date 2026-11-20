@@ -126,6 +126,23 @@ typedef enum { SDL_BLENDMODE_NONE = 0, SDL_BLENDMODE_BLEND = 1 } SDL_BlendMode;
 #define SDL_HINT_VIDEODRIVER            "SDL_VIDEODRIVER"
 #define SDL_HINT_RENDER_SCALE_QUALITY   "SDL_RENDER_SCALE_QUALITY"
 
+/* audio, for the menu music (fe_main.c) */
+#define SDL_INIT_AUDIO          0x00000010u
+#define AUDIO_S16SYS            0x8010
+typedef Uint32 SDL_AudioDeviceID;
+typedef struct {
+    int freq; Uint16 format; Uint8 channels; Uint8 silence; Uint16 samples; Uint16 padding;
+    Uint32 size; void *callback; void *userdata;
+} SDL_AudioSpec;
+SDL_AudioDeviceID SDL_OpenAudioDevice(const char *device, int iscapture, const SDL_AudioSpec *desired,
+                                      SDL_AudioSpec *obtained, int allowed_changes);
+int    SDL_QueueAudio(SDL_AudioDeviceID dev, const void *data, Uint32 len);
+Uint32 SDL_GetQueuedAudioSize(SDL_AudioDeviceID dev);
+void   SDL_PauseAudioDevice(SDL_AudioDeviceID dev, int pause_on);
+void   SDL_CloseAudioDevice(SDL_AudioDeviceID dev);
+int    SDL_WaitEventTimeout(SDL_Event *event, int timeout);
+Uint32 SDL_GetTicks(void);
+
 SDL_bool SDL_SetHint(const char *name, const char *value);
 int   SDL_WaitEvent(SDL_Event *event);
 SDL_Window *SDL_CreateWindow(const char *title, int x, int y, int w, int h, Uint32 flags);

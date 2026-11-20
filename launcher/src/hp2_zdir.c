@@ -120,6 +120,21 @@ static uint8_t *load(const hp2_zdir *z, uint32_t id, size_t max, size_t *len)
     return NULL;
 }
 
+int hp2_zdir_locate(const hp2_zdir *z, const char *path, long long *offset, uint32_t *size)
+{
+    uint32_t id = hp2_zdir_hash(path);
+    int i;
+    for (i = 0; i < z->count; i++) {
+        const uint8_t *r = z->index + 12 * i;
+        if (rd32(r) == id) {
+            *offset = (long long)rd32(r + 4) * 2048;
+            *size = rd32(r + 8);
+            return 0;
+        }
+    }
+    return -1;
+}
+
 uint8_t *hp2_zdir_load(const hp2_zdir *z, const char *path, size_t *len)
 {
     return hp2_zdir_load_id(z, hp2_zdir_hash(path), len);

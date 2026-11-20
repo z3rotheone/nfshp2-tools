@@ -10,9 +10,14 @@
  *                                        ZDIR.BIN and compare)
  *   test_assets --texdump FILE...        one line per texture with a hash of
  *                                        its decoded RGBA, for check_tex.py
+ *   test_assets --vagdump BANK SONG FRAMES
+ *                                        a hash of the first FRAMES stereo
+ *                                        frames of a song, for check_vag.py
  */
 #include "../src/hp2_fe.h"
 #include "../src/hp2_jukebox.h"
+#include "../src/hp2_jbplay.h"
+#include "../src/hp2_vag.h"
 #include "../src/hp2_femenu.h"
 #include "../src/hp2_font.h"
 #include "../src/hp2_lang.h"
@@ -277,6 +282,130 @@ static void test_jukebox(void)
     set32(b + 0x20, 1000);
     CHECK(hp2_jukebox_parse(&jb, b, len) == -1, "absurd count");
     CHECK(hp2_jukebox_parse(&jb, NULL, 0) == -1, "NULL");
+}
+
+/* ---- audio --------------------------------------------------------------- */
+
+static void test_adpcm(void)
+{
+    uint8_t b[16];
+    int16_t o[28];
+    hp2_adpcm st = { 0, 0 };
+    printf("PS-ADPCM\n");
+    memset(b, 0, 16);
+    b[0] = 0x0C;                           /* predictor 0, shift 12 */
+    b[2] = 0x71;                           /* low nibble first: 1, then 7 */
+    b[3] = 0x8F;                           /* -1, then -8 */
+    CHECK(hp2_adpcm_block(&st, b, o) == 28, "28 samples");
+    CHECK(o[0] == 1 && o[1] == 7 && o[2] == -1 && o[3] == -8 && o[4] == 0, "shift 12: the nibble itself (%d %d %d %d)", o[0], o[1], o[2], o[3]);
+    b[0] = 0x00; b[2] = 0x07; b[3] = 0x08;
+    hp2_adpcm_block(&st, b, o);
+    CHECK(o[0] == 28672 && o[1] == 0 && o[2] == -32768, "shift 0: nibble << 12 (%d %d)", o[0], o[2]);
+    st.h1 = 1000; st.h2 = 0;
+    b[0] = 0x1C; b[2] = 0; b[3] = 0;       /* predictor 1: + 60/64 of the last sample */
+    hp2_adpcm_block(&st, b, o);
+    CHECK(o[0] == (60 * 1000 + 32) / 64 && o[1] == (60 * o[0] + 32) / 64, "predictor 1 (%d %d)", o[0], o[1]);
+    st.h1 = -1001; st.h2 = 0;              /* (60 * -1001 + 32) / 64 = -937.94 */
+    hp2_adpcm_block(&st, b, o);
+    CHECK(o[0] == -938, "negative history rounds down like Python's >> (%d)", o[0]);
+    st.h1 = 1000; st.h2 = 500;
+    b[0] = 0x9F;                           /* predictor 9 -> 0, shift 15 -> 9 */
+    b[2] = 0x01;
+    hp2_adpcm_block(&st, b, o);
+    CHECK(o[0] == 8, "hardware clamps: predictor > 4 is 0, shift > 12 is 9 (%d)", o[0]);
+    st.h1 = 32000; st.h2 = 0;
+    b[0] = 0x40; b[2] = 0x07;
+    hp2_adpcm_block(&st, b, o);
+    CHECK(o[0] == 32767, "clamped to int16");
+    b[1] = 7;
+    CHECK(hp2_adpcm_block(&st, b, o) == 0, "flag 7 ends the sound");
+}
+
+/* A bank file: song table, then each song's VAG header and stereo ADPCM in
+ * 32 KB chunks. Song k's left blocks decode to the constant k+1 and right
+ * blocks to -(k+1) (predictor 0, shift 12). */
+static const char *write_bank(const char *path, const char **lines, int n, uint32_t adpcm_bytes)
+{
+    FILE *f = fopen(path, "wb");
+    uint8_t head[0x60 * 8];
+    uint32_t off = 0x60 + 0x60 * (uint32_t)n, k;
+    int i;
+    make_bank(head, lines, n);
+    for (i = 0; i < n; i++) {
+        set32(head + 0x60 + 0x60 * i, off + (uint32_t)i * (48 + adpcm_bytes));
+        set32(head + 0x60 + 0x60 * i + 4, 48 + adpcm_bytes);
+    }
+    fwrite(head, 1, off, f);
+    for (i = 0; i < n; i++) {
+        uint8_t h[48] = { 'V', 'A', 'G', 'p' };
+        h[12] = (uint8_t)(adpcm_bytes >> 24); h[13] = (uint8_t)(adpcm_bytes >> 16);
+        h[14] = (uint8_t)(adpcm_bytes >> 8); h[15] = (uint8_t)adpcm_bytes;
+        h[17] = 0; h[18] = 0x7D; h[19] = 0x00;              /* 32000 */
+        fwrite(h, 1, 48, f);
+        for (k = 0; k < adpcm_bytes; k += 16) {
+            uint8_t blk[16];
+            int left = (k % (2 * HP2_MUSIC_CHUNK)) < HP2_MUSIC_CHUNK;
+            int v = left ? i + 1 : 16 - (i + 1);            /* 4-bit two's complement */
+            memset(blk, 0, 16);
+            blk[0] = 0x0C;
+            memset(blk + 2, v | v << 4, 14);
+            fwrite(blk, 1, 16, f);
+        }
+    }
+    fclose(f);
+    return path;
+}
+
+static void test_stream(void)
+{
+    static const char *lines[] = { "A-One--Rock-0", "B-Two--Rock-3", "C-Three--Rock-2" };
+    const char *path = write_bank("test_vag_tmp.bin", lines, 3, 3 * HP2_MUSIC_CHUNK);  /* 1.5 chunk pairs */
+    static hp2_jukebox jb;
+    hp2_stream st;
+    hp2_settings cfg;
+    hp2_jbplay p;
+    static int16_t buf[2 * 8192];
+    size_t len;
+    uint8_t *head = hp2_read_file_part(path, hp2_jukebox_header_size(), &len);
+    int n, total, i, ok;
+    printf("music stream\n");
+    CHECK(head && hp2_jukebox_parse(&jb, head, len) == 0 && jb.count == 3 && jb.rate == 32000, "bank table");
+    CHECK(jb.track[1].offset == 0x60 + 0x60 * 3 + 48 + 3 * HP2_MUSIC_CHUNK, "track offsets");
+    CHECK(hp2_stream_open(&st, path, jb.track[1].offset) == 0 && st.rate == 32000 && st.size == 3 * HP2_MUSIC_CHUNK, "opens song 2");
+    for (total = 0, ok = 1; (n = hp2_stream_read(&st, buf, 1000)) > 0; total += n)
+        for (i = 0; i < n; i++) ok &= buf[2 * i] == 2 && buf[2 * i + 1] == -2;
+    /* pair 1: 2048 blocks a side; pair 2 is 32 KB: all left, no right */
+    CHECK(total == 2048 * 28, "frames: whole pairs only (%d)", total);
+    CHECK(ok, "left and right come from their own chunks");
+    CHECK(hp2_stream_read(&st, buf, 10) == 0, "then the end");
+    hp2_stream_close(&st);
+    CHECK(hp2_stream_open(&st, path, 5) == -1, "no VAG header there");
+    CHECK(hp2_stream_open(&st, "no/such/file", 0) == -1, "no file");
+
+    hp2_settings_defaults(&cfg);
+    hp2_jbplay_init(&p, &jb, &cfg, path, 0, 12345);
+    n = hp2_jbplay_fill(&p, buf, 4096);
+    CHECK(n == 4096 && hp2_jbplay_now(&p) == 1 && buf[0] == 2 * 70 / 100, "only song 2 (Menu) plays, at 70%% (%d, song %d)", buf[0], hp2_jbplay_now(&p));
+    cfg.volume[HP2_VOL_MENU_MUSIC] = 0;
+    hp2_jbplay_fill(&p, buf, 100);
+    CHECK(buf[0] == 0 && buf[1] == 0, "volume 0: silence");
+    cfg.volume[HP2_VOL_MENU_MUSIC] = 100;
+    cfg.song[1] = HP2_PLAY_HOT_PURSUIT;
+    CHECK(hp2_jbplay_fill(&p, buf, 100) == 0 && hp2_jbplay_now(&p) == -1, "switched off for the menus: stops at once");
+    cfg.song[0] = HP2_PLAY_ALWAYS;
+    CHECK(hp2_jbplay_fill(&p, buf, 100) == 100 && hp2_jbplay_now(&p) == 0 && buf[0] == 1, "Always: song 1 plays");
+    for (total = 0; total < 3 * 2048 * 28; total += n)
+        if ((n = hp2_jbplay_fill(&p, buf, 8192)) <= 0) break;
+    CHECK(total >= 3 * 2048 * 28 && hp2_jbplay_now(&p) == 0, "one song in the menus: it plays again after it ends");
+    cfg.song[1] = HP2_PLAY_MENU;
+    for (i = 0, ok = 0; i < 40; i++) {
+        hp2_jbplay_fill(&p, buf, 8192);
+        ok |= hp2_jbplay_now(&p) == 1;
+    }
+    CHECK(ok, "with two in the menus, the other one comes up");
+    hp2_jbplay_close(&p);
+    free(head);
+    remove(path);
 }
 
 static void test_zdir_hash(void)
@@ -572,11 +701,42 @@ static int texdump(int argc, char **argv)
     return 0;
 }
 
+/* FNV-1a 64 of the first frames stereo frames (int16 little-endian, L R)
+ * of song k of a bank, as tests/check_vag.py computes it. */
+static int vagdump(const char *bank, int k, int frames)
+{
+    static hp2_jukebox jb;
+    size_t len;
+    uint8_t *head = hp2_read_file_part(bank, hp2_jukebox_header_size(), &len);
+    hp2_stream st;
+    int16_t buf[2 * 1024];
+    uint64_t h = 1469598103934665603ULL;
+    int got = 0, n, i;
+    if (!head || hp2_jukebox_parse(&jb, head, len) != 0 || k < 0 || k >= jb.count
+        || hp2_stream_open(&st, bank, jb.track[k].offset) != 0) {
+        fprintf(stderr, "cannot read song %d of %s\n", k, bank);
+        free(head);
+        return 1;
+    }
+    while (got < frames && (n = hp2_stream_read(&st, buf, frames - got < 1024 ? frames - got : 1024)) > 0) {
+        for (i = 0; i < 2 * n; i++) {
+            h ^= (uint8_t)buf[i]; h *= 1099511628211ULL;
+            h ^= (uint8_t)((uint16_t)buf[i] >> 8); h *= 1099511628211ULL;
+        }
+        got += n;
+    }
+    printf("%d %016llx\n", got, (unsigned long long)h);
+    hp2_stream_close(&st);
+    free(head);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *fb = NULL, *gb = NULL, *lf = NULL, *disc = NULL, *bank = NULL;
     int i;
     if (argc > 1 && !strcmp(argv[1], "--texdump")) return texdump(argc - 2, argv + 2);
+    if (argc == 5 && !strcmp(argv[1], "--vagdump")) return vagdump(argv[2], atoi(argv[3]), atoi(argv[4]));
     for (i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--frontb")) fb = argv[i + 1];
         else if (!strcmp(argv[i], "--globalb")) gb = argv[i + 1];
@@ -589,6 +749,8 @@ int main(int argc, char **argv)
     test_lang();
     test_tex();
     test_jukebox();
+    test_adpcm();
+    test_stream();
     test_zdir_hash();
     if (fb && gb) test_real(fb, gb, lf, disc, bank);
     printf("\nassets: %d checks, %d failures\n", checks, failures);

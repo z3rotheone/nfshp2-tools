@@ -30,10 +30,12 @@ typedef struct {
     char album[48];
     char genre[24];
     int  bank_status;           /* N from the bank, as stored */
+    uint32_t offset, size;      /* the track's VAG header in the bank, and its size */
 } hp2_jb_track;
 
 typedef struct {
     int          count;
+    int          rate;          /* sample rate (32000) */
     char         name[32];      /* "InGame" */
     hp2_jb_track track[HP2_JB_MAX];
     int          genres;

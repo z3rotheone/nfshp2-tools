@@ -123,7 +123,14 @@ game's order; left/right changes it); *Default Jukebox* puts them all back. *Sav
 for player progress and does nothing yet; Player Names, Credits and
 Languages are left out. With `--files`, add `--jukebox` and the music bank
 (extracted entry 322) for the Jukebox; `--disc` reads it from the archive
-(only its 6 KB song table). Left/right change a setting; `hp2.ini` (the same file the
+(only its 6 KB song table).
+
+**Menu music.** hp2fe plays the Jukebox's songs whose status includes the
+menus (Menu, Menu/Racing, Always) one after another in random order, at the
+Menu Music volume, streamed from the music bank in place (`hp2_vag`: the
+game's PS-ADPCM, identical sample for sample to `tools/hp2_audio.py`;
+`hp2_jbplay`: the playlist). Changes are heard within half a second: switch
+a song off in the Jukebox and it stops. `--no-music` keeps it quiet. Left/right change a setting; `hp2.ini` (the same file the
 launcher reads, `--config` to choose another) is saved when you leave the list.
 The window follows the aspect setting: 4:3 draws the 640 x 480 canvas with
 side bars (FIT), anything else keeps it at full height and tiles the

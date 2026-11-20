@@ -1,5 +1,6 @@
 /* hp2_femenu - Options menus from the original layouts. See hp2_femenu.h. */
 #include "hp2_femenu.h"
+#include "hp2_jbplay.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -64,19 +65,9 @@ static int hidden_row(const hp2_fe_widget *w)
 
 /* ---- jukebox ------------------------------------------------------------- */
 
-/* The bank's play-status number is the position in the game's own list
- * (hp2_play): 0 Off, 2 Hot Pursuit, 4 Menu/Racing, as PCSX2 shows the
- * factory settings. Anything else is taken as Off. */
-static hp2_play play_from_bank(int n)
-{
-    return n >= 0 && n < HP2_PLAY_COUNT ? (hp2_play)n : HP2_PLAY_OFF;
-}
-
 hp2_play hp2_femenu_play(const hp2_femenu *m, int song)
 {
-    if (!m->jb || song < 0 || song >= m->jb->count) return HP2_PLAY_OFF;
-    if (song < HP2_SONGS && m->cfg->song[song] >= 0) return (hp2_play)m->cfg->song[song];
-    return play_from_bank(m->jb->track[song].bank_status);
+    return hp2_jbplay_status(m->jb, m->cfg, song);    /* one rule for menu and player */
 }
 
 void hp2_femenu_set_jukebox(hp2_femenu *m, const hp2_jukebox *jb)
