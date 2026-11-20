@@ -100,6 +100,7 @@ static int jukebox_input(hp2_femenu *m, hp2_fem_input in)
             int song = m->songs[m->jsel - 1];
             if (song < HP2_SONGS) {
                 m->cfg->song[song] = (hp2_femenu_play(m, song) + d + HP2_PLAY_COUNT) % HP2_PLAY_COUNT;
+                m->changed_song = song;
                 r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
             }
         }
@@ -131,7 +132,10 @@ static void refresh(hp2_femenu *m)
     int i;
     for (i = 0; i < HP2_ROW_COUNT; i++) hp2_menu_value(m->cfg, i, m->value[i], sizeof m->value[i]);
     m->help[0] = 0;
-    if (m->screen == HP2_FEM_SETTINGS) {
+    if (m->capture >= 0) {
+        snprintf(m->value[m->capture], sizeof m->value[m->capture], "%s", "Press a button");
+        snprintf(m->help, sizeof m->help, "Press the button for %s. Esc cancels.", hp2_menu_label(m->capture));
+    } else if (m->screen == HP2_FEM_SETTINGS) {
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
     } else if (m->lang && m->sel >= 1 && m->sel <= m->orows) {
         const char *h = hp2_lang_by_id(m->lang, SID_HELP_BASE + (uint32_t)m->orow[m->sel - 1]);
@@ -139,9 +143,30 @@ static void refresh(hp2_femenu *m)
     }
 }
 
+void hp2_femenu_refresh(hp2_femenu *m) { refresh(m); }
+
+int hp2_femenu_capturing(const hp2_femenu *m) { return m->capture; }
+
+int hp2_femenu_capture(hp2_femenu *m, hp2_button b)
+{
+    int a = hp2_menu_bind_action(m->capture), r = HP2_FEM_REDRAW;
+    if (a < 0) return 0;
+    if (hp2_bind(m->cfg, (hp2_action)a, b)) r |= HP2_FEM_CHANGED;
+    m->capture = -1;
+    refresh(m);
+    return r;
+}
+
+void hp2_femenu_cancel_capture(hp2_femenu *m)
+{
+    m->capture = -1;
+    refresh(m);
+}
+
 int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *lang, hp2_settings *cfg)
 {
     memset(m, 0, sizeof *m);
+    m->capture = m->changed_song = -1;
     m->layout = layout;
     m->lang = lang;
     m->cfg = cfg;
@@ -190,6 +215,11 @@ const char *hp2_femenu_page(const hp2_femenu *m)
 int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
 {
     int r = 0;
+    m->changed_song = -1;
+    if (m->capture >= 0) {                      /* waiting for a button: only back cancels */
+        if (in == HP2_IN_BACK) { hp2_femenu_cancel_capture(m); return HP2_FEM_REDRAW; }
+        return 0;
+    }
     if (m->screen == HP2_FEM_JUKEBOX) {
         r = jukebox_input(m, in);
     } else if (m->screen == HP2_FEM_OPTIONS) {
@@ -225,6 +255,9 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
                     pick_genre(m, 0);
                     r = HP2_FEM_REDRAW;
                 }
+            } else if (hp2_menu_bind_action(m->sel) >= 0) {
+                m->capture = m->sel;
+                r = HP2_FEM_REDRAW;
             } else if (hp2_menu_kind(m->sel) == HP2_KIND_ACTION) {
                 if (hp2_menu_activate(m->cfg, m->sel)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
             } else if (hp2_menu_kind(m->sel) == HP2_KIND_TOGGLE) {

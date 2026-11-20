@@ -320,7 +320,8 @@ The status words are FE_ENGLISH 110041–110045 and 110052 (Off, World Racing,
 Menu, Always, Hot Pursuit, Menu/Racing); genres 110021–110029 (Rock, Techno,
 Electronica, R & B, Pop, Punk, Drum & Bass, Alternative, Top 40), of which
 the bank uses Rock (19 songs) and Techno (4). `launcher/src/hp2_jukebox.c`
-reads the table from the bank's first 6 KB.
+reads the table from the bank's first 6 KB. The port keeps three statuses:
+Off (0), Menu (3) and On (everything that plays in races: 1, 2, 4, 5).
 
 ### Stereo interleave — differs between banks
 

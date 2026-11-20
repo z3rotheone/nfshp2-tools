@@ -20,6 +20,7 @@
 #define HP2_MENU_H
 
 #include "hp2_settings.h"
+#include "hp2_glyphs.h"
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -41,6 +42,17 @@ typedef enum {
     HP2_ROW_GLYPHS,
     HP2_ROW_DEADZONE,
     HP2_ROW_RUMBLE,
+    HP2_ROW_BIND_ACCELERATE,    /* one row per hp2_action, in its order */
+    HP2_ROW_BIND_BRAKE,
+    HP2_ROW_BIND_HANDBRAKE,
+    HP2_ROW_BIND_SHIFT_UP,
+    HP2_ROW_BIND_SHIFT_DOWN,
+    HP2_ROW_BIND_LOOK_BACK,
+    HP2_ROW_BIND_CAMERA,
+    HP2_ROW_BIND_SIREN,
+    HP2_ROW_BIND_PAUSE,
+    HP2_ROW_BIND_NEXT_SONG,
+    HP2_ROW_DEFAULT_CONTROLS,
     HP2_ROW_VOL_MENU_MUSIC,     /* Audio: the game's own rows, in its order */
     HP2_ROW_VOL_RACE_MUSIC,
     HP2_ROW_VOL_AMBIENT,
@@ -84,6 +96,13 @@ int hp2_menu_activate(hp2_settings *s, int row);
 /* Where a volume row's slider stands, 0 (mute) .. 1 (full); -1 for rows
  * that show their value as text. */
 float hp2_menu_fraction(const hp2_settings *s, int row);
+
+/* The action a row binds, or -1 (HP2_ROW_BIND_* rows). */
+int hp2_menu_bind_action(int row);
+
+/* Which button names the bind rows show: the pad in hand's family, resolved
+ * from the Button icons setting by the front end (default: generic). */
+void hp2_menu_set_glyphs(hp2_glyph_set resolved);
 
 /* 1 if changing this row only takes effect after the game restarts. */
 int hp2_menu_needs_restart(int row);

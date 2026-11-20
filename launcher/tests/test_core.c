@@ -308,25 +308,87 @@ static void test_jukebox_file(void)
     for (i = 0; i < HP2_SONGS; i++) CHECK(s.song[i] == -1, "song %d follows the bank", i + 1);
     hp2_settings_write(&s, buf, sizeof buf);
     CHECK(!strstr(buf, "[jukebox]"), "nothing set: no jukebox section");
-    hp2_settings_parse(&s, "song1 = off\nSong23 = Always\nsong3 = menu_racing\nsong5 = default\nsong65 = menu\nsong2 = loud\n");
-    CHECK(s.song[0] == HP2_PLAY_OFF && s.song[22] == HP2_PLAY_ALWAYS && s.song[2] == HP2_PLAY_MENU_RACING, "parsed");
+    hp2_settings_parse(&s, "song1 = off\nSong23 = On\nsong3 = menu\nsong5 = default\nsong65 = menu\nsong2 = loud\n");
+    CHECK(s.song[0] == HP2_PLAY_OFF && s.song[22] == HP2_PLAY_ON && s.song[2] == HP2_PLAY_MENU, "parsed");
     CHECK(s.song[4] == -1 && s.song[1] == -1, "default / unknown value: the bank's");
+    hp2_settings_parse(&s, "song1 = always\nsong2 = menu_racing\nsong3 = racing\nsong4 = hot_pursuit\n");
+    CHECK(s.song[0] == HP2_PLAY_ON && s.song[1] == HP2_PLAY_ON && s.song[2] == HP2_PLAY_ON && s.song[3] == HP2_PLAY_ON,
+          "the game's words from older files: anything that plays in races is on");
+    hp2_settings_parse(&s, "song1 = off\nsong23 = on\nsong3 = menu\n");
     hp2_settings_write(&s, buf, sizeof buf);
-    CHECK(strstr(buf, "[jukebox]") && strstr(buf, "song1 = off") && strstr(buf, "song23 = always") && !strstr(buf, "song2 ="), "only set songs written");
+    CHECK(strstr(buf, "[jukebox]") && strstr(buf, "song1 = off") && strstr(buf, "song23 = on") && !strstr(buf, "song2 ="), "only set songs written");
     hp2_settings_parse(&t, buf);
     CHECK(!memcmp(t.song, s.song, sizeof s.song), "round trip");
-    for (i = 0; i < HP2_SONGS; i++) s.song[i] = HP2_PLAY_HOT_PURSUIT;
-    CHECK(hp2_settings_write(&s, buf, sizeof buf) < sizeof buf, "all 64 set still fits the save buffer");
+    for (i = 0; i < HP2_SONGS; i++) s.song[i] = HP2_PLAY_MENU;
+    for (i = 0; i < HP2_ACT_COUNT; i++) s.bind[i] = (HP2_BTN_COUNT - 1 - i);
+    CHECK(hp2_settings_write(&s, buf, sizeof buf) < sizeof buf, "all 64 songs and every binding still fit the save buffer");
     hp2_settings_parse(&t, buf);
-    CHECK(!memcmp(t.song, s.song, sizeof s.song), "all 64 round trip");
+    CHECK(!memcmp(t.song, s.song, sizeof s.song) && !memcmp(t.bind, s.bind, sizeof s.bind), "all of it round trips");
     s.song[7] = 99; s.song[8] = -7;
     hp2_settings_validate(&s);
     CHECK(s.song[7] == -1 && s.song[8] == -1, "out of range -> the bank's");
     hp2_settings_default_jukebox(&s);
     CHECK(s.song[0] == -1 && s.song[63] == -1, "Default Jukebox");
-    CHECK(!strcmp(hp2_play_label(HP2_PLAY_RACING), "World Racing") && !strcmp(hp2_play_key(HP2_PLAY_MENU_RACING), "menu_racing"), "names");
-    CHECK(HP2_PLAY_OFF == 0 && HP2_PLAY_HOT_PURSUIT == 2 && HP2_PLAY_MENU_RACING == 4 && HP2_PLAY_ALWAYS == 5,
-          "the game's order, which is the bank's numbering");
+    CHECK(!strcmp(hp2_play_label(HP2_PLAY_ON), "On") && !strcmp(hp2_play_key(HP2_PLAY_MENU), "menu"), "names");
+    CHECK(hp2_play_from_bank(0) == HP2_PLAY_OFF && hp2_play_from_bank(3) == HP2_PLAY_MENU && hp2_play_from_bank(1) == HP2_PLAY_ON
+          && hp2_play_from_bank(2) == HP2_PLAY_ON && hp2_play_from_bank(4) == HP2_PLAY_ON && hp2_play_from_bank(5) == HP2_PLAY_ON
+          && hp2_play_from_bank(9) == HP2_PLAY_OFF, "the bank's six (Off, World Racing, Hot Pursuit, Menu, Menu/Racing, Always) -> three");
+}
+
+static void test_controls_file(void)
+{
+    hp2_settings s, t;
+    char buf[8192];
+    printf("controls settings\n");
+    hp2_settings_defaults(&s);
+    CHECK(s.bind[HP2_ACT_ACCELERATE] == -1 && s.bind[HP2_ACT_NEXT_SONG] == -1, "defaults follow the scheme");
+    hp2_settings_write(&s, buf, sizeof buf);
+    CHECK(!strstr(buf, "[controls]"), "nothing remapped: no controls section");
+    hp2_settings_parse(&s, "[controls]\naccelerate = South\nnext_song = up\nsiren = default\npause = nowhere\n");
+    CHECK(s.bind[HP2_ACT_ACCELERATE] == HP2_BTN_SOUTH && s.bind[HP2_ACT_NEXT_SONG] == HP2_BTN_DPAD_UP, "parsed, any case");
+    CHECK(s.bind[HP2_ACT_SIREN] == -1 && s.bind[HP2_ACT_PAUSE] == -1, "default / unknown button");
+    hp2_settings_write(&s, buf, sizeof buf);
+    CHECK(strstr(buf, "[controls]") && strstr(buf, "accelerate = south") && strstr(buf, "next_song = up") && !strstr(buf, "siren ="), "only remapped written");
+    hp2_settings_parse(&t, buf);
+    CHECK(!memcmp(t.bind, s.bind, sizeof s.bind), "round trip");
+    hp2_settings_parse(&s, "camera = rb\nsiren = rb\n");
+    CHECK(s.bind[HP2_ACT_CAMERA] == HP2_BTN_RSHOULDER && s.bind[HP2_ACT_SIREN] == -1, "a hand-edited duplicate: the later one goes back to its default");
+    s.bind[HP2_ACT_BRAKE] = 99;
+    hp2_settings_validate(&s);
+    CHECK(s.bind[HP2_ACT_BRAKE] == -1, "out of range -> default");
+    hp2_settings_default_controls(&s);
+    CHECK(s.bind[HP2_ACT_CAMERA] == -1, "Default Controls");
+    CHECK(!strcmp(hp2_button_key(HP2_BTN_RSTICK), "rs") && !strcmp(hp2_action_key(HP2_ACT_NEXT_SONG), "next_song"), "names");
+}
+
+static void test_bind(void)
+{
+    hp2_settings s;
+    hp2_button before;
+    int a, b, seen[HP2_BTN_COUNT];
+    printf("remapping\n");
+    hp2_settings_defaults(&s);
+    CHECK(hp2_bound_button(&s, HP2_ACT_NEXT_SONG) == HP2_BTN_RSTICK, "Next Song on the right stick click");
+    CHECK(hp2_bound_button(&s, HP2_ACT_ACCELERATE) == HP2_BTN_RTRIGGER, "modern: accelerate on RT");
+    CHECK(hp2_action_on(&s, HP2_BTN_SOUTH) == HP2_ACT_HANDBRAKE && hp2_action_on(&s, HP2_BTN_DPAD_UP) == -1, "who is on a button");
+    before = hp2_bound_button(&s, HP2_ACT_ACCELERATE);
+    CHECK(hp2_bind(&s, HP2_ACT_ACCELERATE, HP2_BTN_SOUTH) == 1, "bind accelerate to south");
+    CHECK(hp2_bound_button(&s, HP2_ACT_ACCELERATE) == HP2_BTN_SOUTH && hp2_bound_button(&s, HP2_ACT_HANDBRAKE) == before,
+          "handbrake, which was on south, takes accelerate's old button (swap)");
+    CHECK(hp2_bind(&s, HP2_ACT_ACCELERATE, HP2_BTN_SOUTH) == 0, "same again: no change");
+    CHECK(hp2_bind(&s, HP2_ACT_ACCELERATE, HP2_BTN_RTRIGGER) == 1 && s.bind[HP2_ACT_ACCELERATE] == -1 && s.bind[HP2_ACT_HANDBRAKE] == -1,
+          "swapping back: both on their defaults again, nothing left in the file");
+    CHECK(hp2_bind(&s, HP2_ACT_SIREN, HP2_BTN_DPAD_LEFT) == 1 && hp2_bound_button(&s, HP2_ACT_SIREN) == HP2_BTN_DPAD_LEFT, "to a free button");
+    s.scheme = HP2_SCHEME_CLASSIC;
+    CHECK(hp2_bound_button(&s, HP2_ACT_SIREN) == HP2_BTN_DPAD_LEFT && hp2_bound_button(&s, HP2_ACT_ACCELERATE) == HP2_BTN_SOUTH,
+          "a remap stays across schemes; the rest follow the scheme");
+    for (b = 0; b < 200; b++)
+        hp2_bind(&s, (hp2_action)(b % HP2_ACT_COUNT), (hp2_button)((b * 7) % HP2_BTN_COUNT));
+    memset(seen, 0, sizeof seen);
+    for (a = 0; a < HP2_ACT_COUNT; a++) seen[hp2_bound_button(&s, (hp2_action)a)]++;
+    for (b = 0, a = 0; b < HP2_BTN_COUNT; b++) a |= seen[b] > 1;
+    CHECK(!a, "after 200 remaps no two actions share a button");
+    CHECK(hp2_bind(&s, HP2_ACT_COUNT, HP2_BTN_SOUTH) == 0 && hp2_bind(&s, HP2_ACT_BRAKE, HP2_BTN_COUNT) == 0, "bad action / button");
 }
 
 int main(void)
@@ -342,6 +404,8 @@ int main(void)
     test_set();
     test_audio_file();
     test_jukebox_file();
+    test_controls_file();
+    test_bind();
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

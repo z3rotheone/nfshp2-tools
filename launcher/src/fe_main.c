@@ -16,15 +16,21 @@
  *   --fit fit|stretch|expand    how the 640x480 canvas fills the window
  *                      (default: fit for aspect 4:3, else expand)
  *   --no-music         no menu music (it plays the Jukebox's songs set to
- *                      Menu, Menu/Racing or Always, at Menu Music volume)
+ *                      Menu or On, at Menu Music volume). The Next Song
+ *                      button (default: right stick click; N on the
+ *                      keyboard) skips to another.
  *   --shot OUT.bmp     render one frame offscreen, save it, exit
  *   --keys LIST        inputs to apply first, e.g. down,down,accept,right
  *
- * Keys: arrows, Enter/Space = accept, Esc/Backspace = back. A controller's
- * d-pad or left stick, A (south) = accept, B (east) = back.
+ * Keys: arrows, Enter/Space = accept, Esc/Backspace = back, N = next song.
+ * A controller's d-pad or left stick, A (south) = accept, B (east) = back,
+ * the Next Song button (default right stick click) skips the song. On a
+ * Controls page action row, accept waits for the button to bind: press it
+ * on the controller (Esc cancels).
  */
 #include "hp2_fe.h"
 #include "hp2_fedraw.h"
+#include "hp2_input.h"
 #include "hp2_jbplay.h"
 #include "hp2_femenu.h"
 #include "hp2_font.h"
@@ -105,6 +111,32 @@ static void apply_window_mode(SDL_Window *w, const hp2_settings *cfg)
     Uint32 f = cfg->window == HP2_WINDOW_FULLSCREEN ? SDL_WINDOW_FULLSCREEN
              : cfg->window == HP2_WINDOW_BORDERLESS ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
     SDL_SetWindowFullscreen(w, f);
+}
+
+/* Bind rows name buttons the way the pad in hand does. */
+static void update_glyphs(hp2_femenu *m, const hp2_settings *cfg, SDL_GameController *pad)
+{
+    hp2_menu_set_glyphs(hp2_resolve_glyphs(cfg->glyphs, hp2_input_kind_of(pad)));
+    hp2_femenu_refresh(m);
+}
+
+/* The song changed in the Jukebox is heard now: one set to Menu or On
+ * starts; the one playing, switched off, gives way to another. */
+static void follow_jukebox(hp2_femenu *m, hp2_jbplay *p, SDL_AudioDeviceID audio)
+{
+    int s = m->changed_song;
+    if (!audio || s < 0) return;
+    if (hp2_jbplay_in_menus(hp2_femenu_play(m, s))) hp2_jbplay_play(p, s);
+    else if (hp2_jbplay_now(p) == s) hp2_jbplay_skip(p);
+    else return;
+    SDL_ClearQueuedAudio(audio);
+}
+
+static void next_song(hp2_jbplay *p, SDL_AudioDeviceID audio)
+{
+    if (!audio) return;
+    hp2_jbplay_skip(p);
+    SDL_ClearQueuedAudio(audio);
 }
 
 static void draw(hp2_fedraw *d, hp2_femenu *m, SDL_Renderer *r, int W, int H, hp2_fe_fit fit)
@@ -203,6 +235,7 @@ int main(int argc, char **argv)
     ren = win ? SDL_CreateRenderer(win, -1, shot ? SDL_RENDERER_SOFTWARE : SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC) : NULL;
     if (!ren) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     hp2_fedraw_init(&d, ren, &tex, &fonts);
+    update_glyphs(&menu, &cfg, pad);           /* button names: the settings, then the pad in hand */
 
     if (shot) {
         SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_RGBA32);
@@ -253,7 +286,7 @@ int main(int argc, char **argv)
         }
         do {
             hp2_fem_input in;
-            int have = 0;
+            int have = 0, pressed = -1;          /* pressed: an hp2_button from the pad */
             if (e.type == SDL_QUIT) quit = 1;
             else if (e.type == SDL_KEYDOWN) {
                 have = 1;
@@ -264,12 +297,20 @@ int main(int argc, char **argv)
                 case SDLK_RIGHT: in = HP2_IN_RIGHT; break;
                 case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: in = HP2_IN_ACCEPT; break;
                 case SDLK_ESCAPE: case SDLK_BACKSPACE: in = HP2_IN_BACK; break;
+                case SDLK_n: have = 0; if (hp2_femenu_capturing(&menu) < 0) next_song(&player, audio); break;
                 default: have = 0;
                 }
             } else if (e.type == SDL_CONTROLLERDEVICEADDED && !pad) {
                 pad = SDL_GameControllerOpen(e.cdevice.which);
+                update_glyphs(&menu, &cfg, pad);
+            } else if (e.type == SDL_CONTROLLERDEVICEREMOVED && pad
+                       && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) == e.cdevice.which) {
+                SDL_GameControllerClose(pad);
+                pad = NULL;
+                update_glyphs(&menu, &cfg, pad);
             } else if (e.type == SDL_CONTROLLERBUTTONDOWN) {
-                have = 1;
+                pressed = hp2_input_button_of(e.cbutton.button);
+                have = hp2_femenu_capturing(&menu) < 0;   /* while binding, a press is the answer */
                 switch (e.cbutton.button) {
                 case SDL_CONTROLLER_BUTTON_DPAD_UP: in = HP2_IN_UP; break;
                 case SDL_CONTROLLER_BUTTON_DPAD_DOWN: in = HP2_IN_DOWN; break;
@@ -283,7 +324,13 @@ int main(int argc, char **argv)
                 /* left stick as a d-pad: one step when it crosses half way */
                 static int last[2];
                 int axis = e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ? 0 : e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY ? 1 : -1;
-                if (axis >= 0) {
+                static int trig[2];
+                if (e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
+                    int t = e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT, down = e.caxis.value > 16000;
+                    if (down && !trig[t]) pressed = t ? HP2_BTN_RTRIGGER : HP2_BTN_LTRIGGER;
+                    trig[t] = down;
+                }
+                if (axis >= 0 && hp2_femenu_capturing(&menu) < 0) {
                     int dir = e.caxis.value > 16000 ? 1 : e.caxis.value < -16000 ? -1 : 0;
                     if (dir && dir != last[axis]) {
                         have = 1;
@@ -292,12 +339,21 @@ int main(int argc, char **argv)
                     last[axis] = dir;
                 }
             }
+            if (pressed >= 0) {
+                if (hp2_femenu_capturing(&menu) >= 0) {
+                    if (hp2_femenu_capture(&menu, (hp2_button)pressed) & HP2_FEM_CHANGED) dirty = 1;
+                } else if (pressed == (int)hp2_bound_button(&cfg, HP2_ACT_NEXT_SONG)) {
+                    next_song(&player, audio);
+                }
+            }
             if (have) {
                 hp2_fem_screen before = menu.screen;
                 int res = hp2_femenu_input(&menu, in);
                 if (res & HP2_FEM_CHANGED) {
                     dirty = 1;
                     if (menu.sel == HP2_ROW_WINDOW) apply_window_mode(win, &cfg);
+                    if (menu.sel == HP2_ROW_GLYPHS) update_glyphs(&menu, &cfg, pad);
+                    if (menu.screen == HP2_FEM_JUKEBOX) follow_jukebox(&menu, &player, audio);
                 }
                 if (res & HP2_FEM_QUIT) quit = 1;
                 if (dirty && before == HP2_FEM_SETTINGS && menu.screen != before) {

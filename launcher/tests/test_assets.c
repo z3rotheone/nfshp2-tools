@@ -358,7 +358,7 @@ static const char *write_bank(const char *path, const char **lines, int n, uint3
 
 static void test_stream(void)
 {
-    static const char *lines[] = { "A-One--Rock-0", "B-Two--Rock-3", "C-Three--Rock-2" };
+    static const char *lines[] = { "A-One--Rock-0", "B-Two--Rock-3", "C-Three--Rock-0" };
     const char *path = write_bank("test_vag_tmp.bin", lines, 3, 3 * HP2_MUSIC_CHUNK);  /* 1.5 chunk pairs */
     static hp2_jukebox jb;
     hp2_stream st;
@@ -390,10 +390,10 @@ static void test_stream(void)
     hp2_jbplay_fill(&p, buf, 100);
     CHECK(buf[0] == 0 && buf[1] == 0, "volume 0: silence");
     cfg.volume[HP2_VOL_MENU_MUSIC] = 100;
-    cfg.song[1] = HP2_PLAY_HOT_PURSUIT;
+    cfg.song[1] = HP2_PLAY_OFF;
     CHECK(hp2_jbplay_fill(&p, buf, 100) == 0 && hp2_jbplay_now(&p) == -1, "switched off for the menus: stops at once");
-    cfg.song[0] = HP2_PLAY_ALWAYS;
-    CHECK(hp2_jbplay_fill(&p, buf, 100) == 100 && hp2_jbplay_now(&p) == 0 && buf[0] == 1, "Always: song 1 plays");
+    cfg.song[0] = HP2_PLAY_ON;
+    CHECK(hp2_jbplay_fill(&p, buf, 100) == 100 && hp2_jbplay_now(&p) == 0 && buf[0] == 1, "On: song 1 plays");
     for (total = 0; total < 3 * 2048 * 28; total += n)
         if ((n = hp2_jbplay_fill(&p, buf, 8192)) <= 0) break;
     CHECK(total >= 3 * 2048 * 28 && hp2_jbplay_now(&p) == 0, "one song in the menus: it plays again after it ends");
@@ -403,6 +403,18 @@ static void test_stream(void)
         ok |= hp2_jbplay_now(&p) == 1;
     }
     CHECK(ok, "with two in the menus, the other one comes up");
+    CHECK(hp2_jbplay_play(&p, 1) == 1 && hp2_jbplay_now(&p) == 1, "play song 2 now (as the Jukebox does when it is set to Menu)");
+    hp2_jbplay_fill(&p, buf, 10);
+    CHECK(buf[0] == 2 && hp2_jbplay_now(&p) == 1, "and it is what plays, from its start");
+    hp2_jbplay_play(&p, 2);
+    hp2_jbplay_fill(&p, buf, 10);
+    CHECK(hp2_jbplay_now(&p) != 2, "a song set to Off does not keep playing");
+    hp2_jbplay_play(&p, 1);
+    hp2_jbplay_skip(&p);
+    CHECK(hp2_jbplay_now(&p) == -1, "skip ends it");
+    hp2_jbplay_fill(&p, buf, 10);
+    CHECK(hp2_jbplay_now(&p) == 0, "the next fill picks the other menu song (%d)", hp2_jbplay_now(&p));
+    CHECK(hp2_jbplay_play(&p, 7) == 0, "no song 8");
     hp2_jbplay_close(&p);
     free(head);
     remove(path);
@@ -484,14 +496,36 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
     CHECK(find_text(it, n, "Controls") == 1, "title = section");
     CHECK(find_text(it, n, hp2_menu_label(HP2_ROW_SCHEME)) == 1, "row label from hp2_menu");
     CHECK(find_text(it, n, hp2_menu_label(HP2_ROW_VSYNC)) == 0, "no Video rows on the Controls page");
-    CHECK(count_named(it, n, "DOWN_ARROW") == 0 && count_named(it, n, "UP_ARROW") == 0, "4 rows: no scrolling");
+    CHECK(count_named(it, n, "DOWN_ARROW") == 1, "15 rows: more below");
     CHECK(!strcmp(m.help, hp2_menu_help(HP2_ROW_SCHEME)), "help line from hp2_menu");
     before = cfg.scheme;
     r = hp2_femenu_input(&m, HP2_IN_RIGHT);
     CHECK((r & HP2_FEM_CHANGED) && cfg.scheme != before, "right changes the setting");
     hp2_femenu_input(&m, HP2_IN_UP);
-    CHECK(m.sel == HP2_ROW_RUMBLE, "up from the page's top wraps to its bottom");
-    page_walk(&m, it, 4);
+    CHECK(m.sel == HP2_ROW_DEFAULT_CONTROLS, "up from the page's top wraps to its bottom");
+    /* binding by pressing */
+    while (m.sel != HP2_ROW_BIND_ACCELERATE) hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && hp2_femenu_capturing(&m) == HP2_ROW_BIND_ACCELERATE, "accept waits for a button");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "Press a button") == 1 && !strcmp(m.help, "Press the button for Accelerate. Esc cancels."), "and says so");
+    CHECK(hp2_femenu_input(&m, HP2_IN_DOWN) == 0 && m.sel == HP2_ROW_BIND_ACCELERATE, "menu keys do nothing meanwhile");
+    r = hp2_femenu_capture(&m, HP2_BTN_DPAD_UP);
+    CHECK((r & HP2_FEM_CHANGED) && hp2_femenu_capturing(&m) == -1 && hp2_bound_button(&cfg, HP2_ACT_ACCELERATE) == HP2_BTN_DPAD_UP,
+          "the press binds it");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    {
+        hp2_button hb = hp2_bound_button(&cfg, HP2_ACT_HANDBRAKE);
+        hp2_femenu_capture(&m, hb);
+        CHECK(hp2_bound_button(&cfg, HP2_ACT_ACCELERATE) == hb && hp2_bound_button(&cfg, HP2_ACT_HANDBRAKE) == HP2_BTN_DPAD_UP,
+              "pressing handbrake's button swaps them");
+    }
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && hp2_femenu_capturing(&m) == -1 && m.screen == HP2_FEM_SETTINGS,
+          "back cancels, staying on the page");
+    CHECK(hp2_bound_button(&cfg, HP2_ACT_HANDBRAKE) == HP2_BTN_DPAD_UP, "cancel changes nothing");
+    while (m.sel != HP2_ROW_DEFAULT_CONTROLS) hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK((hp2_femenu_input(&m, HP2_IN_ACCEPT) & HP2_FEM_CHANGED) && cfg.bind[HP2_ACT_ACCELERATE] == -1, "Default Controls");
+    page_walk(&m, it, 15);
     hp2_femenu_input(&m, HP2_IN_BACK);
     CHECK(m.screen == HP2_FEM_OPTIONS && m.sel == 2, "back returns to Controller");
 
@@ -533,7 +567,7 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
         n = hp2_femenu_items(&m, it, 160);
         CHECK(find_text(it, n, "Rock") == 1 && find_text(it, n, "Genre:") == 1, "Genre: Rock");
         CHECK(find_text(it, n, "The People That We Love(Inst)") == 1 && find_text(it, n, "Bush") == 2, "first songs, title and artist");
-        CHECK(find_text(it, n, "Hot Pursuit") == 3 && find_text(it, n, "Menu/Racing") == 2, "bank play status 2 / 4 (as the PCSX2 screenshot)");
+        CHECK(find_text(it, n, "On") == 5, "bank play status 2 and 4 (Hot Pursuit, Menu/Racing in the game): On");
         CHECK(count_named(it, n, "LEFT_ARROW") == 1 && count_named(it, n, "LEFT_ARROW1") == 0, "arrows on the Genre row only");
         CHECK(count_named(it, n, "DOWN_ARROW") == 1 && count_named(it, n, "UP_ARROW") == 0, "more songs below");
         for (k = 0; k < n; k++)
@@ -546,20 +580,22 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
         CHECK(m.genre == 0 && m.nsongs == 19, "back to Rock, 19 songs");
         hp2_femenu_input(&m, HP2_IN_DOWN);
         first = m.songs[0];
-        CHECK(m.jsel == 1 && hp2_femenu_play(&m, first) == HP2_PLAY_HOT_PURSUIT, "first song, Hot Pursuit");
+        CHECK(m.jsel == 1 && hp2_femenu_play(&m, first) == HP2_PLAY_ON, "first song: On");
         n = hp2_femenu_items(&m, it, 160);
         CHECK(count_named(it, n, "LEFT_ARROW1") == 1 && count_named(it, n, "LEFT_ARROW") == 0, "arrows move to the song");
         for (k = 0; k < n; k++)
             if (!strcmp(it[k].w.name, "SONG1") || !strcmp(it[k].w.name, "ARTIST1"))
                 CHECK(it[k].w.rgba[0] == 124 && it[k].w.rgba[1] == 64, "%s orange: title and artist both", it[k].w.name);
         r = hp2_femenu_input(&m, HP2_IN_RIGHT);
-        CHECK((r & HP2_FEM_CHANGED) && cfg.song[first] == HP2_PLAY_MENU, "right: Hot Pursuit -> Menu (the game's order), kept in the settings");
+        CHECK((r & HP2_FEM_CHANGED) && cfg.song[first] == HP2_PLAY_OFF && m.changed_song == first,
+              "right: On -> Off (wraps), kept in the settings, reported as changed");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(cfg.song[first] == HP2_PLAY_MENU, "right: Menu");
         hp2_femenu_input(&m, HP2_IN_LEFT);
         hp2_femenu_input(&m, HP2_IN_LEFT);
-        CHECK(cfg.song[first] == HP2_PLAY_RACING, "left twice: World Racing");
-        hp2_femenu_input(&m, HP2_IN_LEFT);
-        hp2_femenu_input(&m, HP2_IN_LEFT);
-        CHECK(cfg.song[first] == HP2_PLAY_ALWAYS, "left past Off wraps to Always");
+        CHECK(cfg.song[first] == HP2_PLAY_ON && m.changed_song == first, "left twice: On");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        CHECK(m.changed_song == -1, "moving changes no song");
         for (k = 0; k < 25; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
         CHECK(m.jsel >= 1 && m.jsel - 1 >= m.jscroll && m.jsel - 1 < m.jscroll + HP2_FEM_SONGS, "scrolling keeps the song in view");
         n = hp2_femenu_items(&m, it, 160);

@@ -200,10 +200,36 @@ static void test_audio(void)
     CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_VOLUMES) == 0, "pressing it again changes nothing");
     CHECK(hp2_menu_activate(&s, HP2_ROW_VSYNC) == 0, "other rows are not buttons");
     CHECK(hp2_menu_kind(HP2_ROW_JUKEBOX) == HP2_KIND_ACTION && hp2_menu_activate(&s, HP2_ROW_JUKEBOX) == 0, "Jukebox: a button the front end handles");
-    s.song[4] = HP2_PLAY_ALWAYS;
+    s.song[4] = HP2_PLAY_ON;
     CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_JUKEBOX) == 1 && s.song[4] == -1, "Default Jukebox resets the songs");
     CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_JUKEBOX) == 0, "and again changes nothing");
     CHECK(!strcmp(hp2_menu_help(HP2_ROW_DEFAULT_JUKEBOX), "Restore factory Jukebox settings."), "its help line");
+}
+
+static void test_bind_rows(void)
+{
+    hp2_settings s;
+    int r;
+    printf("binding rows\n");
+    hp2_settings_defaults(&s);
+    CHECK(hp2_menu_bind_action(HP2_ROW_BIND_ACCELERATE) == HP2_ACT_ACCELERATE && hp2_menu_bind_action(HP2_ROW_BIND_NEXT_SONG) == HP2_ACT_NEXT_SONG
+          && hp2_menu_bind_action(HP2_ROW_VSYNC) == -1, "rows <-> actions");
+    for (r = HP2_ROW_BIND_ACCELERATE; r <= HP2_ROW_DEFAULT_CONTROLS; r++)
+        CHECK(!strcmp(hp2_menu_section(r), "Controls"), "row %d on the Controls page", r);
+    CHECK(!strcmp(hp2_menu_label(HP2_ROW_BIND_NEXT_SONG), "Next Song"), "Next Song row");
+    hp2_menu_set_glyphs(HP2_GLYPHS_XBOX);
+    CHECK(!strcmp(val(&s, HP2_ROW_BIND_ACCELERATE), "RT") && !strcmp(val(&s, HP2_ROW_BIND_NEXT_SONG), "RS"), "Xbox names: %s, %s",
+          val(&s, HP2_ROW_BIND_ACCELERATE), val(&s, HP2_ROW_BIND_NEXT_SONG));
+    hp2_menu_set_glyphs(HP2_GLYPHS_PLAYSTATION);
+    CHECK(!strcmp(val(&s, HP2_ROW_BIND_NEXT_SONG), "R3") && !strcmp(val(&s, HP2_ROW_BIND_HANDBRAKE), "Cross"), "PlayStation names");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_BIND_NEXT_SONG, -1) == 1 && hp2_bound_button(&s, HP2_ACT_NEXT_SONG) == HP2_BTN_LSTICK,
+          "left steps Next Song to L3");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_BIND_NEXT_SONG, +1) == 1 && s.bind[HP2_ACT_NEXT_SONG] == -1, "and back: its default again");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_BIND_CAMERA, +1) == 1, "stepping onto a taken button swaps");
+    CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_CONTROLS) == 1 && s.bind[HP2_ACT_CAMERA] == -1, "Default Controls");
+    CHECK(hp2_menu_kind(HP2_ROW_DEFAULT_CONTROLS) == HP2_KIND_ACTION && val(&s, HP2_ROW_DEFAULT_CONTROLS)[0] == 0, "a button row");
+    hp2_menu_set_glyphs(HP2_GLYPHS_AUTO);
+    CHECK(!strcmp(val(&s, HP2_ROW_BIND_ACCELERATE), "R2"), "unresolved: generic names");
 }
 
 static void test_settings_file(void)
@@ -257,6 +283,7 @@ int main(void)
 {
     test_rows();
     test_audio();
+    test_bind_rows();
     test_default_text();
     test_frame_cap();
     test_lists();

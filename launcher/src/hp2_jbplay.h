@@ -1,6 +1,6 @@
 /* hp2_jbplay - the front end's music: plays the jukebox's songs whose
- * play status includes the menus (Menu, Menu/Racing, Always), one after
- * another in random order, at the Menu Music volume.
+ * play status includes the menus (Menu or On), one after another in random
+ * order, at the Menu Music volume.
  *
  * It only produces samples (stereo int16 at the bank's rate); the caller
  * hands them to the sound card (fe_main.c queues them to SDL). It follows
@@ -46,6 +46,13 @@ int hp2_jbplay_fill(hp2_jbplay *p, int16_t *out, int frames);
 
 /* The song playing, or -1. */
 int hp2_jbplay_now(const hp2_jbplay *p);
+
+/* Start song now (whatever its status: the player asked for it). 1 if it
+ * opened. The caller drops what it has queued for the sound card. */
+int hp2_jbplay_play(hp2_jbplay *p, int song);
+
+/* End the song playing; the next fill picks another (Next Song). */
+void hp2_jbplay_skip(hp2_jbplay *p);
 
 #ifdef __cplusplus
 }

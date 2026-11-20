@@ -81,18 +81,56 @@ typedef enum {
     HP2_VOL_COUNT
 } hp2_volume;
 
-/* Where a jukebox song plays: the game's Play Status, in the order its
- * Jukebox steps through them with right (confirmed in PCSX2), which is also
- * the number the music bank stores as each song's default. */
+/* Where a jukebox song plays. The game has six (Off, World Racing, Hot
+ * Pursuit, Menu, Menu/Racing, Always: the music bank's numbers 0-5); the
+ * port keeps three: never, in the menus only, or everywhere. */
 typedef enum {
     HP2_PLAY_OFF = 0,
-    HP2_PLAY_RACING,       /* "World Racing" */
-    HP2_PLAY_HOT_PURSUIT,
     HP2_PLAY_MENU,
-    HP2_PLAY_MENU_RACING,
-    HP2_PLAY_ALWAYS,
+    HP2_PLAY_ON,
     HP2_PLAY_COUNT
 } hp2_play;
+
+/* The music bank's per-song number (the game's list) -> hp2_play: 3 (Menu)
+ * stays Menu, 0 Off, and anything that plays in races is On. */
+hp2_play hp2_play_from_bank(int n);
+
+/* Physical controller buttons, named the way SDL does: by position, not by
+ * the letter printed on them. New ones go at the end. */
+typedef enum {
+    HP2_BTN_SOUTH = 0,   /* bottom face button */
+    HP2_BTN_EAST,        /* right face button  */
+    HP2_BTN_WEST,        /* left face button   */
+    HP2_BTN_NORTH,       /* top face button    */
+    HP2_BTN_LSHOULDER,
+    HP2_BTN_RSHOULDER,
+    HP2_BTN_LTRIGGER,
+    HP2_BTN_RTRIGGER,
+    HP2_BTN_START,
+    HP2_BTN_SELECT,
+    HP2_BTN_DPAD_UP,
+    HP2_BTN_DPAD_DOWN,
+    HP2_BTN_DPAD_LEFT,
+    HP2_BTN_DPAD_RIGHT,
+    HP2_BTN_LSTICK,      /* left stick click  (L3) */
+    HP2_BTN_RSTICK,      /* right stick click (R3) */
+    HP2_BTN_COUNT
+} hp2_button;
+
+/* The actions a Hot Pursuit 2 port needs to bind. */
+typedef enum {
+    HP2_ACT_ACCELERATE = 0,
+    HP2_ACT_BRAKE,
+    HP2_ACT_HANDBRAKE,
+    HP2_ACT_SHIFT_UP,
+    HP2_ACT_SHIFT_DOWN,
+    HP2_ACT_LOOK_BACK,
+    HP2_ACT_CAMERA,
+    HP2_ACT_SIREN,
+    HP2_ACT_PAUSE,
+    HP2_ACT_NEXT_SONG,   /* skip to the next jukebox song, menus and races */
+    HP2_ACT_COUNT
+} hp2_action;
 
 #define HP2_SONGS 64           /* jukebox slots; the shipped bank has 23 */
 
@@ -141,8 +179,12 @@ typedef struct {
     hp2_audio_mode  audio_mode;
 
     /* jukebox: play status of song n of the music bank (bank order), or
-     * -1 for the bank's own default. Written as song<n+1> = menu_racing. */
+     * -1 for the bank's own default. Written as song<n+1> = on. */
     int             song[HP2_SONGS];
+
+    /* controls: the button of each action, or -1 for the scheme's default.
+     * Written under [controls] as accelerate = rt, only when remapped. */
+    int             bind[HP2_ACT_COUNT];
 } hp2_settings;
 
 /* Fill with the defaults: 1920x1080, 16:9, borderless, vsync on, 60 fps cap,
@@ -187,8 +229,14 @@ void hp2_settings_default_volumes(hp2_settings *s);
 /* Every song back to the bank's own play status (the Default Jukebox row). */
 void hp2_settings_default_jukebox(hp2_settings *s);
 
-const char *hp2_play_key(hp2_play p);    /* "menu_racing" (the file)  */
-const char *hp2_play_label(hp2_play p);  /* "Menu/Racing" (the menu)  */
+const char *hp2_play_key(hp2_play p);    /* "on" (the file)  */
+const char *hp2_play_label(hp2_play p);  /* "On" (the menu)  */
+
+/* Every action back to the scheme's default button (Default Controls). */
+void hp2_settings_default_controls(hp2_settings *s);
+
+const char *hp2_button_key(hp2_button b);  /* "rt", "south", "up", "rs"... */
+const char *hp2_action_key(hp2_action a);  /* "accelerate", "next_song"... */
 
 /* The aspect as a ratio, or 0 for AUTO (meaning: ask the display). */
 float hp2_aspect_ratio(hp2_aspect a);

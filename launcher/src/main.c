@@ -46,9 +46,12 @@ static void print_bindings(const hp2_settings *s, hp2_glyph_set resolved)
     int a;
     printf("\ncontrols (%s scheme, %s glyphs)\n",
            hp2_scheme_name(s->scheme), hp2_glyph_set_name(resolved));
-    for (a = 0; a < HP2_ACT_COUNT; a++)
-        printf("  %s\n", hp2_action_prompt((hp2_action)a, s->scheme, resolved,
-                                           buf, (int)sizeof(buf)));
+    for (a = 0; a < HP2_ACT_COUNT; a++) {
+        hp2_button b = hp2_bound_button(s, (hp2_action)a);
+        snprintf(buf, sizeof buf, "%s: %s%s", hp2_action_name((hp2_action)a), hp2_button_label(b, resolved),
+                 s->bind[a] >= 0 ? " (remapped)" : "");
+        printf("  %s\n", buf);
+    }
 }
 
 static void bar(float v, int width, char *out)

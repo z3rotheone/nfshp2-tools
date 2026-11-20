@@ -88,6 +88,7 @@ typedef enum {
 #define SDLK_DOWN                   0x40000051
 #define SDLK_UP                     0x40000052
 #define SDLK_KP_ENTER               0x40000058
+#define SDLK_n                      110
 
 typedef struct { int sym; } SDL_Keysym;
 typedef struct { Uint32 type; SDL_Keysym keysym; } SDL_KeyboardEvent;
@@ -140,6 +141,7 @@ int    SDL_QueueAudio(SDL_AudioDeviceID dev, const void *data, Uint32 len);
 Uint32 SDL_GetQueuedAudioSize(SDL_AudioDeviceID dev);
 void   SDL_PauseAudioDevice(SDL_AudioDeviceID dev, int pause_on);
 void   SDL_CloseAudioDevice(SDL_AudioDeviceID dev);
+void   SDL_ClearQueuedAudio(SDL_AudioDeviceID dev);
 int    SDL_WaitEventTimeout(SDL_Event *event, int timeout);
 Uint32 SDL_GetTicks(void);
 

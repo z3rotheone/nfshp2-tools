@@ -16,7 +16,11 @@ dropped in later.
   and switching aspect keeps the height), aspect ratio (auto, 4:3, 16:9,
   16:10, 21:9), window mode, VSync, frame cap, anti-aliasing, anisotropic
   filtering, FPS counter. Controls: scheme, button icons,
-  dead zone, vibration. Audio (the game's own rows): seven volumes (menu
+  dead zone, vibration, and a button for every action (Accelerate, Brake,
+  Handbrake, Shift Up/Down, Look Back, Camera, Siren, Pause, Next Song):
+  remap by stepping or by pressing the button; taking a button another
+  action has swaps the two, so none is ever shared or left unbound; Default
+  Controls resets them. Audio (the game's own rows): seven volumes (menu
   music, racing music, ambient, tires, engine, menu sounds, speech; 0-100%
   in 5% steps), audio mode (stereo, mono, surround), and Jukebox, Default
   Volumes and Default Jukebox buttons. A front end only draws rows and
@@ -118,19 +122,27 @@ screenshots). On OPTIONS, *Display* opens the
 Video page, *Controller* the Controls page and *Audio* the Audio page (the
 game's AUDIO_OPTIONS layout, volumes as its sliders). *Jukebox* on the Audio
 page lists the music bank's songs by genre, title over artist, with where
-each plays (Off, World Racing, Hot Pursuit, Menu, Menu/Racing, Always, the
-game's order; left/right changes it); *Default Jukebox* puts them all back. *Save/Load* is
+each plays: Off, Menu (menus only) or On (menus and races; the game's
+World Racing, Hot Pursuit, Menu/Racing and Always all become On). Left/right
+changes it, and the change is heard at once: a song set to Menu or On
+starts, the one playing set to Off gives way to another. *Default Jukebox*
+puts them all back. *Save/Load* is
 for player progress and does nothing yet; Player Names, Credits and
 Languages are left out. With `--files`, add `--jukebox` and the music bank
 (extracted entry 322) for the Jukebox; `--disc` reads it from the archive
 (only its 6 KB song table).
 
-**Menu music.** hp2fe plays the Jukebox's songs whose status includes the
-menus (Menu, Menu/Racing, Always) one after another in random order, at the
-Menu Music volume, streamed from the music bank in place (`hp2_vag`: the
-game's PS-ADPCM, identical sample for sample to `tools/hp2_audio.py`;
-`hp2_jbplay`: the playlist). Changes are heard within half a second: switch
-a song off in the Jukebox and it stops. `--no-music` keeps it quiet. Left/right change a setting; `hp2.ini` (the same file the
+**Menu music.** hp2fe plays the Jukebox's songs set to Menu or On one after
+another in random order, at the Menu Music volume, streamed from the music
+bank in place (`hp2_vag`: the game's PS-ADPCM, identical sample for sample
+to `tools/hp2_audio.py`; `hp2_jbplay`: the playlist). The Next Song button
+(default: right stick click, RS / R3; N on the keyboard) skips to another.
+`--no-music` keeps it quiet.
+
+**Remapping.** On the Controls page, Enter / A on an action shows "Press a
+button": press the one you want on the controller (Esc cancels), or step
+with left/right. Button names follow the pad in hand (or the Button icons
+setting). Left/right change a setting; `hp2.ini` (the same file the
 launcher reads, `--config` to choose another) is saved when you leave the list.
 The window follows the aspect setting: 4:3 draws the 640 x 480 canvas with
 side bars (FIT), anything else keeps it at full height and tiles the
@@ -167,7 +179,10 @@ speech = 80
 mode = stereo       # stereo, mono, surround
 
 [jukebox]           # only songs you changed; n = order in the music bank
-song2 = always      # off, racing, hot_pursuit, menu, menu_racing, always
+song2 = on          # off, menu, on
+
+[controls]          # only remapped actions; the rest follow the scheme
+next_song = up      # south east west north lb rb lt rt start select up down left right ls rs
 ```
 
 Unknown keys are ignored rather than rejected, so a newer game can read an

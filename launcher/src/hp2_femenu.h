@@ -21,9 +21,8 @@
  *   Jukebox          the JUKEBOX_INGAME layout: a Genre row (left/right
  *                    picks the genre), then the genre's songs five at a
  *                    time, title above artist, with their play status;
- *                    left/right on a song steps where it plays, in the
- *                    game's order: Off, World Racing, Hot Pursuit, Menu,
- *                    Menu/Racing, Always. Needs
+ *                    left/right on a song steps where it plays: Off,
+ *                    Menu (menus only), On (menus and races). Needs
  *                    hp2_femenu_set_jukebox (the music bank's table).
  *
  * The selected row looks as in the game: orange label, the white
@@ -78,6 +77,8 @@ typedef struct {
     int                  jsel;      /* jukebox: 0 = the Genre row, 1.. = song */
     int                  jscroll;   /* jukebox: first song shown (0-based) */
     int                  nsongs, songs[HP2_JB_MAX];  /* the genre's songs */
+    int                  capture;   /* bind row waiting for a button press, or -1 */
+    int                  changed_song;  /* song whose status the last input changed, or -1 */
     char                 help[96];
 } hp2_femenu;
 
@@ -90,6 +91,16 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in);
  * always enough for the shipped layouts. Item strings point into m, the
  * language buffer or hp2_menu, so they stay valid until the next input. */
 int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap);
+
+/* Binding by pressing: accept on an action's row makes the menu wait
+ * (hp2_femenu_capturing gives the row); the front end then passes the next
+ * controller button to hp2_femenu_capture, or cancels (Esc / back). */
+int hp2_femenu_capturing(const hp2_femenu *m);
+int hp2_femenu_capture(hp2_femenu *m, hp2_button b);
+void hp2_femenu_cancel_capture(hp2_femenu *m);
+
+/* Re-reads every row's value (after the pad or its button names change). */
+void hp2_femenu_refresh(hp2_femenu *m);
 
 /* The music bank's song table, for the Jukebox screen (may be NULL). */
 void hp2_femenu_set_jukebox(hp2_femenu *m, const hp2_jukebox *jb);

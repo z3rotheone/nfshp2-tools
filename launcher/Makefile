@@ -23,7 +23,7 @@ SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c src/
            src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_femenu.c src/hp2_jukebox.c \
            src/hp2_vag.c src/hp2_jbplay.c
 SDLSRC   = src/hp2_input.c src/main.c
-FESRC    = src/hp2_fedraw.c src/fe_main.c
+FESRC    = src/hp2_fedraw.c src/hp2_input.c src/fe_main.c
 BIN      = hp2launcher
 FEBIN    = hp2fe
 

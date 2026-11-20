@@ -12,8 +12,27 @@ static const char *AUDIO_MODE[] = { "stereo", "mono", "surround" };
 static const char *VOLUME_KEY[] = { "menu_music", "race_music", "ambient", "tires",
                                     "engine", "menu_sfx", "speech" };
 static const int VOLUME_DEFAULT[] = { 70, 70, 80, 80, 80, 80, 80 };
-static const char *PLAY_KEY[] = { "off", "racing", "hot_pursuit", "menu", "menu_racing", "always" };
-static const char *PLAY_LABEL[] = { "Off", "World Racing", "Hot Pursuit", "Menu", "Menu/Racing", "Always" };
+static const char *PLAY_KEY[] = { "off", "menu", "on" };
+static const char *PLAY_LABEL[] = { "Off", "Menu", "On" };
+static const char *BUTTON_KEY[] = { "south", "east", "west", "north", "lb", "rb", "lt", "rt", "start",
+                                    "select", "up", "down", "left", "right", "ls", "rs" };
+static const char *ACTION_KEY[] = { "accelerate", "brake", "handbrake", "shift_up", "shift_down",
+                                    "look_back", "camera", "siren", "pause", "next_song" };
+
+hp2_play hp2_play_from_bank(int n)
+{
+    return n == 0 ? HP2_PLAY_OFF : n == 3 ? HP2_PLAY_MENU : (n > 0 && n <= 5) ? HP2_PLAY_ON : HP2_PLAY_OFF;
+}
+
+const char *hp2_button_key(hp2_button b) { return (b >= 0 && b < HP2_BTN_COUNT) ? BUTTON_KEY[b] : "?"; }
+const char *hp2_action_key(hp2_action a) { return (a >= 0 && a < HP2_ACT_COUNT) ? ACTION_KEY[a] : "?"; }
+
+void hp2_settings_default_controls(hp2_settings *s)
+{
+    int i;
+    if (!s) return;
+    for (i = 0; i < HP2_ACT_COUNT; i++) s->bind[i] = -1;
+}
 static const char *GLYPHS[] = { "auto", "xbox", "playstation", "nintendo",
                                 "generic", "keyboard" };
 
@@ -103,6 +122,7 @@ void hp2_settings_defaults(hp2_settings *s)
     hp2_settings_default_volumes(s);
     s->audio_mode      = HP2_AUDIO_STEREO;
     hp2_settings_default_jukebox(s);
+    hp2_settings_default_controls(s);
 }
 
 /* --------------------------------------------------------------- validate */
@@ -139,6 +159,16 @@ int hp2_settings_validate(hp2_settings *s)
         }
         for (i = 0; i < HP2_SONGS; i++)
             if (s->song[i] < -1 || s->song[i] >= HP2_PLAY_COUNT) { s->song[i] = -1; n++; }
+        for (i = 0; i < HP2_ACT_COUNT; i++)
+            if (s->bind[i] < -1 || s->bind[i] >= HP2_BTN_COUNT) { s->bind[i] = -1; n++; }
+        /* two actions on one button cannot be: the later one goes back to
+         * its default (and swaps if that is taken), see hp2_bind */
+        for (i = 0; i < HP2_ACT_COUNT; i++) {
+            int j;
+            if (s->bind[i] < 0) continue;
+            for (j = 0; j < i; j++)
+                if (s->bind[j] == s->bind[i]) { s->bind[i] = -1; n++; break; }
+        }
     }
 
     if (s->vsync  != 0 && s->vsync  != 1) { s->vsync  = 1; n++; }
@@ -263,10 +293,18 @@ int hp2_settings_parse(hp2_settings *s, const char *text)
             if (i >= 0) { s->audio_mode = (hp2_audio_mode)i; understood++; }
         } else if (!strncmp(key, "song", 4) && key[4] >= '1' && key[4] <= '9') {
             int k = atoi(key + 4), i = lookup(val, PLAY_KEY, HP2_PLAY_COUNT);
+            /* the game's own words, from files written before the port kept
+             * three: everything that plays in races is "on" */
+            if (i < 0 && (!strcmp(val, "always") || !strcmp(val, "menu_racing") || !strcmp(val, "racing")
+                          || !strcmp(val, "hot_pursuit")))
+                i = HP2_PLAY_ON;
             if (k >= 1 && k <= HP2_SONGS && (i >= 0 || !strcmp(val, "default"))) {
                 s->song[k - 1] = i;
                 understood++;
             }
+        } else if (lookup(key, ACTION_KEY, HP2_ACT_COUNT) >= 0) {
+            int a = lookup(key, ACTION_KEY, HP2_ACT_COUNT), b = lookup(val, BUTTON_KEY, HP2_BTN_COUNT);
+            if (b >= 0 || !strcmp(val, "default")) { s->bind[a] = b; understood++; }
         } else {
             int i = lookup(key, VOLUME_KEY, HP2_VOL_COUNT);
             if (i >= 0) {
@@ -339,8 +377,23 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
             if (s->song[i] < 0) continue;
             k = snprintf(buf ? buf + n : NULL, (size_t)n < cap ? cap - (size_t)n : 0, "%s%s%d = %s\n",
                          head ? "" : "\n[jukebox]              # play status of song n of the music bank:\n"
-                                     "                       # off, racing, hot_pursuit, menu, menu_racing, always\n",
+                                     "                       # off, menu (menus only), on (menus and races)\n",
                          "song", i + 1, hp2_play_key((hp2_play)s->song[i]));
+            if (k < 0) return 0;
+            n += k;
+            head = 1;
+        }
+    }
+    {   /* controls: only remapped actions */
+        int i, head = 0;
+        for (i = 0; i < HP2_ACT_COUNT; i++) {
+            int k;
+            if (s->bind[i] < 0) continue;
+            k = snprintf(buf ? buf + n : NULL, (size_t)n < cap ? cap - (size_t)n : 0, "%s%s = %s\n",
+                         head ? "" : "\n[controls]             # remapped actions; the rest follow the scheme:\n"
+                                     "                       # south east west north lb rb lt rt start select\n"
+                                     "                       # up down left right ls rs\n",
+                         ACTION_KEY[i], BUTTON_KEY[s->bind[i]]);
             if (k < 0) return 0;
             n += k;
             head = 1;

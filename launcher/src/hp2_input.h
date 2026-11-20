@@ -47,6 +47,13 @@ hp2_pad_kind  hp2_input_pad_kind(const hp2_input *in);
 const char   *hp2_input_pad_name(const hp2_input *in);
 hp2_glyph_set hp2_input_glyph_set(const hp2_input *in);  /* already resolved */
 
+/* The kind of an SDL_GameController (passed as void * so this header needs
+ * no SDL); HP2_PAD_KEYBOARD for NULL. */
+hp2_pad_kind hp2_input_kind_of(void *sdl_game_controller);
+
+/* The hp2_button an SDL controller button is, or -1 (SDL's button number). */
+int hp2_input_button_of(int sdl_button);
+
 /* Brief rumble, ignored when the setting is off or the pad cannot. */
 void hp2_input_rumble(hp2_input *in, float strength, int ms);
 

@@ -19,6 +19,18 @@ static const row_info ROWS[HP2_ROW_COUNT] = {
     { "Controls", "Button icons",         HP2_KIND_CHOICE, 0, "Choose which controller's buttons to show." },
     { "Controls", "Stick dead zone",      HP2_KIND_SLIDER, 0, "Set how far the stick moves before you steer." },
     { "Controls", "Vibration",            HP2_KIND_TOGGLE, 0, "Turn vibration on or off." },
+    /* bindings: left/right steps the button, accept waits for a press */
+    { "Controls", "Accelerate",           HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Brake",                HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Handbrake",            HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Shift Up",             HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Shift Down",           HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Look Back",            HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Camera",               HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Siren",                HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Pause",                HP2_KIND_CHOICE, 0, "Press to choose the button. Left / right steps." },
+    { "Controls", "Next Song",            HP2_KIND_CHOICE, 0, "Skip to the next song, in menus and races." },
+    { "Controls", "Default Controls",     HP2_KIND_ACTION, 0, "Put every button back for the control scheme." },
     /* the Audio screen's rows and help lines are the game's own (FE_ENGLISH
      * 110001-110007, 115001, 110050; 150500-150509) */
     { "Audio",    "Menu Music",           HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
@@ -72,6 +84,17 @@ static const int ANISOS[] = { 1, 2, 4, 8, 16 };
 #define COUNT(a) ((int)(sizeof (a) / sizeof (a)[0]))
 
 int hp2_menu_row_count(void) { return HP2_ROW_COUNT; }
+
+static hp2_glyph_set g_glyphs = HP2_GLYPHS_GENERIC;
+void hp2_menu_set_glyphs(hp2_glyph_set resolved)
+{
+    g_glyphs = (resolved > HP2_GLYPHS_AUTO && resolved < HP2_GLYPHS_COUNT) ? resolved : HP2_GLYPHS_GENERIC;
+}
+
+int hp2_menu_bind_action(int row)
+{
+    return row >= HP2_ROW_BIND_ACCELERATE && row <= HP2_ROW_BIND_NEXT_SONG ? row - HP2_ROW_BIND_ACCELERATE : -1;
+}
 
 static int valid(int row) { return row >= 0 && row < HP2_ROW_COUNT; }
 
@@ -170,6 +193,12 @@ void hp2_menu_value(const hp2_settings *s, int row, char *buf, size_t cap)
     }
     case HP2_ROW_DEADZONE: snprintf(buf, cap, "%d%%", (int)(s->deadzone * 100.0f + 0.5f)); break;
     case HP2_ROW_RUMBLE:   snprintf(buf, cap, "%s", s->rumble ? "On" : "Off"); break;
+    case HP2_ROW_BIND_ACCELERATE: case HP2_ROW_BIND_BRAKE: case HP2_ROW_BIND_HANDBRAKE:
+    case HP2_ROW_BIND_SHIFT_UP: case HP2_ROW_BIND_SHIFT_DOWN: case HP2_ROW_BIND_LOOK_BACK:
+    case HP2_ROW_BIND_CAMERA: case HP2_ROW_BIND_SIREN: case HP2_ROW_BIND_PAUSE: case HP2_ROW_BIND_NEXT_SONG:
+        snprintf(buf, cap, "%s", hp2_button_label(hp2_bound_button(s, (hp2_action)hp2_menu_bind_action(row)), g_glyphs));
+        break;
+    case HP2_ROW_DEFAULT_CONTROLS: break;          /* a button: no value */
     case HP2_ROW_VOL_MENU_MUSIC: case HP2_ROW_VOL_RACE_MUSIC: case HP2_ROW_VOL_AMBIENT:
     case HP2_ROW_VOL_TIRES: case HP2_ROW_VOL_ENGINE: case HP2_ROW_VOL_MENU_SFX:
     case HP2_ROW_VOL_SPEECH:
@@ -197,6 +226,11 @@ float hp2_menu_fraction(const hp2_settings *s, int row)
 int hp2_menu_activate(hp2_settings *s, int row)
 {
     int before[HP2_VOL_COUNT], i, changed = 0;
+    if (s && row == HP2_ROW_DEFAULT_CONTROLS) {
+        for (i = 0; i < HP2_ACT_COUNT; i++) changed |= s->bind[i] != -1;
+        hp2_settings_default_controls(s);
+        return changed;
+    }
     if (s && row == HP2_ROW_DEFAULT_JUKEBOX) {
         for (i = 0; i < HP2_SONGS; i++) changed |= s->song[i] != -1;
         hp2_settings_default_jukebox(s);
@@ -258,6 +292,14 @@ int hp2_menu_adjust(hp2_settings *s, int row, int dir)
         s->deadzone = (float)n / 20.0f;
         break;
     case HP2_ROW_RUMBLE: s->rumble = !s->rumble; break;
+    case HP2_ROW_BIND_ACCELERATE: case HP2_ROW_BIND_BRAKE: case HP2_ROW_BIND_HANDBRAKE:
+    case HP2_ROW_BIND_SHIFT_UP: case HP2_ROW_BIND_SHIFT_DOWN: case HP2_ROW_BIND_LOOK_BACK:
+    case HP2_ROW_BIND_CAMERA: case HP2_ROW_BIND_SIREN: case HP2_ROW_BIND_PAUSE: case HP2_ROW_BIND_NEXT_SONG: {
+        hp2_action a = (hp2_action)hp2_menu_bind_action(row);
+        int b = ((int)hp2_bound_button(s, a) + (dir > 0 ? 1 : -1) + HP2_BTN_COUNT) % HP2_BTN_COUNT;
+        return hp2_bind(s, a, (hp2_button)b);       /* swaps with the action on b */
+    }
+    case HP2_ROW_DEFAULT_CONTROLS: break;           /* accepted, not stepped */
     case HP2_ROW_VOL_MENU_MUSIC: case HP2_ROW_VOL_RACE_MUSIC: case HP2_ROW_VOL_AMBIENT:
     case HP2_ROW_VOL_TIRES: case HP2_ROW_VOL_ENGINE: case HP2_ROW_VOL_MENU_SFX:
     case HP2_ROW_VOL_SPEECH: {

@@ -8,14 +8,12 @@ hp2_play hp2_jbplay_status(const hp2_jukebox *jb, const hp2_settings *cfg, int s
 {
     if (!jb || song < 0 || song >= jb->count) return HP2_PLAY_OFF;
     if (song < HP2_SONGS && cfg->song[song] >= 0) return (hp2_play)cfg->song[song];
-    /* the bank stores the status as its position in the game's list */
-    return jb->track[song].bank_status >= 0 && jb->track[song].bank_status < HP2_PLAY_COUNT
-               ? (hp2_play)jb->track[song].bank_status : HP2_PLAY_OFF;
+    return hp2_play_from_bank(jb->track[song].bank_status);
 }
 
 int hp2_jbplay_in_menus(hp2_play p)
 {
-    return p == HP2_PLAY_MENU || p == HP2_PLAY_MENU_RACING || p == HP2_PLAY_ALWAYS;
+    return p == HP2_PLAY_MENU || p == HP2_PLAY_ON;
 }
 
 void hp2_jbplay_init(hp2_jbplay *p, const hp2_jukebox *jb, const hp2_settings *cfg,
@@ -88,3 +86,19 @@ int hp2_jbplay_fill(hp2_jbplay *p, int16_t *out, int frames)
 }
 
 int hp2_jbplay_now(const hp2_jbplay *p) { return p->st.done ? -1 : p->song; }
+
+int hp2_jbplay_play(hp2_jbplay *p, int song)
+{
+    if (!p->jb || song < 0 || song >= p->jb->count) return 0;
+    hp2_stream_close(&p->st);
+    if (p->song >= 0) p->last = p->song;
+    p->song = -1;
+    if (hp2_stream_open(&p->st, p->path, p->base + p->jb->track[song].offset) != 0) return 0;
+    p->song = song;
+    return 1;
+}
+
+void hp2_jbplay_skip(hp2_jbplay *p)
+{
+    hp2_stream_close(&p->st);      /* the next fill starts another song */
+}
