@@ -41,6 +41,7 @@ typedef enum {
     HP2_ASPECT_4_3,        /* as the PS2 original rendered */
     HP2_ASPECT_16_9,
     HP2_ASPECT_16_10,
+    HP2_ASPECT_21_9,       /* ultrawide: 64:27, as 2560x1080 and 5120x2160 */
     HP2_ASPECT_COUNT
 } hp2_aspect;
 

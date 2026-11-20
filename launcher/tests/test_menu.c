@@ -117,6 +117,29 @@ static void test_lists(void)
     CHECK(hp2_menu_adjust(&s, HP2_ROW_INTERNAL_RES, +1) == 1 && s.internal_height == 1080, "900p up -> 1080p");
     s.internal_width = 1600; s.internal_height = 900;
     CHECK(hp2_menu_adjust(&s, HP2_ROW_INTERNAL_RES, -1) == 1 && s.internal_height == 720, "900p down -> 720p");
+
+    /* 21:9: ultrawide presets, and the resolution follows the aspect */
+    hp2_settings_defaults(&s);
+    s.aspect = HP2_ASPECT_16_10;
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_ASPECT, +1) == 1 && s.aspect == HP2_ASPECT_21_9, "to 21:9");
+    CHECK(s.internal_width == 2560 && s.internal_height == 1080, "1920x1080 -> 2560x1080, got %dx%d", s.internal_width, s.internal_height);
+    CHECK(!strcmp(val(&s, HP2_ROW_INTERNAL_RES), "2560 x 1080"), "res '%s'", val(&s, HP2_ROW_INTERNAL_RES));
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_INTERNAL_RES, +1) == 1 && s.internal_width == 3440 && s.internal_height == 1440, "-> 3440x1440");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_INTERNAL_RES, +1) == 1 && s.internal_width == 5120 && s.internal_height == 2160, "-> 5120x2160");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_INTERNAL_RES, +1) == 0, "5120x2160 is the top");
+    s.internal_width = 2560; s.internal_height = 1080;
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_INTERNAL_RES, -1) == 1 && s.internal_width == 1720 && s.internal_height == 720, "-> 1720x720");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_INTERNAL_RES, -1) == 1 && s.internal_width == 640, "-> PS2");
+    CHECK(!strcmp(val(&s, HP2_ROW_INTERNAL_RES), "640 x 448 (PS2)"), "PS2 in either list");
+    s.internal_width = 3440; s.internal_height = 1440;
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_ASPECT, +1) == 1 && s.aspect == HP2_ASPECT_AUTO, "21:9 -> auto");
+    CHECK(s.internal_width == 2560 && s.internal_height == 1440, "3440x1440 -> 2560x1440, got %dx%d", s.internal_width, s.internal_height);
+    s.aspect = HP2_ASPECT_16_10; s.internal_width = 2000; s.internal_height = 900;
+    hp2_menu_adjust(&s, HP2_ROW_ASPECT, +1);
+    CHECK(s.internal_width == 2000 && s.internal_height == 900, "a custom resolution is kept");
+    s.aspect = HP2_ASPECT_4_3; s.internal_width = 1920; s.internal_height = 1080;
+    hp2_menu_adjust(&s, HP2_ROW_ASPECT, +1);
+    CHECK(s.internal_width == 1920, "4:3 -> 16:9 leaves the resolution alone");
 }
 
 static void test_enums_toggles_slider(void)
@@ -125,8 +148,11 @@ static void test_enums_toggles_slider(void)
     printf("enums, toggles, slider\n");
     hp2_settings_defaults(&s);
     s.aspect = HP2_ASPECT_16_10;
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_ASPECT, +1) == 1 && s.aspect == HP2_ASPECT_21_9, "16:10 -> 21:9");
+    CHECK(!strcmp(val(&s, HP2_ROW_ASPECT), "21:9"), "reads 21:9");
     CHECK(hp2_menu_adjust(&s, HP2_ROW_ASPECT, +1) == 1 && s.aspect == HP2_ASPECT_AUTO, "aspect wraps forward");
-    CHECK(hp2_menu_adjust(&s, HP2_ROW_ASPECT, -1) == 1 && s.aspect == HP2_ASPECT_16_10, "aspect wraps back");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_ASPECT, -1) == 1 && s.aspect == HP2_ASPECT_21_9, "aspect wraps back");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_ASPECT, -1) == 1 && s.aspect == HP2_ASPECT_16_10, "21:9 back to 16:10");
     CHECK(hp2_menu_adjust(&s, HP2_ROW_VSYNC, +1) == 1 && s.vsync == 0, "vsync toggles off");
     CHECK(hp2_menu_adjust(&s, HP2_ROW_VSYNC, -1) == 1 && s.vsync == 1, "either direction toggles");
     CHECK(hp2_menu_adjust(&s, HP2_ROW_SHOW_FPS, +1) == 1 && s.show_fps == 1, "show fps on");

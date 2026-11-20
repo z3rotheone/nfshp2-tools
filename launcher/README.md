@@ -12,8 +12,10 @@ dropped in later.
 - **An options menu model** (`hp2_menu`): the settings as rows, with labels,
   value text and what left/right does, so the launcher and the in-game Options
   screen show one list and cannot drift apart. Video: internal resolution
-  (PS2 640x448 up to 4K), aspect ratio, window mode, VSync, frame cap, anti-
-  aliasing, anisotropic filtering, FPS counter. Controls: scheme, button icons,
+  (PS2 640x448 up to 4K; with 21:9 the ultrawide 1720x720 up to 5120x2160,
+  and switching aspect keeps the height), aspect ratio (auto, 4:3, 16:9,
+  16:10, 21:9), window mode, VSync, frame cap, anti-aliasing, anisotropic
+  filtering, FPS counter. Controls: scheme, button icons,
   dead zone, vibration. A front end only draws rows and forwards input.
 - **Controller detection** that works out which button names to show. The same
   physical button is `A` on an Xbox pad, `Cross` on a PlayStation pad and `B`
@@ -123,7 +125,7 @@ once; the other video settings are for the game, which does not exist yet.
 [video]
 internal_width = 1920
 internal_height = 1080
-aspect = 16:9       # auto, 4:3, 16:9, 16:10
+aspect = 16:9       # auto, 4:3, 16:9, 16:10, 21:9
 window = borderless # windowed, borderless, fullscreen
 vsync = on
 

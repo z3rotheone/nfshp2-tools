@@ -5,7 +5,7 @@
 #include <string.h>
 
 /* ------------------------------------------------------------------ names */
-static const char *ASPECT[] = { "auto", "4:3", "16:9", "16:10" };
+static const char *ASPECT[] = { "auto", "4:3", "16:9", "16:10", "21:9" };
 static const char *WINDOW[] = { "windowed", "borderless", "fullscreen" };
 static const char *SCHEME[] = { "modern", "classic" };
 static const char *GLYPHS[] = { "auto", "xbox", "playstation", "nintendo",
@@ -34,6 +34,9 @@ float hp2_aspect_ratio(hp2_aspect a)
     case HP2_ASPECT_4_3:   return 4.0f / 3.0f;
     case HP2_ASPECT_16_9:  return 16.0f / 9.0f;
     case HP2_ASPECT_16_10: return 16.0f / 10.0f;
+    /* "21:9" is a name: the panels are 64:27 (2560x1080, 5120x2160) or
+     * 43:18 (3440x1440). 64:27 is what games mean by it. */
+    case HP2_ASPECT_21_9:  return 64.0f / 27.0f;
     default:               return 0.0f;   /* AUTO */
     }
 }
@@ -231,7 +234,7 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
         "[video]\n"
         "internal_width = %d\n"
         "internal_height = %d\n"
-        "aspect = %-10s # auto, 4:3, 16:9, 16:10\n"
+        "aspect = %-10s # auto, 4:3, 16:9, 16:10, 21:9\n"
         "window = %-10s # windowed, borderless, fullscreen\n"
         "vsync = %s\n"
         "frame_cap = %-10s # off, or frames per second (20-1000)\n"

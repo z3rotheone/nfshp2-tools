@@ -178,6 +178,19 @@ static void test_aspect_ratio(void)
     CHECK(fabs(hp2_aspect_ratio(HP2_ASPECT_4_3) - 1.3333333) < 1e-5, "4:3");
     CHECK(fabs(hp2_aspect_ratio(HP2_ASPECT_16_9) - 1.7777778) < 1e-5, "16:9");
     CHECK(fabs(hp2_aspect_ratio(HP2_ASPECT_16_10) - 1.6) < 1e-5, "16:10");
+    CHECK(fabs(hp2_aspect_ratio(HP2_ASPECT_21_9) - 64.0 / 27.0) < 1e-5, "21:9 is 64:27");
+    {
+        hp2_settings s, t;
+        char buf[2048];
+        hp2_settings_defaults(&s);
+        hp2_settings_parse(&s, "aspect = 21:9\n");
+        CHECK(s.aspect == HP2_ASPECT_21_9, "parses 21:9");
+        CHECK(!strcmp(hp2_aspect_name(HP2_ASPECT_21_9), "21:9"), "name");
+        hp2_settings_write(&s, buf, sizeof buf);
+        hp2_settings_defaults(&t);
+        hp2_settings_parse(&t, buf);
+        CHECK(t.aspect == HP2_ASPECT_21_9, "21:9 survives a write and read");
+    }
 }
 
 static void test_glyphs(void)

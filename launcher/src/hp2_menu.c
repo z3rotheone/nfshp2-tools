@@ -20,11 +20,36 @@ static const row_info ROWS[HP2_ROW_COUNT] = {
     { "Controls", "Vibration",            HP2_KIND_TOGGLE, 0 },
 };
 
-/* Internal resolution presets. 640x448 is what the PS2 rendered. */
-static const int RES[][2] = {
+/* Internal resolution presets, ordered by height. 640x448 is what the PS2
+ * rendered. With the 21:9 aspect the row offers ultrawide sizes instead. */
+static const int RES_WIDE[][2] = {
     { 640, 448 }, { 1280, 720 }, { 1920, 1080 }, { 2560, 1440 }, { 3840, 2160 }
 };
-#define NRES ((int)(sizeof RES / sizeof RES[0]))
+static const int RES_ULTRA[][2] = {
+    { 640, 448 }, { 1720, 720 }, { 2560, 1080 }, { 3440, 1440 }, { 5120, 2160 }
+};
+#define NRES ((int)(sizeof RES_WIDE / sizeof RES_WIDE[0]))
+
+static const int (*res_list(hp2_aspect a))[2]
+{
+    return a == HP2_ASPECT_21_9 ? RES_ULTRA : RES_WIDE;
+}
+
+/* When the aspect changes between 21:9 and the others, a preset resolution
+ * moves to the other list's preset of the same height (1920x1080 <->
+ * 2560x1080). A custom resolution is left alone. */
+static void follow_aspect(hp2_settings *s, hp2_aspect from)
+{
+    const int (*a)[2] = res_list(from), (*b)[2] = res_list(s->aspect);
+    int i;
+    if (a == b) return;
+    for (i = 0; i < NRES; i++)
+        if (a[i][0] == s->internal_width && a[i][1] == s->internal_height) {
+            s->internal_width = b[i][0];
+            s->internal_height = b[i][1];
+            return;
+        }
+}
 
 /* 0 in the frame cap list means "no limit" and sorts last. */
 static const int CAPS[]  = { 30, 60, 72, 90, 120, 144, 165, 240, 0 };
@@ -83,7 +108,8 @@ void hp2_menu_value(const hp2_settings *s, int row, char *buf, size_t cap)
     if (!s || !valid(row)) return;
 
     switch ((hp2_row)row) {
-    case HP2_ROW_INTERNAL_RES:
+    case HP2_ROW_INTERNAL_RES: {
+        const int (*RES)[2] = res_list(s->aspect);
         for (i = 0; i < NRES; i++)
             if (RES[i][0] == s->internal_width && RES[i][1] == s->internal_height) {
                 if (i == 0) snprintf(buf, cap, "%d x %d (PS2)", RES[i][0], RES[i][1]);
@@ -92,6 +118,7 @@ void hp2_menu_value(const hp2_settings *s, int row, char *buf, size_t cap)
             }
         snprintf(buf, cap, "%d x %d", s->internal_width, s->internal_height);
         break;
+    }
     case HP2_ROW_ASPECT: {
         const char *a = hp2_aspect_name(s->aspect);
         snprintf(buf, cap, "%s", s->aspect == HP2_ASPECT_AUTO ? "Auto" : a);
@@ -144,6 +171,7 @@ int hp2_menu_adjust(hp2_settings *s, int row, int dir)
     switch ((hp2_row)row) {
     case HP2_ROW_INTERNAL_RES: {
         /* presets ordered by height; step relative to the current height */
+        const int (*RES)[2] = res_list(s->aspect);
         int h = s->internal_height, at = -1;
         for (i = 0; i < NRES; i++)
             if (RES[i][1] >= h) { at = i; break; }
@@ -159,7 +187,10 @@ int hp2_menu_adjust(hp2_settings *s, int row, int dir)
         s->internal_height = RES[at][1];
         break;
     }
-    case HP2_ROW_ASPECT: s->aspect = (hp2_aspect)wrap((int)s->aspect, HP2_ASPECT_COUNT, dir); break;
+    case HP2_ROW_ASPECT:
+        s->aspect = (hp2_aspect)wrap((int)s->aspect, HP2_ASPECT_COUNT, dir);
+        follow_aspect(s, before.aspect);
+        break;
     case HP2_ROW_WINDOW: s->window = (hp2_window_mode)wrap((int)s->window, HP2_WINDOW_COUNT, dir); break;
     case HP2_ROW_VSYNC:  s->vsync = !s->vsync; break;
     case HP2_ROW_FRAME_CAP:
