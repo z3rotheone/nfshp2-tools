@@ -4,8 +4,9 @@
  *
  * It only produces samples (stereo int16 at the bank's rate); the caller
  * hands them to the sound card (fe_main.c queues them to SDL). It follows
- * the settings live: a volume change applies to the next samples; a song
- * switched off plays to its end and is not picked again. No SDL.
+ * the settings live: a volume change applies to the next samples. Switching
+ * the playing song to Off in the Jukebox stops the music (hp2_jbplay_stop)
+ * until a song is played again; songs set to Off are never picked. No SDL.
  */
 #ifndef HP2_JBPLAY_H
 #define HP2_JBPLAY_H
@@ -26,6 +27,7 @@ typedef struct {
     hp2_stream          st;
     int                 song;           /* playing, or -1 */
     int                 last;           /* the one before, not repeated if avoidable */
+    int                 stopped;        /* silent until play, skip or resume */
     uint32_t            rng;
 } hp2_jbplay;
 
@@ -53,6 +55,12 @@ int hp2_jbplay_play(hp2_jbplay *p, int song);
 
 /* End the song playing; the next fill picks another (Next Song). */
 void hp2_jbplay_skip(hp2_jbplay *p);
+
+/* Stop the music: fill gives nothing until hp2_jbplay_play, _skip or
+ * _resume. The caller drops what it has queued for the sound card. */
+void hp2_jbplay_stop(hp2_jbplay *p);
+void hp2_jbplay_resume(hp2_jbplay *p);
+int  hp2_jbplay_stopped(const hp2_jbplay *p);
 
 #ifdef __cplusplus
 }

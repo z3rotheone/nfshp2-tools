@@ -67,9 +67,7 @@ static int start_next(hp2_jbplay *p)
 int hp2_jbplay_fill(hp2_jbplay *p, int16_t *out, int frames)
 {
     int got = 0, vol, i, restarts = 0;
-    if (!p->jb || !p->path[0]) return 0;
-    /* a song switched off in the Jukebox plays on to its end; it is just not
-     * picked again */
+    if (!p->jb || !p->path[0] || p->stopped) return 0;
     while (got < frames) {
         int k;
         if (p->st.done) {
@@ -92,6 +90,7 @@ int hp2_jbplay_play(hp2_jbplay *p, int song)
     hp2_stream_close(&p->st);
     if (p->song >= 0) p->last = p->song;
     p->song = -1;
+    p->stopped = 0;
     if (hp2_stream_open(&p->st, p->path, p->base + p->jb->track[song].offset) != 0) return 0;
     p->song = song;
     return 1;
@@ -100,4 +99,17 @@ int hp2_jbplay_play(hp2_jbplay *p, int song)
 void hp2_jbplay_skip(hp2_jbplay *p)
 {
     hp2_stream_close(&p->st);      /* the next fill starts another song */
+    p->stopped = 0;
 }
+
+void hp2_jbplay_stop(hp2_jbplay *p)
+{
+    hp2_stream_close(&p->st);
+    if (p->song >= 0) p->last = p->song;
+    p->song = -1;
+    p->stopped = 1;
+}
+
+void hp2_jbplay_resume(hp2_jbplay *p) { p->stopped = 0; }
+
+int hp2_jbplay_stopped(const hp2_jbplay *p) { return p->stopped; }

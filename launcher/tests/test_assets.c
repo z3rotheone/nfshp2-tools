@@ -415,6 +415,19 @@ static void test_stream(void)
     hp2_jbplay_fill(&p, buf, 10);
     CHECK(hp2_jbplay_now(&p) == 0, "the next fill picks the other menu song (%d)", hp2_jbplay_now(&p));
     CHECK(hp2_jbplay_play(&p, 7) == 0, "no song 8");
+    hp2_jbplay_play(&p, 1);
+    hp2_jbplay_stop(&p);
+    CHECK(hp2_jbplay_now(&p) == -1 && hp2_jbplay_stopped(&p) && hp2_jbplay_fill(&p, buf, 100) == 0,
+          "stop (the playing song set to Off): silence");
+    CHECK(hp2_jbplay_fill(&p, buf, 100) == 0 && hp2_jbplay_now(&p) == -1, "and it stays silent");
+    CHECK(hp2_jbplay_play(&p, 1) == 1 && !hp2_jbplay_stopped(&p) && hp2_jbplay_fill(&p, buf, 10) == 10 && buf[0] == 2,
+          "set to Menu again: it plays from its start");
+    hp2_jbplay_stop(&p);
+    hp2_jbplay_resume(&p);
+    CHECK(hp2_jbplay_fill(&p, buf, 10) == 10 && hp2_jbplay_now(&p) >= 0, "resume (leaving the Jukebox): music again");
+    hp2_jbplay_stop(&p);
+    hp2_jbplay_skip(&p);
+    CHECK(hp2_jbplay_fill(&p, buf, 10) == 10, "Next Song after a stop: music again");
     hp2_jbplay_close(&p);
     free(head);
     remove(path);

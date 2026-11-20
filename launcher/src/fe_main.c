@@ -125,12 +125,20 @@ static void update_glyphs(hp2_femenu *m, const hp2_settings *cfg, SDL_GameContro
 
 /* A song set to Menu or On in the Jukebox starts now (unless it is already
  * playing). One set to Off keeps playing to its end and is not picked again. */
+/* A song's status changed in the Jukebox: set to Menu or On, it plays now;
+ * the song playing set to Off stops the music (until a song is set to Menu
+ * or On, Next Song, or leaving the Jukebox). */
 static void follow_jukebox(hp2_femenu *m, hp2_jbplay *p, SDL_AudioDeviceID audio)
 {
     int s = m->changed_song;
-    if (!audio || s < 0 || hp2_jbplay_now(p) == s) return;
-    if (!hp2_jbplay_in_menus(hp2_femenu_play(m, s))) return;
-    hp2_jbplay_play(p, s);
+    if (!audio || s < 0) return;
+    if (hp2_jbplay_in_menus(hp2_femenu_play(m, s))) {
+        if (hp2_jbplay_now(p) == s) return;
+        hp2_jbplay_play(p, s);
+    } else {
+        if (hp2_jbplay_now(p) != s) return;
+        hp2_jbplay_stop(p);
+    }
     SDL_ClearQueuedAudio(audio);
 }
 
@@ -163,8 +171,8 @@ static int songbox_update(songbox *b, int now_playing, Uint32 ticks)
         b->until = ticks + SONGBOX_MS;
         redraw = 1;
     }
-    if (now_playing >= 0) b->last = now_playing;
-    if (b->song >= 0 && (int32_t)(ticks - b->until) >= 0) { b->song = -1; redraw = 1; }
+    b->last = now_playing;           /* stopped: -1, so the song shows again when restarted */
+    if (b->song >= 0 && (now_playing < 0 || (int32_t)(ticks - b->until) >= 0)) { b->song = -1; redraw = 1; }
     return redraw;
 }
 
@@ -403,6 +411,8 @@ int main(int argc, char **argv)
                     if (menu.sel == HP2_ROW_GLYPHS) update_glyphs(&menu, &cfg, pad);
                     if (menu.screen == HP2_FEM_JUKEBOX) follow_jukebox(&menu, &player, audio);
                 }
+                if (before == HP2_FEM_JUKEBOX && menu.screen != before && hp2_jbplay_stopped(&player))
+                    hp2_jbplay_resume(&player);    /* the menus have music again */
                 if (res & HP2_FEM_QUIT) quit = 1;
                 if (dirty && before == HP2_FEM_SETTINGS && menu.screen != before) {
                     if (!hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);

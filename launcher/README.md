@@ -124,8 +124,10 @@ game's AUDIO_OPTIONS layout, volumes as its sliders). *Jukebox* on the Audio
 page lists the music bank's songs by genre, title over artist, with where
 each plays: Off, Menu (menus only) or On (menus and races; the game's
 World Racing, Hot Pursuit, Menu/Racing and Always all become On). Left/right
-changes it: a song set to Menu or On starts at once; one set to Off plays
-on to its end and is not picked again. *Default Jukebox*
+changes it: a song set to Menu or On starts at once; setting the song
+playing to Off stops the music until a song is set to Menu or On again, Next
+Song is pressed, or you leave the Jukebox (then another Menu or On song
+plays). Songs set to Off are never picked. *Default Jukebox*
 puts them all back. *Save/Load* is
 for player progress and does nothing yet; Player Names, Credits and
 Languages are left out. `--disc` takes the music from the archive's own bank;
