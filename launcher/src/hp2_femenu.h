@@ -68,7 +68,9 @@ typedef struct {
     int                  sel;       /* OPTIONS: row 1..n; settings: hp2_row */
     int                  options_sel;
     int                  orows;     /* OPTIONS rows shown */
-    int                  orow[16];  /* their MENUITEM numbers, in order */
+    int                  orow[16];  /* their MENUITEM numbers, in order; 0 is the
+                                       port's Jukebox entry (after Audio). Entry k
+                                       is drawn in row k's place. */
     int                  scroll;    /* settings: first row shown */
     char                 value[HP2_ROW_COUNT][HP2_MENU_VALUE];
     const hp2_jukebox   *jb;        /* NULL: the Jukebox row does nothing */

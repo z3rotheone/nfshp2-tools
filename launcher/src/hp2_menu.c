@@ -41,9 +41,9 @@ static const row_info ROWS[HP2_ROW_COUNT] = {
     { "Audio",    "Menu Sound Effects",   HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
     { "Audio",    "Speech",               HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
     { "Audio",    "Audio Mode",           HP2_KIND_CHOICE, 0, "Set to match your sound system." },
-    { "Audio",    "Jukebox",              HP2_KIND_ACTION, 0, "Set what songs you want to hear." },
     { "Audio",    "Default Volumes",      HP2_KIND_ACTION, 0, "Restore factory volume settings." },
     { "Audio",    "Default Jukebox",      HP2_KIND_ACTION, 0, "Restore factory Jukebox settings." },
+    { "Jukebox",  "Jukebox",              HP2_KIND_ACTION, 0, "Set what songs you want to hear." },
 };
 
 /* Internal resolution presets, ordered by height. 640x448 is what the PS2

@@ -61,9 +61,10 @@ typedef enum {
     HP2_ROW_VOL_MENU_SFX,
     HP2_ROW_VOL_SPEECH,
     HP2_ROW_AUDIO_MODE,
-    HP2_ROW_JUKEBOX,            /* a button: opens the jukebox (hp2_femenu) */
     HP2_ROW_DEFAULT_VOLUMES,
     HP2_ROW_DEFAULT_JUKEBOX,
+    HP2_ROW_JUKEBOX,            /* its own entry on OPTIONS, under Audio: opens the
+                                   jukebox (hp2_femenu); section "Jukebox" */
     HP2_ROW_COUNT
 } hp2_row;
 

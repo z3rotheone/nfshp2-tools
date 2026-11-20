@@ -572,10 +572,31 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
     CHECK(find_text(it, n, "Stereo") == 1 && count_named(it, n, "LEFT_ARROW") == 1, "its value and arrows");
     CHECK(count_named(it, n, "UP_ARROW") == 1, "scrolled: more above");
     hp2_femenu_input(&m, HP2_IN_DOWN);
-    CHECK(m.sel == HP2_ROW_JUKEBOX, "Jukebox");
+    CHECK(m.sel == HP2_ROW_DEFAULT_VOLUMES, "Default Volumes: the Jukebox is not on the Audio page");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "Jukebox") == 0, "no Jukebox row");
+    CHECK(count_named(it, n, "LEFT_ARROW") == 0, "a button has no arrows");
+    CHECK(hp2_femenu_input(&m, HP2_IN_RIGHT) == 0, "right does nothing on it");
+    r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK((r & HP2_FEM_CHANGED) && cfg.volume[HP2_VOL_MENU_MUSIC] == 70, "accept resets the volumes");
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(m.sel == HP2_ROW_DEFAULT_JUKEBOX, "Default Jukebox, the last row");
+    page_walk(&m, it, 10);
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(m.screen == HP2_FEM_OPTIONS && m.sel == 1, "back returns to Audio");
+    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SETTINGS, "Audio opens again");
+    hp2_femenu_input(&m, HP2_IN_BACK);
     if (jb) {
         int k, first;
         hp2_femenu_set_jukebox(&m, jb);
+        CHECK(hp2_femenu_options_rows(&m) == 5, "with a song table, OPTIONS has 5 entries");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Jukebox") == 1 && count_named(it, n, "MENUITEM_5") == 1, "Jukebox among them, in row 5's place at the end");
+        for (k = 0; k < n; k++)
+            if (it[k].str && !strcmp(it[k].str, "Jukebox"))
+                CHECK(it[k].w.y > 107.0f && it[k].w.y < 109.0f, "Jukebox right under Audio (y %g)", it[k].w.y);
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        CHECK(m.sel == 2 && !strcmp(m.help, "Set what songs you want to hear."), "down: Jukebox, its help line");
         CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_JUKEBOX, "accept opens the Jukebox");
         n = hp2_femenu_items(&m, it, 160);
         CHECK(find_text(it, n, "Rock") == 1 && find_text(it, n, "Genre:") == 1, "Genre: Rock");
@@ -613,27 +634,23 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
         CHECK(m.jsel >= 1 && m.jsel - 1 >= m.jscroll && m.jsel - 1 < m.jscroll + HP2_FEM_SONGS, "scrolling keeps the song in view");
         n = hp2_femenu_items(&m, it, 160);
         CHECK(find_text(it, n, "Rock") == 1, "the genre stays on screen while scrolling");
-        CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SETTINGS && m.sel == HP2_ROW_JUKEBOX,
-              "back: the Audio page, on Jukebox");
-        hp2_femenu_set_jukebox(&m, NULL);
-    }
-    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_SETTINGS, "no song table: Jukebox does nothing");
-    hp2_femenu_input(&m, HP2_IN_DOWN);
-    CHECK(m.sel == HP2_ROW_DEFAULT_VOLUMES, "Default Volumes");
-    n = hp2_femenu_items(&m, it, 160);
-    CHECK(count_named(it, n, "LEFT_ARROW") == 0, "a button has no arrows");
-    CHECK(hp2_femenu_input(&m, HP2_IN_RIGHT) == 0, "right does nothing on it");
-    r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
-    CHECK((r & HP2_FEM_CHANGED) && cfg.volume[HP2_VOL_MENU_MUSIC] == 70, "accept resets the volumes");
-    hp2_femenu_input(&m, HP2_IN_DOWN);
-    CHECK(m.sel == HP2_ROW_DEFAULT_JUKEBOX, "Default Jukebox");
-    if (jb) {
+        CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_OPTIONS && m.sel == 2,
+              "back: OPTIONS, on Jukebox");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(!strcmp(hp2_femenu_page(&m), "Controls"), "the entry after it is Controller");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        hp2_femenu_input(&m, HP2_IN_UP);
+        hp2_femenu_input(&m, HP2_IN_UP);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        hp2_femenu_input(&m, HP2_IN_UP);
+        CHECK(m.sel == HP2_ROW_DEFAULT_JUKEBOX, "Audio page: up from the top, Default Jukebox");
         r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
-        CHECK((r & HP2_FEM_CHANGED) && cfg.song[0] == -1, "accept puts every song back to the bank's");
+        CHECK((r & HP2_FEM_CHANGED) && cfg.song[first] == -1, "accept puts every song back to the bank's");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        hp2_femenu_set_jukebox(&m, NULL);
+        CHECK(hp2_femenu_options_rows(&m) == 4 && m.sel == 1, "no song table: no Jukebox entry");
     }
-    page_walk(&m, it, 11);
-    hp2_femenu_input(&m, HP2_IN_BACK);
-    CHECK(m.screen == HP2_FEM_OPTIONS && m.sel == 1, "back returns to Audio");
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) & HP2_FEM_QUIT, "back from OPTIONS quits");
     CHECK(hp2_femenu_items(&m, it, 3) == 3, "never more than cap");
 }

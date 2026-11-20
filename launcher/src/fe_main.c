@@ -267,7 +267,7 @@ int main(int argc, char **argv)
     }
     box.jb = menu.jb;
     if (shot && shot_song >= 0 && menu.jb && shot_song < jb.count) box.song = shot_song;
-    else if (disc || bankpath) fprintf(stderr, "no jukebox song table; the Jukebox row does nothing\n");
+    if (!menu.jb && (disc || bankpath)) fprintf(stderr, "no jukebox song table; no Jukebox\n");
     if (keys) {
         char buf[512], *t;
         snprintf(buf, sizeof buf, "%s", keys);
@@ -407,14 +407,14 @@ int main(int argc, char **argv)
                 int res = hp2_femenu_input(&menu, in);
                 if (res & HP2_FEM_CHANGED) {
                     dirty = 1;
-                    if (menu.sel == HP2_ROW_WINDOW) apply_window_mode(win, &cfg);
-                    if (menu.sel == HP2_ROW_GLYPHS) update_glyphs(&menu, &cfg, pad);
+                    if (menu.screen == HP2_FEM_SETTINGS && menu.sel == HP2_ROW_WINDOW) apply_window_mode(win, &cfg);
+                    if (menu.screen == HP2_FEM_SETTINGS && menu.sel == HP2_ROW_GLYPHS) update_glyphs(&menu, &cfg, pad);
                     if (menu.screen == HP2_FEM_JUKEBOX) follow_jukebox(&menu, &player, audio);
                 }
                 if (before == HP2_FEM_JUKEBOX && menu.screen != before && hp2_jbplay_stopped(&player))
                     hp2_jbplay_resume(&player);    /* the menus have music again */
                 if (res & HP2_FEM_QUIT) quit = 1;
-                if (dirty && before == HP2_FEM_SETTINGS && menu.screen != before) {
+                if (dirty && (before == HP2_FEM_SETTINGS || before == HP2_FEM_JUKEBOX) && menu.screen != before) {
                     if (!hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);
                     dirty = 0;
                 }

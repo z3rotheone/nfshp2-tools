@@ -15,6 +15,8 @@
 #define SID_LANGUAGES  100007u
 #define SID_CREDITS    100008u
 #define SID_HELP_BASE  100019u
+#define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
+#define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
 
 /* the selected row: orange like the game's NF_H_ORANGELINE (248, 128, 7) */
 static const uint8_t ORANGE[4] = { 124, 64, 4, 0x80 };
@@ -70,9 +72,40 @@ hp2_play hp2_femenu_play(const hp2_femenu *m, int song)
     return hp2_jbplay_status(m->jb, m->cfg, song);    /* one rule for menu and player */
 }
 
+/* The OPTIONS entries: the layout's rows less the hidden ones, with the
+ * Jukebox right after Audio when there is a jukebox to show. */
+static void build_options(hp2_femenu *m)
+{
+    int i, n = hp2_fe_row_count(m->options), cap = (int)(sizeof m->orow / sizeof m->orow[0]);
+    m->orows = 0;
+    for (i = 1; i <= n && m->orows < cap; i++) {
+        const hp2_fe_widget *w = hp2_fe_row(m->options, i);
+        if (hidden_row(w)) continue;
+        m->orow[m->orows++] = i;
+        if (w && w->string_id == SID_AUDIO && m->jb && m->jbscreen && m->orows < cap)
+            m->orow[m->orows++] = OPT_JUKEBOX;
+    }
+    /* entry k takes row k's place: keep only as many as the layout has rows */
+    if (m->orows > n) m->orows = n;
+}
+
+/* The OPTIONS entry that opens the Jukebox, or 0. */
+static int jukebox_entry(const hp2_femenu *m)
+{
+    int k;
+    for (k = 0; k < m->orows; k++)
+        if (m->orow[k] == OPT_JUKEBOX) return k + 1;
+    return 0;
+}
+
 void hp2_femenu_set_jukebox(hp2_femenu *m, const hp2_jukebox *jb)
 {
     m->jb = jb && jb->count > 0 ? jb : NULL;
+    if (m->options) {
+        build_options(m);
+        if (m->sel > m->orows && m->screen == HP2_FEM_OPTIONS) m->sel = m->orows;
+        if (m->options_sel > m->orows) m->options_sel = m->orows;
+    }
 }
 
 static void pick_genre(hp2_femenu *m, int g)
@@ -107,8 +140,8 @@ static int jukebox_input(hp2_femenu *m, hp2_fem_input in)
         break;
     }
     case HP2_IN_BACK:
-        m->screen = HP2_FEM_SETTINGS;           /* back to the Audio page, on Jukebox */
-        m->sel = HP2_ROW_JUKEBOX;
+        m->screen = HP2_FEM_OPTIONS;            /* back to OPTIONS, on Jukebox */
+        m->sel = jukebox_entry(m) ? jukebox_entry(m) : 1;
         r = HP2_FEM_REDRAW;
         break;
     default: break;
@@ -122,9 +155,26 @@ static int jukebox_input(hp2_femenu *m, hp2_fem_input in)
     return r;
 }
 
+/* The layout row an OPTIONS entry shows (NULL for the Jukebox entry), and
+ * the row whose place it takes. */
 static const hp2_fe_widget *options_row(const hp2_femenu *m, int sel)
 {
-    return sel >= 1 && sel <= m->orows ? hp2_fe_row(m->options, m->orow[sel - 1]) : NULL;
+    return sel >= 1 && sel <= m->orows && m->orow[sel - 1] != OPT_JUKEBOX
+           ? hp2_fe_row(m->options, m->orow[sel - 1]) : NULL;
+}
+
+static const hp2_fe_widget *options_slot(const hp2_femenu *m, int sel)
+{
+    return sel >= 1 && sel <= m->orows ? hp2_fe_row(m->options, sel) : NULL;
+}
+
+static const char *options_text(const hp2_femenu *m, int sel)
+{
+    const hp2_fe_widget *w = options_row(m, sel);
+    const char *s;
+    if (w) return hp2_femenu_text(m, w);
+    s = m->lang ? hp2_lang_by_id(m->lang, SID_JUKEBOX) : NULL;
+    return s ? s : "Jukebox";
 }
 
 static void refresh(hp2_femenu *m)
@@ -137,6 +187,9 @@ static void refresh(hp2_femenu *m)
         snprintf(m->help, sizeof m->help, "Press the button for %s. Esc cancels.", hp2_menu_label(m->capture));
     } else if (m->screen == HP2_FEM_SETTINGS) {
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
+    } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
+               && m->orow[m->sel - 1] == OPT_JUKEBOX) {
+        snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(HP2_ROW_JUKEBOX));
     } else if (m->lang && m->sel >= 1 && m->sel <= m->orows) {
         const char *h = hp2_lang_by_id(m->lang, SID_HELP_BASE + (uint32_t)m->orow[m->sel - 1]);
         if (h) snprintf(m->help, sizeof m->help, "%s", h);
@@ -176,11 +229,7 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->jbscreen = hp2_fe_find(layout, "JUKEBOX_INGAME");
     if (!m->options || !m->display || !hp2_fe_row(m->display, 1)) return -1;
     if (m->audio && !hp2_fe_row(m->audio, 1)) m->audio = NULL;
-    {
-        int i, n = hp2_fe_row_count(m->options);
-        for (i = 1; i <= n && m->orows < (int)(sizeof m->orow / sizeof m->orow[0]); i++)
-            if (!hidden_row(hp2_fe_row(m->options, i))) m->orow[m->orows++] = i;
-    }
+    build_options(m);
     if (m->orows < 1) return -1;
     m->screen = HP2_FEM_OPTIONS;
     m->sel = m->options_sel = 1;
@@ -229,6 +278,14 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : n; r = HP2_FEM_REDRAW; break;
         case HP2_IN_DOWN: m->sel = m->sel < n ? m->sel + 1 : 1; r = HP2_FEM_REDRAW; break;
         case HP2_IN_ACCEPT:
+            if (m->sel >= 1 && m->sel <= n && m->orow[m->sel - 1] == OPT_JUKEBOX && m->jb && m->jbscreen) {
+                m->options_sel = m->sel;
+                m->screen = HP2_FEM_JUKEBOX;
+                m->jsel = 0;
+                pick_genre(m, 0);
+                r = HP2_FEM_REDRAW;
+                break;
+            }
             if (!w) break;
             if (w->string_id == SID_DISPLAY) open_page(m, "Video");
             else if (w->string_id == SID_CONTROLLER) open_page(m, "Controls");
@@ -248,14 +305,7 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
             if (hp2_menu_adjust(m->cfg, m->sel, in == HP2_IN_LEFT ? -1 : 1)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
             break;
         case HP2_IN_ACCEPT:
-            if (m->sel == HP2_ROW_JUKEBOX) {
-                if (m->jb && m->jbscreen) {
-                    m->screen = HP2_FEM_JUKEBOX;
-                    m->jsel = 0;
-                    pick_genre(m, 0);
-                    r = HP2_FEM_REDRAW;
-                }
-            } else if (hp2_menu_bind_action(m->sel) >= 0) {
+            if (hp2_menu_bind_action(m->sel) >= 0) {
                 m->capture = m->sel;
                 r = HP2_FEM_REDRAW;
             } else if (hp2_menu_kind(m->sel) == HP2_KIND_ACTION) {
@@ -346,23 +396,23 @@ static void selection_lines(const hp2_femenu *m, list *l, const hp2_fe_screen *s
 static int options_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->options;
-    const hp2_fe_widget *sel = options_row(m, m->sel);
+    const hp2_fe_widget *sel = options_slot(m, m->sel);
     char mask[24];
-    int i;
-    snprintf(mask, sizeof mask, "MI_%d_MASK", sel ? row_number(sel) : 0);
+    int i, k;
+    snprintf(mask, sizeof mask, "MI_%d_MASK", sel ? m->sel : 0);
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
-        int row = row_number(w);
         hp2_fe_item *it;
         if (animated(w) || is_line(w) || !strcmp(w->name, "SCROLLING_TEXT")) continue;
-        if (row && hidden_row(w)) continue;
+        if (row_number(w)) continue;                     /* the entries come below */
         it = push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
+        if (it && !strcmp(w->name, mask)) it->w.visible = 0;    /* the selected row's band lifts */
+    }
+    for (k = 1; k <= m->orows; k++) {   /* entry k in row k's place */
+        hp2_fe_item *it = push(l, options_slot(m, k), options_text(m, k));
         if (!it) continue;
-        if (row) {
-            if (w == sel) memcpy(it->w.rgba, ORANGE, 4);
-            else grey(it, 0x50);
-        }
-        if (!strcmp(w->name, mask)) it->w.visible = 0;    /* the selected row's band lifts */
+        if (k == m->sel) memcpy(it->w.rgba, ORANGE, 4);
+        else grey(it, 0x50);
     }
     if (sel) selection_lines(m, l, s, sel->y);
     help_bar(m, l, s);

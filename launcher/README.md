@@ -22,8 +22,9 @@ dropped in later.
   action has swaps the two, so none is ever shared or left unbound; Default
   Controls resets them. Audio (the game's own rows): seven volumes (menu
   music, racing music, ambient, tires, engine, menu sounds, speech; 0-100%
-  in 5% steps), audio mode (stereo, mono, surround), and Jukebox, Default
-  Volumes and Default Jukebox buttons. A front end only draws rows and
+  in 5% steps), audio mode (stereo, mono, surround), and Default Volumes
+  and Default Jukebox buttons; the Jukebox has its own entry on the Options
+  menu, under Audio. A front end only draws rows and
   forwards input.
 - **Controller detection** that works out which button names to show. The same
   physical button is `A` on an Xbox pad, `Cross` on a PlayStation pad and `B`
@@ -120,8 +121,8 @@ confirmed on a desktop. The selected row looks as in the game (orange label,
 white and orange lines, the help line in the ticker; checked against PCSX2
 screenshots). On OPTIONS, *Display* opens the
 Video page, *Controller* the Controls page and *Audio* the Audio page (the
-game's AUDIO_OPTIONS layout, volumes as its sliders). *Jukebox* on the Audio
-page lists the music bank's songs by genre, title over artist, with where
+game's AUDIO_OPTIONS layout, volumes as its sliders). *Jukebox*, right under
+Audio on OPTIONS (shown when there is a music bank), lists the music bank's songs by genre, title over artist, with where
 each plays: Off, Menu (menus only) or On (menus and races; the game's
 World Racing, Hot Pursuit, Menu/Racing and Always all become On). Left/right
 changes it: a song set to Menu or On starts at once; setting the song
