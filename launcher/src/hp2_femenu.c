@@ -60,6 +60,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_MAIN         0xAE0F8AA1u
 #define SCR_HOT_PURSUIT  0x5B35F533u
 #define SCR_WORLD_RACING 0x033E7771u
+#define SCR_SELECT_CAR   0xB5074AB4u
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
 
@@ -239,6 +240,53 @@ static const hp2_fe_screen *list_screen(const hp2_femenu *m)
 
 static int list_rows(const hp2_fe_screen *s) { return s ? hp2_fe_row_count(s) : 0; }
 
+/* ---- car select ----------------------------------------------------------- */
+
+/* The cars of Quick Race, in the order of the game's own name list (strings
+ * 41400+): the SELECT_CAR layout's thumbnail widget (THUMBNAIL_<thumb>), the
+ * car's full name (string id) and where its specs sit in strings 42000
+ * (0-60), 43000 (top speed, mph) and 44000 (bhp): id = base + 1 + spec. */
+typedef struct { const char *thumb; uint32_t name; int spec; } car_entry;
+static const car_entry CARS[HP2_CARS] = {
+    { "CORVETTE", 41100, 1 }, { "VIPERGTS", 41101, 2 }, { "CLK_GTR", 41103, 5 }, { "MCLAREN", 41104, 6 },
+    { "MCLARENLM", 41105, 7 }, { "MUSTANG", 41106, 8 }, { "TS50", 41107, 9 }, { "HOLDEN", 41108, 10 },
+    { "CARRERAGT", 41109, 11 }, { "BMWM5", 41110, 12 }, { "BMWZ8", 41111, 13 }, { "SPIDER", 41112, 14 },
+    { "F50", 41113, 15 }, { "JAGUAR", 41114, 16 }, { "VANQUISH", 41115, 17 }, { "VAUXHALL", 41120, 22 },
+    { "OPEL", 41121, 23 }, { "911TURBO", 41122, 24 }, { "ELISE", 41123, 25 }, { "CL55AMG", 41124, 26 },
+    { "DIABLO", 41125, 27 }, { "MURCIELAGO", 41126, 28 }, { "BARCHETTA", 41127, 40 },
+};
+
+const char *hp2_femenu_car_name(const hp2_femenu *m, int k)
+{
+    const char *s = NULL;
+    if (k < 0 || k >= HP2_CARS) return NULL;
+    if (m->lang) s = hp2_lang_by_id(m->lang, CARS[k].name);
+    return s ? s : CARS[k].thumb;
+}
+
+static const char *lang_or(const hp2_femenu *m, uint32_t id, const char *dflt)
+{
+    const char *s = m->lang ? hp2_lang_by_id(m->lang, id) : NULL;
+    return s ? s : dflt;
+}
+
+#define STRIP_X    375.0f      /* the frame (THUMBNAIL_FRAME) */
+#define STRIP_Y    399.0f
+#define SPEC_LIFT   90.0f      /* specs and name sit this far above the strip */
+
+static int car_input(hp2_femenu *m, hp2_fem_input in)
+{
+    switch (in) {
+    case HP2_IN_LEFT:  m->car = (m->car + HP2_CARS - 1) % HP2_CARS; return HP2_FEM_REDRAW;
+    case HP2_IN_RIGHT: m->car = (m->car + 1) % HP2_CARS; return HP2_FEM_REDRAW;
+    case HP2_IN_BACK:
+        m->screen = HP2_FEM_MAIN;
+        m->sel = m->main_sel;
+        return HP2_FEM_REDRAW;
+    default: return 0;      /* accept: the track list is not in the port yet */
+    }
+}
+
 static const list_entry *list_entries(const hp2_femenu *m, int *n)
 {
     switch (m->screen) {
@@ -316,7 +364,7 @@ static void refresh(hp2_femenu *m)
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
     } else if (list_screen(m)) {
         list_help(m);
-    } else if (m->screen == HP2_FEM_TITLE) {
+    } else if (m->screen == HP2_FEM_TITLE || m->screen == HP2_FEM_SELECT_CAR) {
         /* no ticker */
     } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
                && m->orow[m->sel - 1] == OPT_JUKEBOX) {
@@ -362,6 +410,7 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->mainm = hp2_fe_find_id(layout, SCR_MAIN);
     m->hotp = hp2_fe_find_id(layout, SCR_HOT_PURSUIT);
     m->world = hp2_fe_find_id(layout, SCR_WORLD_RACING);
+    m->carsel = hp2_fe_find_id(layout, SCR_SELECT_CAR);
     if (!hp2_fe_row(m->mainm, 1)) m->mainm = NULL;
     if (!hp2_fe_row(m->hotp, 1)) m->hotp = NULL;
     if (!hp2_fe_row(m->world, 1)) m->world = NULL;
@@ -399,7 +448,7 @@ int hp2_femenu_start(hp2_femenu *m, hp2_fem_screen s)
 {
     const hp2_fe_screen *need = s == HP2_FEM_TITLE ? m->title : s == HP2_FEM_MAIN ? m->mainm
                               : s == HP2_FEM_HOT_PURSUIT ? m->hotp : s == HP2_FEM_WORLD_RACING ? m->world
-                              : s == HP2_FEM_OPTIONS ? m->options : NULL;
+                              : s == HP2_FEM_SELECT_CAR ? m->carsel : s == HP2_FEM_OPTIONS ? m->options : NULL;
     if (!need) return 0;
     m->screen = s;
     m->sel = 1;
@@ -450,7 +499,12 @@ static int list_input(hp2_femenu *m, hp2_fem_input in)
         case GO_HOT_PURSUIT:  if (!m->hotp) return 0; m->screen = HP2_FEM_HOT_PURSUIT; break;
         case GO_WORLD_RACING: if (!m->world) return 0; m->screen = HP2_FEM_WORLD_RACING; break;
         case GO_OPTIONS:      m->screen = HP2_FEM_OPTIONS; break;
-        case GO_QUICK:        m->quick_mode = roll_quick(m); return HP2_FEM_REDRAW;   /* nothing after it yet */
+        case GO_QUICK:
+            m->quick_mode = roll_quick(m);
+            if (!m->carsel) return HP2_FEM_REDRAW;
+            m->main_sel = m->sel;
+            m->screen = HP2_FEM_SELECT_CAR;
+            return HP2_FEM_REDRAW;
         default:              return 0;                               /* the race modes: not yet */
         }
         m->main_sel = m->sel;
@@ -492,6 +546,8 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
     }
     if (m->screen == HP2_FEM_JUKEBOX) {
         r = jukebox_input(m, in);
+    } else if (m->screen == HP2_FEM_SELECT_CAR) {
+        r = car_input(m, in);
     } else if (m->screen == HP2_FEM_TITLE) {
         r = title_input(m, in);
     } else if (list_screen(m)) {
@@ -720,6 +776,58 @@ static int list_items(hp2_femenu *m, list *l)
     }
     if (sel_y >= 0.0f) selection_lines(m, l, s, sel_y);
     help_bar(m, l, s);
+    return l->n;
+}
+
+/* SELECT_CAR: the layout's frame, films and arrows, then the strip of
+ * thumbnails (the selected car's in the frame), its name and specs. */
+static int car_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = m->carsel;
+    const car_entry *c = &CARS[m->car];
+    static char name[96], top[24], acc[24], pwr[24];
+    int i;
+    hp2_fe_item *it;
+    snprintf(name, sizeof name, "%s", hp2_femenu_car_name(m, m->car));
+    snprintf(acc, sizeof acc, "%s %s", lang_or(m, 42001u + (uint32_t)c->spec, "?"), lang_or(m, 42000u, "sec"));
+    snprintf(top, sizeof top, "%s mph", lang_or(m, 43001u + (uint32_t)c->spec, "?"));
+    snprintf(pwr, sizeof pwr, "%s %s", lang_or(m, 44001u + (uint32_t)c->spec, "?"), lang_or(m, 44000u, "BHP"));
+    for (i = 0; i < s->count; i++) {
+        const hp2_fe_widget *w = &s->widgets[i];
+        const char *str = NULL;
+        if (w->x >= 640.0f || w->y >= 480.0f) continue;                /* parked off screen */
+        if (!strcmp(w->name, "CAR_FADE_OVERLAY") || (!strcmp(w->name, "GRID_SHADOW") && w->sy >= 29.0f)) continue;
+        if (has_prefix(w->name, "THUMBNAIL_") && strcmp(w->name, "THUMBNAIL_FRAME") && strcmp(w->name, "THUMBNAIL_RIGHT_FILM")) continue;
+        if (has_prefix(w->name, "LOCKED") || has_prefix(w->name, "SWATCH") || animated(w) || !strcmp(w->name, "MENUITEM_1")
+            || !strcmp(w->name, "POINTS") || !strcmp(w->name, "CARSUNLOCKED") || !strcmp(w->name, "CAR_LOGO")
+            || !strcmp(w->name, "SCROLLING_TEXT")) continue;
+        if (w->kind == HP2_FE_TEXT) {
+            str = hp2_femenu_text(m, w);
+            if (!strcmp(w->name, "SPEC_TOP_SPEED")) str = top;
+            else if (!strcmp(w->name, "SPEC_ACCEL")) str = acc;
+            else if (!strcmp(w->name, "SPEC_POWER")) str = pwr;
+        }
+        it = push(l, w, str);
+        if (!it) continue;
+        if (!strcmp(w->name, "GRID")) it->w.y = 2.0f;           /* stored scrolled up: as on the menus */
+        if (has_prefix(w->name, "SPEC"))
+            it->w.y -= SPEC_LIFT;                                 /* the specs above the strip */
+    }
+    for (i = -2; i <= 2; i++) {   /* the strip: 64 px apart, the selected car in the frame */
+        char nm[32];
+        const hp2_fe_widget *t;
+        hp2_fe_item *it;
+        snprintf(nm, sizeof nm, "THUMBNAIL_%s", CARS[(m->car + i + 2 * HP2_CARS) % HP2_CARS].thumb);
+        t = named(s, nm);
+        it = push(l, t, NULL);
+        if (it) { it->w.x = STRIP_X + 64.0f * (float)i; it->w.y = STRIP_Y; }
+    }
+    {   /* the name, centred over the strip */
+        const hp2_fe_widget *n = named(s, "SELECT_CAR_NAME");
+        it = push(l, n, name);
+        if (it) { it->w.x = 310.0f; it->w.y = 340.0f - SPEC_LIFT; }
+    }
+    (void)c;
     return l->n;
 }
 
@@ -961,6 +1069,7 @@ int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
     l.cap = cap;
     if (m->screen == HP2_FEM_JUKEBOX) return jukebox_items(m, &l);
     if (m->screen == HP2_FEM_TITLE) return title_items(m, &l);
+    if (m->screen == HP2_FEM_SELECT_CAR) return car_items(m, &l);
     if (list_screen(m)) return list_items(m, &l);
     return m->screen == HP2_FEM_OPTIONS ? options_items(m, &l) : settings_items(m, &l);
 }

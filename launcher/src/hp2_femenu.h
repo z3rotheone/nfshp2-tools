@@ -17,6 +17,12 @@
  *                    entry k in row k's place; their row bands (MI_k_MASK,
  *                    the BOTTOM_MASK lines and the filler below) are laid
  *                    out again for the entry count, 55 px a row.
+ *   SELECT_CAR       the car list of Quick Race (SELECT_CAR layout): the 23
+ *                    cars, a strip of thumbnails with the selected one in
+ *                    the frame, its name, make and specs (0-60, top speed,
+ *                    power) from FE_<LANGUAGE>.BIN. Left/right pick a car;
+ *                    back returns to Main Menu. (The game also shows the
+ *                    car in 3D and colour swatches: not in the port yet.)
  *   OPTIONS          the game's own screen with the rows the port keeps:
  *                    Audio, Controller, Display, Save/Load (player
  *                    progress; does nothing yet). Player Names, Credits
@@ -64,7 +70,8 @@ extern "C" {
 
 typedef enum {
     HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
-    HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING
+    HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING,
+    HP2_FEM_SELECT_CAR
 } hp2_fem_screen;
 /* HP2_IN_HELP (Triangle) switches the ticker between the row's help line
  * and the menu buttons (accept, back, help), on every screen. */
@@ -87,7 +94,8 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
-    const hp2_fe_screen *title, *mainm, *hotp, *world;   /* NULL if missing */
+    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel;   /* NULL if missing */
+    int                  car;       /* SELECT_CAR: index into the car table */
     int                  main_sel;  /* where Main Menu was left */
     int                  options_from_main;   /* back from OPTIONS: Main Menu */
     int                  quick_mode;    /* HP2_QUICK_*: Quick Race's last pick */
@@ -167,7 +175,10 @@ const char *hp2_femenu_page(const hp2_femenu *m);
 int hp2_femenu_options_rows(const hp2_femenu *m);
 /* Entries of MAIN, HOT_PURSUIT or WORLD_RACING (0 elsewhere), and entry k's
  * label (1-based; NULL out of range). */
+#define HP2_CARS 23
 int hp2_femenu_list_count(const hp2_femenu *m);
+/* The car table: car k's full name (NULL out of range) and its thumbnail. */
+const char *hp2_femenu_car_name(const hp2_femenu *m, int k);
 const char *hp2_femenu_list_label(const hp2_femenu *m, int k);
 const char *hp2_femenu_text(const hp2_femenu *m, const hp2_fe_widget *w);
 

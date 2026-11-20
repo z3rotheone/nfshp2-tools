@@ -733,12 +733,47 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         int hp = 0, wr = 0, k, ok = 1;
         for (k = 0; k < 64; k++) {
             m.seed = 0x1234u + (uint32_t)k * 7919u;
-            ok &= hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 3;
+            ok &= hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SELECT_CAR;
             hp += m.quick_mode == HP2_QUICK_HOT_PURSUIT;
             wr += m.quick_mode == HP2_QUICK_WORLD_RACING;
+            ok &= hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 3;
         }
         CHECK(ok && hp + wr == 64 && hp > 10 && wr > 10, "Quick Race picks Hot Pursuit or World Racing at random (%d / %d)", hp, wr);
-        CHECK(!strncmp(m.help, "Quick Race: ", 12), "and says which ('%s')", m.help);
+    }
+    {   /* car select */
+        int i, thumbs = 0, ok = 1;
+        char want[16];
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.screen == HP2_FEM_SELECT_CAR && m.car == 0, "Quick Race opens car select on the first car");
+        n = hp2_femenu_items(&m, it, 160);
+        for (i = 0; i < n; i++) thumbs += !strncmp(it[i].w.name, "THUMBNAIL_", 10) && strcmp(it[i].w.name, "THUMBNAIL_FRAME")
+                                          && strcmp(it[i].w.name, "THUMBNAIL_RIGHT_FILM");
+        CHECK(thumbs == 5 && count_named(it, n, "THUMBNAIL_FRAME") == 1, "a strip of five thumbnails in the frame (%d)", thumbs);
+        CHECK(find_text(it, n, "Chevrolet Corvette Z06") == 1 && find_text(it, n, "171 mph") == 1 && find_text(it, n, "3.9 sec") == 1
+              && find_text(it, n, "405 BHP") == 1, "name and specs of the Corvette Z06");
+        CHECK(find_text(it, n, "Top Speed:") == 1 && find_text(it, n, "0-60 mph:") == 1 && find_text(it, n, "Power:") == 1,
+              "spec labels from the language file");
+        CHECK(find_text(it, n, "LOCKED") == 0 && count_named(it, n, "LOCKED_BG1") == 0, "nothing locked");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.car == 1 && !strcmp(hp2_femenu_car_name(&m, 1), "Dodge Viper GTS"), "right: the next car");
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(m.car == HP2_CARS - 1, "left from the first car wraps to the last");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Ferrari 550 Barchetta") == 1 && find_text(it, n, "185 mph") + find_text(it, n, "186 mph") == 1,
+              "the Barchetta's name and speed");
+        for (i = 0; i < HP2_CARS; i++) {   /* every car has a name, a thumbnail widget and specs */
+            const char *nm = hp2_femenu_car_name(&m, i);
+            m.car = i;
+            n = hp2_femenu_items(&m, it, 160);
+            snprintf(want, sizeof want, "mph");
+            ok &= nm && find_text(it, n, nm) == 1 && count_named(it, n, "SPEC_TOP_SPEED") == 1;
+            { int k, mph = 0; for (k = 0; k < n; k++) mph += it[k].str && it[k].w.kind == HP2_FE_TEXT && strlen(it[k].str) > 4 && !strcmp(it[k].str + strlen(it[k].str) - 4, " mph") && !strchr(it[k].str, '?'); ok &= mph == 1; }
+        }
+        CHECK(ok, "all %d cars show a name and real specs", HP2_CARS);
+        m.car = 0;
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_MAIN && m.sel == 3, "back: Main Menu, on Quick Race");
     }
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(m.quick_mode == HP2_QUICK_NONE && !strcmp(m.help, "Customize your settings."), "Options' help line (the pick is dropped)");
