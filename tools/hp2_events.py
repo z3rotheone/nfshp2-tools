@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Speech event table: SOUND\\SPEECH\\EVENTS.EVT (archive entry 367).
+Speech event definitions: archive entry 367 (no file name on the disc).
+
+This is the source-side description of the police speech system: event names,
+their parameters and the line names. It is NOT SOUND\\SPEECH\\EVENTS.EVT (entries
+18 and 225, 48,092 bytes), which is the compiled rule data the game reads.
 
 Layout (all little-endian):
     +0x00  u32 0x3E8      version / magic

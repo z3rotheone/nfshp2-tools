@@ -1206,9 +1206,16 @@ numbers cover the ~1,800 clips). Then 16 bytes of timing and the cue list:
 Descriptors are variable length (16–228 bytes), so the next index record, not
 a fixed 44 bytes, gives each one's extent.
 
-**`EVENTS.EVT` (entry 367)** is the vocabulary of police speech: 201 events,
-69 parameter types and 508 line names. It does not say which line an event
-plays; that choice is compiled into the game.
+**Entry 367 (no name on the disc)** is the vocabulary of police speech: 201
+events, 69 parameter types and 508 line names. It does not say which line an
+event plays. That is in `SOUND\\SPEECH\\EVENTS.EVT` (entries 18 and 225, 48,092
+bytes), the compiled rule data: header `03 08 3C 07`, `u32 201` events, then
+`u16` values (two leading 100 and 500, then 201 event offsets from the end of
+the table at 0x1AA) and per-event rule records holding line numbers (0x1A,
+0x18B, 0x22C, 0x2BE…) next to `00 00 3F 00 00 00 39` match masks. The rule
+format is not decoded; the game's matcher is `iSPCH_MatchSample` and the
+loader `iSPCH_BindData` (strings at 0x2C5610). The English BAN is entry 361
+(German is 365, French 363, Italian 368, Spanish 370).
 - Header: `0x3E8`, 201, 69, then offsets 0x1C (events), 0x5E54 (types),
   0x29AD0 (line names).
 - Event, 120 bytes: `char name[48]`, 18 × s32; word 4 is the event id (ids
