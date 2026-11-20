@@ -1347,6 +1347,28 @@ bind the rows to its own settings (`launcher/hp2_menu`).
 set. `tools/hp2_skipintro.py` turns the `beqz` at 0x16F094 into a nop, so the
 game boots straight to the title screen; `--undo` restores it.
 
+### The song box (`GLOBAL\\GLOBALB.BUN`)
+
+GLOBALB.BUN carries a `0x80010200` layout chunk of its own (at 0x6BB00, 14,548
+bytes, 11 screens): loading screens, a debug `SCREENPRINTF0..31` grid, the in-race
+help, and the chyron that pops up when a song starts. That is screen
+`0x54987EB2`, bottom left:
+
+| widget | at | what |
+|---|---|---|
+| `SONG_TITLE` | (34, 370) | FONT_A, grey (100,100,100) PS2, left aligned |
+| `ARTIST_NAME` | (34, 393) | same |
+| `RECORD_LABEL` | (34, 415) | the album |
+| `RECORD_TITLE` | (34, 438) | "EA GAMES  TRAX", orange (128,64,0) PS2 |
+| `RECORD_TITLE_TM` | (120, 438) | "TM", half size |
+| `CHYRON_BG_1` | (25, 369) | WHITE16X16 × (17.8, 5.62), white-to-black fade, layer 28 |
+| `CHYRON_BG_2..5` | y 371, 393, 415, 437 | WHITE16X16 bars × (17.8, 1.25), black fading right, layer 27 |
+
+Screen `0xE7A85524` is a centred variant (scale 0.8). hp2fe draws `0x54987EB2`
+over the menu for six seconds when a song starts, with the title in quotes, the
+artist, the album when there is one, and "NFS:HP2 Remixx" in place of the EA
+GAMES TRAX line (its TM dropped). `hp2fe --shot OUT.bmp --songbox N` renders it.
+
 ## 18. Fonts: chunk `0x00015010`
 
 Four in `FRONTB.BUN`, four in `GLOBALB.BUN`. The font id is the name hash of

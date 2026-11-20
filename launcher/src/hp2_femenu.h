@@ -108,6 +108,17 @@ void hp2_femenu_set_jukebox(hp2_femenu *m, const hp2_jukebox *jb);
 /* A song's play status: the one set in hp2_settings, else the bank's. */
 hp2_play hp2_femenu_play(const hp2_femenu *m, int song);
 
+/* The song box shown when a song starts: GLOBALB.BUN's screen 0x54987EB2
+ * (the game's "EA GAMES TRAX" chyron, bottom left): title in quotes, artist,
+ * album if any, and the port's own line, "NFS:HP2 Remixx", in place of the
+ * EA GAMES TRAX logo (whose TM is dropped). The strings point into t and
+ * quoted (64 bytes or more), which must outlive the items. Returns the item
+ * count (draw them after the menu: the box sits on top). */
+#define HP2_SONGBOX_ID    0x54987EB2u
+#define HP2_SONGBOX_LINE  "NFS:HP2 Remixx"
+int hp2_femenu_songbox(const hp2_fe_screen *box, const hp2_jb_track *t, char *quoted, size_t qcap,
+                       hp2_fe_item *items, int cap);
+
 /* The open settings page's section ("Video", "Controls", "Audio"), or "". */
 const char *hp2_femenu_page(const hp2_femenu *m);
 

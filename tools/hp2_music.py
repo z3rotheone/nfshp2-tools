@@ -22,6 +22,15 @@ STEPS
     3. python hp2_audio.py NEWBANK --match=...        (listen before installing)
     4. python hp2_music.py install NEWBANK            (writes into ZZDATA.BIN)
 
+RENAMING A TRACK
+The game shows each track's artist, title and album (the Jukebox screen and the
+box that pops up when a song starts). After replacing one, give it its own name:
+
+    python hp2_music.py rename BANK N "ARTIST" "TITLE" ["ALBUM"] -o NEWBANK
+
+The genre and the play status stay as they were. The whole name record holds 83
+characters; the artist and album may not contain '-' (the title may).
+
 Your original ISO is the backup: install only rewrites bytes inside ZZDATA.BIN,
 and it refuses unless the size and the surrounding bytes still match.
 
@@ -233,6 +242,54 @@ def cmd_list(bank):
                  "{:,}".format(e["size"]), (e["size"] - 48) / BYTES_PER_SECOND))
 
 
+NAME_CAP = ENTRY_STRIDE - 12 - 1     # the text field, less its terminating zero
+
+
+def split_name(name):
+    """Artist-Title-Album-Genre-N: the last three fields and the artist hold no
+    '-', the title holds whatever is left (as the game reads it)."""
+    head, album, genre, n = (name.rsplit("-", 3) + ["", "", ""])[:4] if name.count("-") >= 4 else (name, "", "", "")
+    artist, _, title = head.partition("-")
+    return artist, title, album, genre, n
+
+
+def make_name(artist, title, album, genre, n):
+    for what, v in (("artist", artist), ("album", album)):
+        if "-" in v:
+            raise SystemExit("the %s may not contain '-' (the game splits the name on it)" % what)
+    for v in (artist, title, album):
+        if any(ord(c) < 0x20 or ord(c) > 0x7E for c in v):
+            raise SystemExit("names must be plain ASCII: %r" % v)
+    name = "-".join((artist, title, album, genre, n))
+    if len(name) > NAME_CAP:
+        raise SystemExit("the name is %d characters, the record holds %d: shorten it\n  %s"
+                         % (len(name), NAME_CAP, name))
+    return name
+
+
+def cmd_rename(bank, idx, artist, title, album, out):
+    d = bytearray(open(bank, "rb").read())
+    ents = parse_music(bytes(d))
+    if not (0 <= idx < len(ents)):
+        raise SystemExit("track %d is out of range (0-%d)" % (idx, len(ents) - 1))
+    e = ents[idx]
+    _a, _t, old_album, genre, n = split_name(e["name"])
+    if album is None:
+        album = old_album
+    name = make_name(artist.strip(), title.strip(), album.strip(), genre, n)
+    field = e["entry"] + 12
+    d[field:field + ENTRY_STRIDE - 12] = name.encode("ascii").ljust(ENTRY_STRIDE - 12, b"\0")
+    out = out or (os.path.splitext(bank)[0] + "_renamed.bin")
+    if os.path.abspath(out) == os.path.abspath(bank):
+        raise SystemExit("write to a new file (-o NEWBANK), not over the bank you read")
+    if os.path.exists(out):
+        raise SystemExit("%s already exists: pick another name with -o" % out)
+    open(out, "wb").write(bytes(d))
+    print("track %d: %s" % (idx, e["name"]))
+    print("     now: %s" % name)
+    print("  wrote %s (%s bytes, unchanged in size)" % (out, "{:,}".format(len(d))))
+
+
 def detect_interleave(d, e):
     """Measure the interleave of the track being replaced, so we write it back
     the way the bank already stores it."""
@@ -338,6 +395,8 @@ def main():
         cmd_list(a[1])
     elif cmd == "replace" and len(a) == 4:
         cmd_replace(a[1], int(a[2]), a[3], out, fast, chunk)
+    elif cmd == "rename" and len(a) in (5, 6):
+        cmd_rename(a[1], int(a[2]), a[3], a[4], a[5] if len(a) == 6 else None, out)
     elif cmd == "install" and len(a) >= 2:
         zz = a[2] if len(a) > 2 else os.path.join("NFSHP2", "ZZDATA.BIN")
         zd = a[3] if len(a) > 3 else os.path.join("NFSHP2", "ZDIR.BIN")

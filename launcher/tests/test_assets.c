@@ -684,6 +684,32 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
     if (Lb && lang.count) test_menu(&L, &lang, have_jb ? &jb : NULL);
     hp2_fe_free(&L);
 
+    {   /* GLOBALB.BUN's layouts: the song box shown when a song starts */
+        hp2_fe_layout GL;
+        const hp2_fe_screen *box;
+        static hp2_fe_item it[32];
+        hp2_jb_track t;
+        char q[80];
+        int n, k, line = 0, tm = 0, label = 0;
+        CHECK(hp2_fe_parse(G, lgb, &GL) == 0, "GLOBALB.BUN layouts");
+        box = hp2_fe_find_id(&GL, HP2_SONGBOX_ID);
+        CHECK(box && box->count == 10, "song box: 10 widgets");
+        memset(&t, 0, sizeof t);
+        strcpy(t.title, "Agenda Suicide");
+        strcpy(t.artist, "The Faint");
+        n = hp2_femenu_songbox(box, &t, q, sizeof q, it, 32);
+        for (k = 0; k < n; k++) {
+            if (it[k].str && !strcmp(it[k].str, HP2_SONGBOX_LINE)) line = 1;
+            if (it[k].str && !strcmp(it[k].str, "TM")) tm = 1;
+            if (it[k].str && it[k].str == t.album) label = 1;
+        }
+        CHECK(n == 8 && !strcmp(q, "\"Agenda Suicide\"") && line && !tm && !label,
+              "song box: title in quotes, \"" HP2_SONGBOX_LINE "\", no TM, no album line when there is none (%d)", n);
+        strcpy(t.album, "Danse Macabre");
+        CHECK(hp2_femenu_songbox(box, &t, q, sizeof q, it, 32) == 9, "song box: an album adds its line");
+        hp2_fe_free(&GL);
+    }
+
     if (disc) {
         hp2_zdir z;
         size_t n = 0;

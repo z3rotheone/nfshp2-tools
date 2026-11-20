@@ -542,6 +542,31 @@ static int jukebox_items(hp2_femenu *m, list *l)
     return l->n;
 }
 
+int hp2_femenu_songbox(const hp2_fe_screen *box, const hp2_jb_track *t, char *quoted, size_t qcap,
+                       hp2_fe_item *items, int cap)
+{
+    list l;
+    int i;
+    l.it = items;
+    l.n = 0;
+    l.cap = cap;
+    if (!box || !t) return 0;
+    snprintf(quoted, qcap, "\"%s\"", t->title);
+    for (i = 0; i < box->count; i++) {
+        const hp2_fe_widget *w = &box->widgets[i];
+        hp2_fe_item *it;
+        if (!strcmp(w->name, "RECORD_TITLE_TM")) continue;                /* the EA logo's TM */
+        if (!strcmp(w->name, "RECORD_LABEL") && !t->album[0]) continue;   /* no album: no line */
+        it = push(&l, w, NULL);
+        if (!it || w->kind != HP2_FE_TEXT) continue;
+        if (!strcmp(w->name, "SONG_TITLE")) it->str = quoted;
+        else if (!strcmp(w->name, "ARTIST_NAME")) it->str = t->artist;
+        else if (!strcmp(w->name, "RECORD_LABEL")) it->str = t->album;
+        else if (!strcmp(w->name, "RECORD_TITLE")) it->str = HP2_SONGBOX_LINE;
+    }
+    return l.n;
+}
+
 int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
 {
     list l;

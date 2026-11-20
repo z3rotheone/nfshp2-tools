@@ -20,6 +20,7 @@
  *                      button (default: right stick click; N on the
  *                      keyboard) skips to another.
  *   --shot OUT.bmp     render one frame offscreen, save it, exit
+ *   --songbox N        with --shot: show song N's box (as when it starts)
  *   --keys LIST        inputs to apply first, e.g. down,down,accept,right
  *
  * Keys: arrows, Enter/Space = accept, Esc/Backspace = back, N = next song.
@@ -138,7 +139,34 @@ static void next_song(hp2_jbplay *p, SDL_AudioDeviceID audio)
     SDL_ClearQueuedAudio(audio);
 }
 
-static void draw(hp2_fedraw *d, hp2_femenu *m, SDL_Renderer *r, int W, int H, hp2_fe_fit fit)
+/* The song box: shown for a few seconds when a song starts. */
+typedef struct {
+    const hp2_fe_screen *screen;    /* GLOBALB's 0x54987EB2, or NULL */
+    const hp2_jukebox   *jb;
+    int                  song;      /* shown, or -1 */
+    int                  last;      /* the last song seen playing */
+    Uint32               until;
+    char                 quoted[80];
+} songbox;
+
+#define SONGBOX_MS 6000
+
+/* Shows the box when a new song starts and hides it when its time is up.
+ * Returns 1 if the screen needs drawing again. */
+static int songbox_update(songbox *b, int now_playing, Uint32 ticks)
+{
+    int redraw = 0;
+    if (now_playing >= 0 && now_playing != b->last && b->screen) {
+        b->song = now_playing;
+        b->until = ticks + SONGBOX_MS;
+        redraw = 1;
+    }
+    if (now_playing >= 0) b->last = now_playing;
+    if (b->song >= 0 && (int32_t)(ticks - b->until) >= 0) { b->song = -1; redraw = 1; }
+    return redraw;
+}
+
+static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, SDL_Renderer *r, int W, int H, hp2_fe_fit fit)
 {
     static hp2_fe_item items[MAX_ITEMS];
     hp2_fe_view v;
@@ -150,6 +178,10 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, SDL_Renderer *r, int W, int H, hp
     SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
     SDL_RenderClear(r);
     hp2_fedraw_items(d, &v, items, n);
+    if (box->song >= 0 && box->jb) {   /* on top of the menu */
+        n = hp2_femenu_songbox(box->screen, &box->jb->track[box->song], box->quoted, sizeof box->quoted, items, MAX_ITEMS);
+        hp2_fedraw_items(d, &v, items, n);
+    }
 }
 
 int main(int argc, char **argv)
@@ -157,7 +189,9 @@ int main(int argc, char **argv)
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     static hp2_jukebox jb;
     char *loose[3] = { NULL, NULL, NULL };
-    int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1;
+    int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1, shot_song = -1;
+    hp2_fe_layout glayout;
+    songbox box;
     SDL_AudioDeviceID audio = 0;
     hp2_jbplay player;
     files f;
@@ -178,6 +212,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
         else if (!strcmp(argv[i], "--jukebox") && i + 1 < argc) bankpath = argv[++i];
         else if (!strcmp(argv[i], "--no-music")) music = 0;
+        else if (!strcmp(argv[i], "--songbox") && i + 1 < argc) shot_song = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
         else if (!strcmp(argv[i], "--fit") && i + 1 < argc) {
@@ -212,6 +247,16 @@ int main(int argc, char **argv)
         return 1;
     }
     if (f.bank && hp2_jukebox_parse(&jb, f.bank, f.bank_len) == 0) hp2_femenu_set_jukebox(&menu, &jb);
+    memset(&box, 0, sizeof box);
+    box.song = box.last = -1;
+    /* GLOBALB.BUN has screen layouts of its own: the song box is one */
+    if (hp2_fe_parse(f.globalb, f.globalb_len, &glayout) == 0) {
+        box.screen = hp2_fe_find_id(&glayout, HP2_SONGBOX_ID);
+    } else {
+        memset(&glayout, 0, sizeof glayout);
+    }
+    box.jb = menu.jb;
+    if (shot && shot_song >= 0 && menu.jb && shot_song < jb.count) box.song = shot_song;
     else if (disc || bankpath) fprintf(stderr, "no jukebox song table; the Jukebox row does nothing\n");
     if (keys) {
         char buf[512], *t;
@@ -238,7 +283,7 @@ int main(int argc, char **argv)
 
     if (shot) {
         SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_RGBA32);
-        draw(&d, &menu, ren, W, H, fit_for(&cfg, forced_fit));
+        draw(&d, &menu, &box, ren, W, H, fit_for(&cfg, forced_fit));
         if (!s || SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_RGBA32, s->pixels, s->pitch) != 0 || SDL_SaveBMP(s, shot) != 0) {
             fprintf(stderr, "could not save %s: %s\n", shot, SDL_GetError());
             return 1;
@@ -269,7 +314,7 @@ int main(int argc, char **argv)
 
     while (!quit) {
         SDL_Event e;
-        int ow, oh;
+        int ow, oh, got = 1, redraw = 0;
         if (audio) {
             /* keep about half a second queued: a volume change or a song
              * switched off is heard within that */
@@ -279,11 +324,13 @@ int main(int argc, char **argv)
                 if (n <= 0) break;
                 SDL_QueueAudio(audio, pcm, (Uint32)n * 4);
             }
-            if (!SDL_WaitEventTimeout(&e, 40)) continue;
+            redraw = songbox_update(&box, hp2_jbplay_now(&player), SDL_GetTicks());
+            got = SDL_WaitEventTimeout(&e, 40);
+            if (!got && !redraw) continue;
         } else if (!SDL_WaitEvent(&e)) {
             break;
         }
-        do {
+        if (got) do {
             hp2_fem_input in;
             int have = 0, pressed = -1;          /* pressed: an hp2_button from the pad */
             if (e.type == SDL_QUIT) quit = 1;
@@ -363,7 +410,7 @@ int main(int argc, char **argv)
         } while (!quit && SDL_PollEvent(&e));
         if (quit) break;
         SDL_GetRendererOutputSize(ren, &ow, &oh);
-        draw(&d, &menu, ren, ow, oh, fit_for(&cfg, forced_fit));
+        draw(&d, &menu, &box, ren, ow, oh, fit_for(&cfg, forced_fit));
         SDL_RenderPresent(ren);
     }
     if (dirty && !hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);   /* 1 = saved */
@@ -380,6 +427,7 @@ int main(int argc, char **argv)
     hp2_font_free(&fonts);
     hp2_tex_free(&tex);
     hp2_fe_free(&layout);
+    hp2_fe_free(&glayout);
     free(f.frontb);
     free(f.globalb);
     free(f.lang);
