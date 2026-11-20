@@ -128,6 +128,7 @@ static void draw_text(hp2_fedraw *d, const hp2_fe_view *view, const hp2_fe_item 
     memcpy(col, w->rgba, 4);
     pen = w->x;
     if (w->align & HP2_FE_ALIGN_CENTRE) pen -= hp2_text_width(f, s) * w->sx * 0.5f;
+    else if (w->align & HP2_FE_ALIGN_RIGHT) pen -= hp2_text_width(f, s) * w->sx;
     for (;;) {
         hp2_tok t = hp2_text_next(&s);
         hp2_glyph g;

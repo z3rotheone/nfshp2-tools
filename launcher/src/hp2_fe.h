@@ -26,6 +26,7 @@ typedef enum { HP2_FE_TEXT = 1, HP2_FE_IMAGE = 2 } hp2_fe_kind;
  * line in both. */
 #define HP2_FE_ALIGN_LEFT    2u
 #define HP2_FE_ALIGN_CENTRE  4u
+#define HP2_FE_ALIGN_RIGHT   8u    /* x is the right edge (added by the port, not in the layouts) */
 
 typedef struct {
     hp2_fe_kind kind;

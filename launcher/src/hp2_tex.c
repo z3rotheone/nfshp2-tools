@@ -232,7 +232,8 @@ int hp2_tex_decode(const hp2_tex *t, uint8_t *rgba)
         return 0;
     }
     for (i = 0; i < 16; i++) pal_entry(t->pal + 4 * i, pal[i]);
-    if (t->w % 128 == 0 && t->h % 128 == 0) {
+    /* 3 page rows (GRID, 512 x 384) is stored linear */
+    if (t->w % 128 == 0 && t->h % 128 == 0 && (t->h == 128 || t->h % 256 == 0)) {
         for (y = 0; y < t->h; y++)
             for (x = 0; x < t->w; x++) {
                 int odd;

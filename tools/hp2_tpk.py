@@ -303,7 +303,8 @@ def is_swizzled(w, h, bpp):
     if bpp == 8:
         return w % 128 == 0 and h % 64 == 0
     if bpp == 4:
-        return w % 128 == 0 and h % 128 == 0
+        # 3 page rows (GRID, 512 x 384) is stored linear; 1, 2, 4... are swizzled
+        return w % 128 == 0 and h % 128 == 0 and (h == 128 or h % 256 == 0)
     return False
 
 

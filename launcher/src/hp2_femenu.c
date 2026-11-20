@@ -25,7 +25,7 @@
 /* Main Menu and the mode menus, as the port has them: each entry's label
  * (a string id, or the port's own name) and help line (FE_<LANG>.BIN
  * strings 10006-10017), in the port's order. */
-enum { GO_NONE, GO_HOT_PURSUIT, GO_WORLD_RACING, GO_QUICK, GO_OPTIONS };
+enum { GO_NONE, GO_HOT_PURSUIT, GO_WORLD_RACING, GO_QUICK, GO_OPTIONS, GO_CHALLENGE, GO_SETUP };
 typedef struct {
     uint32_t    sid;        /* label string, 0 = name only */
     const char *name;       /* the port's own label, or the fallback */
@@ -42,12 +42,20 @@ static const list_entry MAIN_LIST[] = {
 };
 static const list_entry HOT_PURSUIT_LIST[] = {
     { 10029, "Ultimate Fugitive",    1, 10013, GO_NONE },   /* Ultimate Racer: Beat the heat in 30 events. */
-    { 10030, "Racing But With Pigs", 1, 10012, GO_NONE },   /* Challenge: One-player and two-player challenges. */
+    { 10030, "Racing But With Pigs", 1, 10012, GO_CHALLENGE },   /* Challenge: One-player and two-player challenges. */
     { 10028, "You're The Pig",       1, 10014, GO_NONE },   /* You're The Cop: Fill your ticket quota for big points! */
+};
+/* Challenge's rows: Players, Race Type, Skill Level, Setup. Their help lines
+ * follow the value (list_help). */
+static const list_entry CHALLENGE_LIST[] = {
+    { 20001, "Players",     0, 19000, GO_NONE },
+    { 20002, "Race Type",   0, 20010, GO_NONE },
+    { 20020, "Skill Level", 0, 0,     GO_NONE },
+    { 20019, "Setup",       0, 0,     GO_SETUP },
 };
 static const list_entry WORLD_RACING_LIST[] = {
     { 10026, "Ultimate Racer", 1, 10008, GO_NONE },   /* Championship: Real cars, real fast in 30 events. */
-    { 10025, "Just Race",      1, 10007, GO_NONE },   /* Challenge: One-player and two-player challenges. */
+    { 10025, "Just Race",      1, 10007, GO_CHALLENGE },   /* Challenge: One-player and two-player challenges. */
 };
 
 /* Row bands of these lists: SEP_H tall lines between rows, a filler from
@@ -62,6 +70,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_WORLD_RACING 0x033E7771u
 #define SCR_SELECT_CAR   0xB5074AB4u
 #define SCR_SELECT_TRACK 0x15417B53u
+#define SCR_CHALLENGE    0x2D62CFE2u
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
 
@@ -235,6 +244,7 @@ static const hp2_fe_screen *list_screen(const hp2_femenu *m)
     case HP2_FEM_MAIN:         return m->mainm;
     case HP2_FEM_HOT_PURSUIT:  return m->hotp;
     case HP2_FEM_WORLD_RACING: return m->world;
+    case HP2_FEM_CHALLENGE:    return m->chal;
     default:                   return NULL;
     }
 }
@@ -274,25 +284,37 @@ static const char *lang_or(const hp2_femenu *m, uint32_t id, const char *dflt)
 #define CAR_SWATCHES_N 8
 #define STRIP_X    375.0f      /* the frame (THUMBNAIL_FRAME) */
 #define STRIP_Y    399.0f
-#define SPEC_LIFT   93.0f      /* the specs sit above and left of where the layout has them */
-#define SPEC_SHIFT_X 183.0f
 
 static int car_input(hp2_femenu *m, hp2_fem_input in)
 {
+    if (m->car_popup) {         /* Transmission, then Handling */
+        int *v = m->car_popup == 1 ? &m->trans : &m->handling, n = m->car_popup == 1 ? 3 : 2;
+        switch (in) {
+        case HP2_IN_LEFT:  *v = (*v + n - 1) % n; return HP2_FEM_REDRAW;
+        case HP2_IN_RIGHT: *v = (*v + 1) % n; return HP2_FEM_REDRAW;
+        case HP2_IN_BACK:  m->car_popup--; return HP2_FEM_REDRAW;
+        case HP2_IN_ACCEPT:
+            if (m->car_popup == 1) { m->car_popup = 2; return HP2_FEM_REDRAW; }
+            if (!m->tracksel) return 0;
+            m->car_popup = 0;
+            m->screen = HP2_FEM_SELECT_TRACK;
+            m->lap_popup = 0;
+            return HP2_FEM_REDRAW;
+        default: return 0;
+        }
+    }
     switch (in) {
     case HP2_IN_UP:    m->color = (m->color + CAR_SWATCHES_N - 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
     case HP2_IN_DOWN:  m->color = (m->color + 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
     case HP2_IN_LEFT:  m->car = (m->car + HP2_CARS - 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_RIGHT: m->car = (m->car + 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
+        if (!m->quick_mode && m->chal) { m->screen = HP2_FEM_CHALLENGE; m->sel = 4; return HP2_FEM_REDRAW; }
         m->screen = HP2_FEM_MAIN;
         m->sel = m->main_sel;
         return HP2_FEM_REDRAW;
     case HP2_IN_ACCEPT:
-        if (!m->tracksel) return 0;
-        m->screen = HP2_FEM_SELECT_TRACK;
-        m->focus = 0;
-        m->lap_popup = 0;
+        m->car_popup = 1;
         return HP2_FEM_REDRAW;
     default: return 0;
     }
@@ -339,17 +361,14 @@ static int track_input(hp2_femenu *m, hp2_fem_input in)
         }
     }
     switch (in) {
-    case HP2_IN_UP:    if (m->focus > 0) m->focus--; return HP2_FEM_REDRAW;
-    case HP2_IN_DOWN:  if (m->focus < 2) m->focus++; return HP2_FEM_REDRAW;
-    case HP2_IN_LEFT:
-    case HP2_IN_RIGHT:
-        if (m->focus == 0) m->track = (m->track + (in == HP2_IN_LEFT ? HP2_TRACKS - 1 : 1)) % HP2_TRACKS;
-        else if (m->focus == 1) m->tod = !m->tod;
-        else m->alt = !m->alt;
-        return HP2_FEM_REDRAW;
+    case HP2_IN_UP:
+    case HP2_IN_DOWN:  m->tod = !m->tod; return HP2_FEM_REDRAW;       /* the Time of Day column */
+    case HP2_IN_LEFT:  m->track = (m->track + HP2_TRACKS - 1) % HP2_TRACKS; return HP2_FEM_REDRAW;
+    case HP2_IN_RIGHT: m->track = (m->track + 1) % HP2_TRACKS; return HP2_FEM_REDRAW;
     case HP2_IN_ACCEPT: m->lap_popup = 1; return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
         m->screen = HP2_FEM_SELECT_CAR;
+        m->car_popup = 0;
         return HP2_FEM_REDRAW;
     default: return 0;
     }
@@ -360,6 +379,7 @@ static const list_entry *list_entries(const hp2_femenu *m, int *n)
     switch (m->screen) {
     case HP2_FEM_MAIN:         *n = (int)(sizeof MAIN_LIST / sizeof MAIN_LIST[0]); return MAIN_LIST;
     case HP2_FEM_HOT_PURSUIT:  *n = (int)(sizeof HOT_PURSUIT_LIST / sizeof HOT_PURSUIT_LIST[0]); return HOT_PURSUIT_LIST;
+    case HP2_FEM_CHALLENGE:    *n = (int)(sizeof CHALLENGE_LIST / sizeof CHALLENGE_LIST[0]); return CHALLENGE_LIST;
     case HP2_FEM_WORLD_RACING: *n = (int)(sizeof WORLD_RACING_LIST / sizeof WORLD_RACING_LIST[0]); return WORLD_RACING_LIST;
     default:                   *n = 0; return NULL;
     }
@@ -399,6 +419,12 @@ static void list_help(hp2_femenu *m)
     if (e->go == GO_QUICK && m->quick_mode) {
         snprintf(m->help, sizeof m->help, "Quick Race: %s settings. Its race screens are not in the port yet.",
                  quick_name(m->quick_mode));
+        return;
+    }
+    if (m->screen == HP2_FEM_CHALLENGE) {      /* the help follows the value */
+        uint32_t id = m->sel == 1 ? 19000u + (uint32_t)m->players : m->sel == 2 ? 20010u + (uint32_t)m->race_type : 0u;
+        h = id && m->lang ? hp2_lang_by_id(m->lang, id) : NULL;
+        snprintf(m->help, sizeof m->help, "%s", h ? h : "");
         return;
     }
     h = m->lang ? hp2_lang_by_id(m->lang, e->help) : NULL;
@@ -480,6 +506,8 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->world = hp2_fe_find_id(layout, SCR_WORLD_RACING);
     m->carsel = hp2_fe_find_id(layout, SCR_SELECT_CAR);
     m->tracksel = hp2_fe_find_id(layout, SCR_SELECT_TRACK);
+    m->chal = hp2_fe_find_id(layout, SCR_CHALLENGE);
+    if (!hp2_fe_row(m->chal, 1)) m->chal = NULL;
     m->laps = 2;
     if (!hp2_fe_row(m->mainm, 1)) m->mainm = NULL;
     if (!hp2_fe_row(m->hotp, 1)) m->hotp = NULL;
@@ -555,6 +583,33 @@ static int title_input(hp2_femenu *m, hp2_fem_input in)
     return HP2_FEM_REDRAW;
 }
 
+/* Challenge: up/down rows, left/right the value, Setup goes on to car select. */
+static int challenge_input(hp2_femenu *m, hp2_fem_input in)
+{
+    static const int span[3] = { 2, 4, 3 };
+    int *v[3];
+    v[0] = &m->players; v[1] = &m->race_type; v[2] = &m->skill;
+    switch (in) {
+    case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : 4; return HP2_FEM_REDRAW;
+    case HP2_IN_DOWN: m->sel = m->sel < 4 ? m->sel + 1 : 1; return HP2_FEM_REDRAW;
+    case HP2_IN_LEFT:
+    case HP2_IN_RIGHT:
+        if (m->sel > 3) return 0;
+        *v[m->sel - 1] = (*v[m->sel - 1] + (in == HP2_IN_LEFT ? span[m->sel - 1] - 1 : 1)) % span[m->sel - 1];
+        return HP2_FEM_REDRAW;
+    case HP2_IN_ACCEPT:
+        if (m->sel != 4 || !m->carsel) return 0;
+        m->screen = HP2_FEM_SELECT_CAR;
+        m->car_popup = 0;
+        return HP2_FEM_REDRAW;
+    case HP2_IN_BACK:
+        m->screen = (hp2_fem_screen)m->chal_from;
+        m->sel = m->chal_sel;
+        return HP2_FEM_REDRAW;
+    default: return 0;
+    }
+}
+
 static int list_input(hp2_femenu *m, hp2_fem_input in)
 {
     int n;
@@ -569,11 +624,18 @@ static int list_input(hp2_femenu *m, hp2_fem_input in)
         case GO_HOT_PURSUIT:  if (!m->hotp) return 0; m->screen = HP2_FEM_HOT_PURSUIT; break;
         case GO_WORLD_RACING: if (!m->world) return 0; m->screen = HP2_FEM_WORLD_RACING; break;
         case GO_OPTIONS:      m->screen = HP2_FEM_OPTIONS; break;
+        case GO_CHALLENGE:
+            if (!m->chal) return 0;
+            m->chal_from = m->screen; m->chal_sel = m->sel;
+            m->screen = HP2_FEM_CHALLENGE;
+            m->sel = 1;
+            return HP2_FEM_REDRAW;
         case GO_QUICK:
             m->quick_mode = roll_quick(m);
             if (!m->carsel) return HP2_FEM_REDRAW;
             m->main_sel = m->sel;
             m->screen = HP2_FEM_SELECT_CAR;
+            m->car_popup = 0;
             return HP2_FEM_REDRAW;
         default:              return 0;                               /* the race modes: not yet */
         }
@@ -622,6 +684,8 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         r = track_input(m, in);
     } else if (m->screen == HP2_FEM_TITLE) {
         r = title_input(m, in);
+    } else if (m->screen == HP2_FEM_CHALLENGE) {
+        r = challenge_input(m, in);
     } else if (list_screen(m)) {
         r = list_input(m, in);
     } else if (m->screen == HP2_FEM_OPTIONS) {
@@ -824,7 +888,24 @@ static int list_items(hp2_femenu *m, list *l)
         if (animated(w) || is_line(w) || is_band(w) || row_number(w) || !strcmp(w->name, "SCROLLING_TEXT")) continue;
         /* the progress line ("Unlocked", the easter egg): no progress yet */
         if (w->string_id == SID_PROGRESS || !strcmp(w->name, "EASTER_EGG_STRING")) continue;
+        if (m->screen == HP2_FEM_CHALLENGE) {
+            static const uint32_t rt[4] = { 20005u, 20006u, 20007u, 20008u }, sk[3] = { 55004u, 55005u, 55006u };
+            const char *v = NULL;
+            if (!strcmp(w->name, "ANIMATE_SELECTION") || !strcmp(w->name, "LEFT_ARROW") || !strcmp(w->name, "RIGHT_ARROW")) continue;
+            if (!strcmp(w->name, "GAME_TYPE")) v = lang_or(m, 20003u + (uint32_t)m->players, "One Player");
+            else if (!strcmp(w->name, "RACE_MODE")) v = lang_or(m, rt[m->race_type], "Single Race");
+            else if (!strcmp(w->name, "SKILL_LEVEL")) v = lang_or(m, sk[m->skill], "Beginner");
+            if (v) { push(l, w, v); continue; }
+        }
         push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
+    }
+    if (m->screen == HP2_FEM_CHALLENGE && m->sel <= 3) {   /* the arrows of the chosen row's value */
+        static const float row_y[3] = { 84.0f, 138.0f, 192.0f };
+        int k;
+        for (k = 0; k < 2; k++) {
+            hp2_fe_item *a = push(l, named(s, k ? "RIGHT_ARROW" : "LEFT_ARROW"), NULL);
+            if (a) { a->w.y = row_y[m->sel - 1] + 1.0f; a->w.visible = 1; }
+        }
     }
     for (k = 1; k <= n; k++) {
         const hp2_fe_widget *slot = hp2_fe_row(s, k <= rows ? k : rows);
@@ -869,18 +950,15 @@ static const uint8_t SWATCH_RGB[CAR_SWATCHES][3] = {
     { 24, 36, 200 }, { 30, 72, 36 }, { 58, 58, 58 }, { 24, 24, 24 },
 };
 #define STRIP_STEP   38.0f
+#define POP_X        77.0f      /* left edge of the Transmission / Handling panel */
 
 static int car_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->carsel;
     const car_entry *c = &CARS[m->car];
-    static char name[96], top[24], acc[24], pwr[24], unl[48];
+    static char unl[48];
     int i;
     hp2_fe_item *it;
-    snprintf(name, sizeof name, "%s", hp2_femenu_car_name(m, m->car));
-    snprintf(acc, sizeof acc, "%s %s", lang_or(m, 42001u + (uint32_t)c->spec, "?"), lang_or(m, 42000u, "sec"));
-    snprintf(top, sizeof top, "%s mph", lang_or(m, 43001u + (uint32_t)c->spec, "?"));
-    snprintf(pwr, sizeof pwr, "%s %s", lang_or(m, 44001u + (uint32_t)c->spec, "?"), lang_or(m, 44000u, "BHP"));
     snprintf(unl, sizeof unl, "%s %d/%d", lang_or(m, 49071u, "Cars Unlocked:"), HP2_CARS, HP2_CARS);
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
@@ -888,21 +966,18 @@ static int car_items(hp2_femenu *m, list *l)
         if (w->x >= 640.0f || w->y >= 480.0f) continue;                /* parked off screen */
         if (!strcmp(w->name, "CAR_FADE_OVERLAY") || (!strcmp(w->name, "GRID_SHADOW") && w->sy >= 29.0f)) continue;
         if (has_prefix(w->name, "THUMBNAIL_") && strcmp(w->name, "THUMBNAIL_FRAME") && strcmp(w->name, "THUMBNAIL_RIGHT_FILM")) continue;
+        if (has_prefix(w->name, "SPEC") || !strcmp(w->name, "CLASS")) continue;      /* the game shows no spec lines */
         if (has_prefix(w->name, "LOCKED") || has_prefix(w->name, "SWATCH") || !strcmp(w->name, "MENUITEM_1")
             || !strcmp(w->name, "POINTS") || !strcmp(w->name, "CAR_LOGO") || !strcmp(w->name, "SCROLLING_TEXT")
             || !strcmp(w->name, "ANIMATING_MENUITEM") || !strcmp(w->name, "ANIMATE_SELECTION")
             || !strcmp(w->name, "UP_ARROW") || !strcmp(w->name, "DOWN_ARROW")) continue;
         if (w->kind == HP2_FE_TEXT) {
             str = hp2_femenu_text(m, w);
-            if (!strcmp(w->name, "SPEC_TOP_SPEED")) str = top;
-            else if (!strcmp(w->name, "SPEC_ACCEL")) str = acc;
-            else if (!strcmp(w->name, "SPEC_POWER")) str = pwr;
-            else if (!strcmp(w->name, "CARSUNLOCKED")) str = unl;
+            if (!strcmp(w->name, "CARSUNLOCKED")) str = unl;
         }
         it = push(l, w, str);
         if (!it) continue;
         if (!strcmp(w->name, "CARSUNLOCKED")) it->w.x = 233.0f;
-        if (has_prefix(w->name, "SPEC")) { it->w.x -= SPEC_SHIFT_X; it->w.y -= SPEC_LIFT; }
     }
     for (i = -2; i <= 4; i++) {   /* the strip */
         char nm[32];
@@ -914,7 +989,7 @@ static int car_items(hp2_femenu *m, list *l)
             it->w.y = STRIP_Y;
         }
     }
-    for (i = 0; i < CAR_SWATCHES; i++) {   /* colours, the chosen one framed */
+    for (i = 0; i < CAR_SWATCHES && !m->car_popup; i++) {   /* colours, the chosen one framed */
         char nm[16];
         snprintf(nm, sizeof nm, "SWATCH_%d", i);
         it = push(l, named(s, nm), NULL);
@@ -934,11 +1009,42 @@ static int car_items(hp2_femenu *m, list *l)
             it->w.y = SWATCH_Y + SWATCH_STEP * (float)i - 2.0f;
         }
     }
-    if ((it = push(l, named(s, "UP_ARROW"), NULL)) != NULL) { it->w.x = 587.0f; it->w.y = 93.0f; }
-    if ((it = push(l, named(s, "DOWN_ARROW"), NULL)) != NULL) { it->w.x = 587.0f; it->w.y = 266.0f; }
-    {   /* the car's name where the game puts its logo */
-        it = push(l, named(s, "CLASS"), name);
-        if (it) { it->w.x = 37.0f; it->w.y = 20.0f; it->w.visible = 1; }
+    if (!m->car_popup && (it = push(l, named(s, "UP_ARROW"), NULL)) != NULL) { it->w.x = 587.0f; it->w.y = 93.0f; }
+    if (!m->car_popup && (it = push(l, named(s, "DOWN_ARROW"), NULL)) != NULL) { it->w.x = 587.0f; it->w.y = 266.0f; }
+    if (m->car_popup) {   /* the Transmission / Handling panel, built from the LOCKED_* pieces */
+        static const float opt_x3[3] = { 90.0f, 266.0f, 411.0f }, opt_x2[2] = { 150.0f, 340.0f };
+        static const uint32_t tr_id[3] = { 49020u, 49030u, 49010u }, hd_id[2] = { 49050u, 49060u };
+        int n = m->car_popup == 1 ? 3 : 2, sel = m->car_popup == 1 ? m->trans : m->handling;
+        it = push(l, named(s, "CAR_FADE_OVERLAY"), NULL);   /* the dim: its picture is not in the pack, a flat black stands in */
+        if (it) {
+            int k, ch;
+            it->w.x = 0.0f; it->w.y = 0.0f; it->w.sx = 40.0f; it->w.sy = 30.0f;
+            it->w.texture = SOLID_TEXTURE; it->w.visible = 1; it->w.layer = (uint8_t)(named(s, "LOCKED_BG1") ? named(s, "LOCKED_BG1")->layer + 1 : 1);
+            for (k = 0; k < 4; k++) { for (ch = 0; ch < 3; ch++) it->w.vcol[k][ch] = 0; it->w.vcol[k][3] = 0x50; }
+        }
+        it = push(l, named(s, "LOCKED_BG1"), NULL);
+        if (it) { it->w.x = POP_X; it->w.y = 242.0f; it->w.sx = (640.0f - POP_X) / 16.0f; it->w.sy = 81.0f / 16.0f; it->w.visible = 1; }
+        it = push(l, named(s, "LOCKEDHEAD_BGBLUE"), NULL);
+        if (it) { it->w.x = POP_X; it->w.y = 197.0f; it->w.sx = 0.879f * (640.0f - POP_X) / 450.0f; it->w.visible = 1; }
+        it = push(l, named(s, "LOCKED_MIDLINE"), NULL);
+        if (it) { it->w.x = POP_X; it->w.y = 242.0f; it->w.sx = (640.0f - POP_X) / 8.0f; it->w.visible = 1; }
+        it = push(l, named(s, "LOCKED_BOTTOMLINE"), NULL);
+        if (it) { it->w.x = POP_X; it->w.y = 323.0f; it->w.visible = 1; }
+        it = push(l, named(s, "LOCKED_HEADING"), lang_or(m, m->car_popup == 1 ? 49000u : 49040u, m->car_popup == 1 ? "TRANSMISSION" : "HANDLING"));
+        if (it) { it->w.x = POP_X + 24.0f; it->w.y = 203.0f; it->w.visible = 1; }
+        for (i = 0; i < n; i++) {
+            it = push(l, named(s, "LOCKED_TEXTTEST"), lang_or(m, m->car_popup == 1 ? tr_id[i] : hd_id[i], "?"));
+            if (it) {
+                it->w.x = n == 3 ? opt_x3[i] : opt_x2[i]; it->w.y = 273.0f; it->w.visible = 1;
+                if (i == sel) memcpy(it->w.rgba, ORANGE, 4);
+            }
+        }
+    }
+    {   /* the car's name logo, a picture per car (CARLOGO_<name>) */
+        char nm[40];
+        snprintf(nm, sizeof nm, "CARLOGO_%s", c->thumb);
+        it = push(l, named(s, "CAR_LOGO"), NULL);
+        if (it) { it->w.texture = hp2_fe_hash(nm); it->w.visible = 1; }
     }
     return l->n;
 }
@@ -959,18 +1065,17 @@ static int track_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->tracksel;
     const track_entry *t = &TRACKS[m->track];
-    static char len[24], diff[40], total[64], laps[8], tod[40], alt[16];
+    static char len[48], diff[40], total[64], laps[8];
     char nm[32];
     const char *dn[3];
     int i, k, loc_diff = t->num % 10 - 1;
     hp2_fe_item *it;
     dn[0] = lang_or(m, 55004u, "Beginner"); dn[1] = lang_or(m, 55005u, "Advanced"); dn[2] = lang_or(m, 55006u, "Expert");
-    snprintf(len, sizeof len, "%.2f mi", (double)t->length);
+    snprintf(len, sizeof len, "%.3f mi %s", (double)t->length,
+             t->num % 10 == 3 ? lang_or(m, 55701u, "(Point-to-Point)") : lang_or(m, 55700u, "(Circuit)"));
     snprintf(diff, sizeof diff, "%s", dn[loc_diff < 0 ? 0 : loc_diff > 2 ? 2 : loc_diff]);
     fmt_laps(total, sizeof total, lang_or(m, 55025u, "Best Total Time (%d laps)"), m->laps);
     snprintf(laps, sizeof laps, "%d", m->laps);
-    snprintf(tod, sizeof tod, "%s", m->tod ? lang_or(m, overcast_course(m->track) ? 55009u : 55010u, "Overcast") : lang_or(m, 55008u, "Sunny"));
-    snprintf(alt, sizeof alt, "%s", m->alt ? "On" : "Off");
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
         const char *str = NULL;
@@ -995,17 +1100,15 @@ static int track_items(hp2_femenu *m, list *l)
             snprintf(nm, sizeof nm, "TRACK%d", t->num);
             it->w.texture = hp2_fe_hash(nm);
         } else if (!strcmp(w->name, "TRACK_LOGO")) {
-            snprintf(nm, sizeof nm, "LOGOTRACK%d%s", t->num, m->alt ? "R" : "");
+            snprintf(nm, sizeof nm, "LOGOTRACK%d", t->num);
             it->w.texture = hp2_fe_hash(nm);
         }
     }
-    for (k = 0; k < 2; k++) {   /* arrows of the strip, as on car select */
-        it = push(l, named(s, k ? "RIGHT_ARROW_SELECT" : "LEFT_ARROW_SELECT"), NULL);
-        if (it) it->w.visible = 1;
-    }
+    it = push(l, named(s, "RIGHT_ARROW_SELECT"), NULL);   /* the strip has only the right arrow */
+    if (it) it->w.visible = 1;
     for (k = 0; k < 8; k++) {   /* the strip: the selected course in the frame, the next seven after it */
         int idx = (m->track + k) % HP2_TRACKS;
-        snprintf(nm, sizeof nm, "TN_TRACK%d%s", TRACKS[idx].num, m->alt ? "R" : "");
+        snprintf(nm, sizeof nm, "TN_TRACK%d", TRACKS[idx].num);
         it = push(l, named(s, nm), NULL);
         if (it) {
             it->w.x = k == 0 ? 242.0f : 285.0f + 40.0f * (float)(k - 1);
@@ -1013,18 +1116,29 @@ static int track_items(hp2_femenu *m, list *l)
             it->w.visible = 1;
         }
     }
-    {   /* Time of Day and Alternate: label, value under it, the focused one orange */
-        const hp2_fe_widget *r[2];
-        const char *lab[2], *val[2];
-        r[0] = named(s, "MENUITEM_1"); r[1] = named(s, "MENUITEM_2");
-        lab[0] = "Time of Day"; lab[1] = "Alternate";
-        val[0] = tod; val[1] = alt;
+    {   /* the Time of Day column: the two lightings the course has, the chosen one framed and orange */
+        static const float slot_y[2] = { 142.0f, 187.0f };
+        const char *icon[2], *lab[2];
+        icon[0] = "TOD_3PM";
+        icon[1] = overcast_course(m->track) ? "TOD_OVERCAST" : "TOD_SUNSET";
+        lab[0] = lang_or(m, 55008u, "Sunny");
+        lab[1] = lang_or(m, overcast_course(m->track) ? 55009u : 55010u, "Overcast");
         for (k = 0; k < 2; k++) {
-            it = push(l, r[k], lab[k]);
-            if (it) { if (m->focus == k + 1) memcpy(it->w.rgba, ORANGE, 4); else grey(it, 0x50); }
-            it = push(l, r[k], val[k]);
-            if (it) { it->w.y += 22.0f; if (m->focus == k + 1) memcpy(it->w.rgba, ORANGE, 4); }
+            it = push(l, named(s, icon[k]), NULL);
+            if (it) { it->w.x = 530.0f; it->w.y = slot_y[k]; it->w.visible = 1; }
+            it = push(l, named(s, "MENUITEM_1"), lab[k]);
+            if (it) {
+                it->w.y = slot_y[k] - 5.0f;
+                it->w.align = HP2_FE_ALIGN_RIGHT;
+                if (m->tod == k) memcpy(it->w.rgba, ORANGE, 4); else grey(it, 0x50);
+            }
         }
+        it = push(l, named(s, "TOD_FRAME"), NULL);
+        if (it) { it->w.x = 526.0f; it->w.y = slot_y[m->tod] - 4.0f; it->w.visible = 1; }
+        it = push(l, named(s, "UP_ARROW"), NULL);
+        if (it) it->w.visible = 1;
+        it = push(l, named(s, "DOWN_ARROW"), NULL);
+        if (it) it->w.visible = 1;
     }
     if (m->lap_popup) {
         static const char *pop[] = { "SELECTLAP_TOP", "SELECTLAP_BG", "SELECTLAP_TOPBAR", "SELECTLAP_LOWERBAR", "POPUP_LINE_1", "LAP_COUNT",

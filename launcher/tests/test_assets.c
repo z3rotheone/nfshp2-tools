@@ -459,6 +459,13 @@ static int count_named(const hp2_fe_item *it, int n, const char *name)
     return c;
 }
 
+static int find_named(const hp2_fe_item *it, int n, const char *name)
+{
+    int i;
+    for (i = 0; i < n; i++) if (!strcmp(it[i].w.name, name)) return i;
+    return 0;
+}
+
 /* Down and up through a whole page: the selection stays on the page and in
  * view, and min(rows, 7) rows are drawn every time. */
 static void page_walk(hp2_femenu *m, hp2_fe_item *it, int rows)
@@ -756,10 +763,10 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
                   && count_named(it, n, "DOWN_ARROW") == 1, "eight colour swatches, a frame and the two arrows (%d)", sw);
         }
         CHECK(find_text(it, n, "Cars Unlocked: 23/23") == 1, "all cars unlocked");
-        CHECK(find_text(it, n, "Chevrolet Corvette Z06") == 1 && find_text(it, n, "171 mph") == 1 && find_text(it, n, "3.9 sec") == 1
-              && find_text(it, n, "405 BHP") == 1, "name and specs of the Corvette Z06");
-        CHECK(find_text(it, n, "Top Speed:") == 1 && find_text(it, n, "0-60 mph:") == 1 && find_text(it, n, "Power:") == 1,
-              "spec labels from the language file");
+        CHECK(!strcmp(hp2_femenu_car_name(&m, 0), "Chevrolet Corvette Z06") && count_named(it, n, "CAR_LOGO") == 1
+              && it[find_named(it, n, "CAR_LOGO")].w.texture == hp2_fe_hash("CARLOGO_CORVETTE"), "the Corvette's name logo (CARLOGO_CORVETTE)");
+        CHECK(find_text(it, n, "171 mph") == 0 && find_text(it, n, "Top Speed:") == 0 && find_text(it, n, "Power:") == 0,
+              "no spec lines on car select");
         CHECK(find_text(it, n, "LOCKED") == 0 && count_named(it, n, "LOCKED_BG1") == 0, "nothing locked");
         CHECK(hp2_femenu_input(&m, HP2_IN_DOWN) == HP2_FEM_REDRAW && m.color == 1, "down: the next colour");
         hp2_femenu_input(&m, HP2_IN_UP);
@@ -772,31 +779,59 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         hp2_femenu_input(&m, HP2_IN_LEFT);
         CHECK(m.car == HP2_CARS - 1, "left from the first car wraps to the last");
         n = hp2_femenu_items(&m, it, 160);
-        CHECK(find_text(it, n, "Ferrari 550 Barchetta") == 1 && find_text(it, n, "185 mph") + find_text(it, n, "186 mph") == 1,
-              "the Barchetta's name and speed");
-        for (i = 0; i < HP2_CARS; i++) {   /* every car has a name, a thumbnail widget and specs */
-            const char *nm = hp2_femenu_car_name(&m, i);
-            m.car = i;
-            n = hp2_femenu_items(&m, it, 160);
-            snprintf(want, sizeof want, "mph");
-            ok &= nm && find_text(it, n, nm) == 1 && count_named(it, n, "SPEC_TOP_SPEED") == 1;
-            { int k, mph = 0; for (k = 0; k < n; k++) mph += it[k].str && it[k].w.kind == HP2_FE_TEXT && strlen(it[k].str) > 4 && !strcmp(it[k].str + strlen(it[k].str) - 4, " mph") && !strchr(it[k].str, '?'); ok &= mph == 1; }
+        CHECK(!strcmp(hp2_femenu_car_name(&m, m.car), "Ferrari 550 Barchetta")
+              && it[find_named(it, n, "CAR_LOGO")].w.texture == hp2_fe_hash("CARLOGO_BARCHETTA"), "the Barchetta's name logo");
+        {   /* every car has a name and a logo of its own */
+            uint32_t seen[HP2_CARS];
+            for (i = 0; i < HP2_CARS; i++) {
+                int k;
+                m.car = i;
+                n = hp2_femenu_items(&m, it, 160);
+                ok &= hp2_femenu_car_name(&m, i) != NULL && count_named(it, n, "CAR_LOGO") == 1;
+                seen[i] = it[find_named(it, n, "CAR_LOGO")].w.texture;
+                for (k = 0; k < i; k++) ok &= seen[k] != seen[i];
+                
+            }
         }
-        CHECK(ok, "all %d cars show a name and real specs", HP2_CARS);
+        CHECK(ok, "all %d cars have a name and a logo of their own", HP2_CARS);
         m.car = 0;
         /* track select */
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SELECT_CAR && m.car_popup == 1, "accept on a car: Transmission");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "TRANSMISSION") == 1 && find_text(it, n, "Automatic") == 1 && find_text(it, n, "Manual") == 1
+              && find_text(it, n, "Semi-Auto") == 1 && count_named(it, n, "LOCKEDHEAD_BGBLUE") == 1, "the Transmission panel");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.trans == 1, "right: Manual");
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(m.trans == 2, "left from Automatic wraps to Semi-Auto");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.car_popup == 2 && find_text(it, n, "HANDLING") == 1 && find_text(it, n, "Classic") == 1 && find_text(it, n, "Extreme") == 1,
+              "accept: the Handling panel");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.handling == 1, "right: Extreme");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.car_popup == 1 && m.screen == HP2_FEM_SELECT_CAR, "back: Transmission again");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.car_popup == 0 && m.screen == HP2_FEM_SELECT_CAR, "back: the car list");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
         CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SELECT_TRACK && m.track == 0 && m.laps == 2,
-              "accept on a car: track select");
+              "then track select");
         n = hp2_femenu_items(&m, it, 160);
         {
             int tn = 0, k;
             for (k = 0; k < n; k++) tn += !strncmp(it[k].w.name, "TN_TRACK", 8);
             CHECK(tn == 8 && count_named(it, n, "THUMBNAIL_FRAME") == 1, "a strip of eight course thumbnails (%d)", tn);
         }
-        CHECK(find_text(it, n, "4.59 mi") == 1 && find_text(it, n, "Beginner") == 1 && find_text(it, n, "Best Total Time (2 laps)") == 1,
+        CHECK(find_text(it, n, "4.590 mi (Circuit)") == 1 && find_text(it, n, "Beginner") == 1 && find_text(it, n, "Best Total Time (2 laps)") == 1,
               "length, difficulty and the best-time heading");
-        CHECK(find_text(it, n, "Time of Day") == 1 && find_text(it, n, "Sunny") == 1 && find_text(it, n, "Alternate") == 1 && find_text(it, n, "Off") == 1,
-              "Time of Day and Alternate rows");
+        CHECK(find_text(it, n, "Sunny") == 1 && find_text(it, n, "Overcast") == 1 && count_named(it, n, "TOD_3PM") == 1
+              && count_named(it, n, "TOD_OVERCAST") == 1 && count_named(it, n, "TOD_FRAME") == 1 && find_text(it, n, "Alternate") == 0,
+              "the Time of Day column: two lightings and a frame");
+        CHECK(count_named(it, n, "LEFT_ARROW_SELECT") == 0 && count_named(it, n, "RIGHT_ARROW_SELECT") == 1 && count_named(it, n, "UP_ARROW") == 1
+              && count_named(it, n, "DOWN_ARROW") == 1, "the strip has only its right arrow");
         CHECK(count_named(it, n, "SELECTLAP_BG") == 0 && count_named(it, n, "LOCKED_BG1") == 0 && find_text(it, n, "SELECT LAPS") == 0,
               "no popup, nothing locked");
         CHECK(!strcmp(hp2_femenu_track_name(&m, 0, 0), "Coastal Parklands") && !strcmp(hp2_femenu_track_name(&m, 0, 1), "Coastal Parklands II")
@@ -808,22 +843,19 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         CHECK(m.track == HP2_TRACKS - 1 && hp2_femenu_track_number(&m) == 63, "left from the first wraps to the last");
         m.track = 0;
         hp2_femenu_input(&m, HP2_IN_DOWN);
-        hp2_femenu_input(&m, HP2_IN_RIGHT);
-        CHECK(m.focus == 1 && m.tod == 1 && hp2_femenu_track_number(&m) == 14, "Time of Day: the other lighting is track + 3");
+        CHECK(m.tod == 1 && hp2_femenu_track_number(&m) == 14, "down: the other lighting is track + 3");
         n = hp2_femenu_items(&m, it, 160);
-        CHECK(find_text(it, n, "Overcast") == 1, "overcast in the Parkland");
+        CHECK(count_named(it, n, "TOD_FRAME") == 1, "its frame");
+        hp2_femenu_input(&m, HP2_IN_UP);
+        CHECK(m.tod == 0, "up: back to sunny");
+        m.tod = 1;
         m.track = 6;
         n = hp2_femenu_items(&m, it, 160);
         CHECK(find_text(it, n, "Sunset") == 1 && hp2_femenu_track_number(&m) == 34, "sunset in Greece (track 34)");
-        m.track = 0;
-        hp2_femenu_input(&m, HP2_IN_DOWN);
-        hp2_femenu_input(&m, HP2_IN_LEFT);
-        CHECK(m.focus == 2 && m.alt == 1, "Alternate on");
+        m.track = 2; m.tod = 0;
         n = hp2_femenu_items(&m, it, 160);
-        CHECK(find_text(it, n, "On") == 1 && count_named(it, n, "TN_TRACK11R") == 1 && count_named(it, n, "TN_TRACK11") == 0, "the other way round: R thumbnails");
-        hp2_femenu_input(&m, HP2_IN_UP);
-        hp2_femenu_input(&m, HP2_IN_UP);
-        CHECK(m.focus == 0, "up returns to the strip");
+        CHECK(find_text(it, n, "7.750 mi (Point-to-Point)") == 1, "a point-to-point course says so");
+        m.track = 0;
         CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.lap_popup, "accept: SELECT LAPS");
         n = hp2_femenu_items(&m, it, 160);
         CHECK(find_text(it, n, "SELECT LAPS") == 1 && find_text(it, n, "2") >= 1 && count_named(it, n, "SELECTLAP_BG") == 1, "the popup shows");
@@ -839,6 +871,42 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         CHECK(m.screen == HP2_FEM_SELECT_CAR, "back: the car");
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 3, "back: Main Menu, on Quick Race");
+    }
+    {   /* Challenge (Racing But With Pigs) */
+        hp2_femenu_input(&m, HP2_IN_UP);
+        hp2_femenu_input(&m, HP2_IN_UP);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        CHECK(m.screen == HP2_FEM_HOT_PURSUIT && m.sel == 2, "Hot Pursuit, on Racing But With Pigs");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.screen == HP2_FEM_CHALLENGE && find_text(it, n, "One Player") == 1 && find_text(it, n, "Single Race") == 1
+              && find_text(it, n, "Setup") == 1 && !strcmp(m.help, "Solo play, full-screen."), "Challenge: Players, Race Type, Skill Level, Setup");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Two Players") == 1 && !strcmp(m.help, "Head-to-head play, split-screen.") && count_named(it, n, "LEFT_ARROW") == 1,
+              "right: Two Players, with arrows");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Free Run") == 1 && !strcmp(m.help, "Run practice laps."), "Race Type: Free Run and its help");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Advanced") == 1, "Skill Level: Advanced");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.sel == 4 && count_named(it, n, "LEFT_ARROW") == 0, "Setup has no arrows");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.screen == HP2_FEM_SELECT_CAR, "Setup: car select");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_CHALLENGE && m.sel == 4, "back: Challenge");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_HOT_PURSUIT && m.sel == 2, "back: Hot Pursuit");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_DOWN);
     }
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(m.quick_mode == HP2_QUICK_NONE && !strcmp(m.help, "Customize your settings."), "Options' help line (the pick is dropped)");

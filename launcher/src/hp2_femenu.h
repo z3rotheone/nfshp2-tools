@@ -19,16 +19,18 @@
  *                    out again for the entry count, 55 px a row.
  *   SELECT_CAR       the car list of Quick Race (SELECT_CAR layout): the 23
  *                    cars, a strip of thumbnails with the selected one in
- *                    the frame, its name, make and specs (0-60, top speed,
- *                    power) from FE_<LANGUAGE>.BIN. Left/right pick a car,
- *                    up/down a colour swatch; back returns to Main Menu. (The game also shows the
- *                    car in 3D and colour swatches: not in the port yet.)
+ *                    the frame and its name logo (CARLOGO_<name>).
+ *                    Left/right pick a car, up/down a colour swatch; accept
+ *                    asks the Transmission, then the Handling (left/right,
+ *                    accept, back); back returns to Main Menu or to
+ *                    Challenge. (The 3D car is not in the port.)
+ *   CHALLENGE        Players, Race Type, Skill Level (left/right) and
+ *                    Setup (car select), opened by the Challenge rows.
  *   SELECT_TRACK     after the car (accept): the 15 courses, as a strip of
  *                    thumbnails starting at the selected one, with its
  *                    picture, logo, length and difficulty. Left/right pick a
- *                    course; down moves to Time of Day (left/right: sunny or
- *                    the course's other lighting) and Alternate (the course
- *                    the other way round), up back; accept asks SELECT LAPS
+ *                    course; up/down pick the Time of Day (sunny or the
+ *                    course's other lighting); accept asks SELECT LAPS
  *                    (left/right, back closes). Every course is open: no
  *                    points. Back returns to the car.
  *   OPTIONS          the game's own screen with the rows the port keeps:
@@ -79,7 +81,7 @@ extern "C" {
 typedef enum {
     HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
     HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING,
-    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK
+    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK, HP2_FEM_CHALLENGE
 } hp2_fem_screen;
 /* HP2_IN_HELP (Triangle) switches the ticker between the row's help line
  * and the menu buttons (accept, back, help), on every screen. */
@@ -102,13 +104,21 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
-    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel;   /* NULL if missing */
+    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal;   /* NULL if missing */
     int                  track;     /* SELECT_TRACK: index into the course table */
     int                  tod;       /* 0 sunny, 1 the course's other lighting */
     int                  alt;       /* 1: the course the other way round */
     int                  focus;     /* 0 the strip, 1 Time of Day, 2 Alternate */
     int                  laps;      /* the lap count the popup shows */
     int                  lap_popup; /* SELECT LAPS is open */
+    int                  chal_from; /* the screen Challenge was opened from */
+    int                  chal_sel;  /* that screen's row */
+    int                  players;   /* Challenge: 0 One Player, 1 Two Players */
+    int                  race_type; /* 0 Single Race, 1 Free Run, 2 Knockout, 3 Lap Knockout */
+    int                  skill;     /* 0 Beginner, 1 Advanced, 2 Expert */
+    int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
+    int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
+    int                  handling;  /* 0 Classic, 1 Extreme */
     int                  car;       /* SELECT_CAR: index into the car table */
     int                  color;     /* SELECT_CAR: the swatch chosen, 0-7 */
     int                  main_sel;  /* where Main Menu was left */
