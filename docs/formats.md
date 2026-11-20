@@ -1298,7 +1298,16 @@ y), and its dark `MI_n_MASK` band lifts. Values stay white; the arrows show
 only on rows with more than two values (none on on/off rows such as
 Leaderboard). The ticker shows the row's help line: OPTIONS row `MENUITEM_n`
 uses string 100019 + n (100020 "Set the volume and the Jukebox."), Display
-rows 1507xx ("Show or hide the leaderboard."), Audio 1505xx. On the US disc
+rows 1507xx ("Show or hide the leaderboard."), Audio 1505xx.
+
+**Audio sliders (`AUDIO_OPTIONS`).** Each volume row has `AUDIO_BARn`
+(`SLIDER1_BAR`, 128 x 16, eight segments) at x 452, 8 below the row's
+label, and `AUDIO_BARn_V` (`SLIDER1_SLIDER`, 8 x 16 at x scale 0.5: a 4 px
+orange marker) whose x the code sets: centred on 452 + 128 x volume, so full
+volume sits at the bar's right end (checked against PCSX2 screenshots).
+Audio Mode's value (`MONOSTEREO`, centred at x 519) sits between arrows at
+410 and 609, which also flank the bars. Mode strings: 110008 Stereo,
+110009 Mono, 110011 Dolby Pro Logic II. On the US disc
 OPTIONS shows six rows: `MENUITEM_7` (Languages, 100007) is hidden. `OPTIONS` has 7 rows (Audio, Controller,
 Display, Save/Load, Player Names, Credits, Languages); `DISPLAY_OPTIONS` has 9
 (Track Map, Rearview Mirror, Units, Leaderboard, Jump Cams, Zone Cams, Player

@@ -276,6 +276,28 @@ static void test_set(void)
     CHECK(s.internal_width == HP2_MAX_WIDTH, "set is clamped too, got %d", s.internal_width);
 }
 
+static void test_audio_file(void)
+{
+    hp2_settings s, t;
+    char buf[2048];
+    printf("audio settings\n");
+    hp2_settings_defaults(&s);
+    CHECK(s.volume[HP2_VOL_MENU_MUSIC] == 70 && s.volume[HP2_VOL_SPEECH] == 80 && s.audio_mode == HP2_AUDIO_STEREO, "defaults");
+    hp2_settings_parse(&s, "[audio]\nmenu_music = 35\nspeech = mute\nengine = 250\ntires = -4\nmode = Surround\n");
+    CHECK(s.volume[HP2_VOL_MENU_MUSIC] == 35, "menu_music");
+    CHECK(s.volume[HP2_VOL_SPEECH] == 0, "mute");
+    CHECK(s.volume[HP2_VOL_ENGINE] == 100 && s.volume[HP2_VOL_TIRES] == 0, "clamped to 0..100");
+    CHECK(s.audio_mode == HP2_AUDIO_SURROUND, "mode, any case");
+    CHECK(s.volume[HP2_VOL_RACE_MUSIC] == 70, "absent keys keep the default");
+    hp2_settings_write(&s, buf, sizeof buf);
+    CHECK(strstr(buf, "[audio]") && strstr(buf, "menu_music = 35") && strstr(buf, "mode = surround"), "written");
+    hp2_settings_parse(&t, buf);
+    CHECK(!memcmp(t.volume, s.volume, sizeof s.volume) && t.audio_mode == s.audio_mode, "round trip");
+    hp2_settings_parse(&s, "mode = dolby\n");
+    CHECK(s.audio_mode == HP2_AUDIO_STEREO, "unknown mode keeps the default");
+    CHECK(!strcmp(hp2_volume_key(HP2_VOL_MENU_SFX), "menu_sfx") && !strcmp(hp2_audio_mode_name(HP2_AUDIO_MONO), "mono"), "names");
+}
+
 int main(void)
 {
     test_defaults();
@@ -287,6 +309,7 @@ int main(void)
     test_aspect_ratio();
     test_glyphs();
     test_set();
+    test_audio_file();
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

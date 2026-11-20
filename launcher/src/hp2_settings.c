@@ -8,8 +8,29 @@
 static const char *ASPECT[] = { "auto", "4:3", "16:9", "16:10", "21:9" };
 static const char *WINDOW[] = { "windowed", "borderless", "fullscreen" };
 static const char *SCHEME[] = { "modern", "classic" };
+static const char *AUDIO_MODE[] = { "stereo", "mono", "surround" };
+static const char *VOLUME_KEY[] = { "menu_music", "race_music", "ambient", "tires",
+                                    "engine", "menu_sfx", "speech" };
+static const int VOLUME_DEFAULT[] = { 70, 70, 80, 80, 80, 80, 80 };
 static const char *GLYPHS[] = { "auto", "xbox", "playstation", "nintendo",
                                 "generic", "keyboard" };
+
+const char *hp2_audio_mode_name(hp2_audio_mode m)
+{
+    return (m >= 0 && m < HP2_AUDIO_COUNT) ? AUDIO_MODE[m] : AUDIO_MODE[0];
+}
+
+const char *hp2_volume_key(hp2_volume v)
+{
+    return (v >= 0 && v < HP2_VOL_COUNT) ? VOLUME_KEY[v] : "";
+}
+
+void hp2_settings_default_volumes(hp2_settings *s)
+{
+    int i;
+    if (!s) return;
+    for (i = 0; i < HP2_VOL_COUNT; i++) s->volume[i] = VOLUME_DEFAULT[i];
+}
 
 const char *hp2_aspect_name(hp2_aspect a)
 {
@@ -67,6 +88,8 @@ void hp2_settings_defaults(hp2_settings *s)
     s->glyphs          = HP2_GLYPHS_AUTO;
     s->deadzone        = 0.20f;
     s->rumble          = 1;
+    hp2_settings_default_volumes(s);
+    s->audio_mode      = HP2_AUDIO_STEREO;
 }
 
 /* --------------------------------------------------------------- validate */
@@ -94,6 +117,14 @@ int hp2_settings_validate(hp2_settings *s)
     CLAMP_ENUM(window, HP2_WINDOW_COUNT);
     CLAMP_ENUM(scheme, HP2_SCHEME_COUNT);
     CLAMP_ENUM(glyphs, HP2_GLYPHS_COUNT);
+    CLAMP_ENUM(audio_mode, HP2_AUDIO_COUNT);
+    {
+        int i;
+        for (i = 0; i < HP2_VOL_COUNT; i++) {
+            if (s->volume[i] < 0)   { s->volume[i] = 0; n++; }
+            if (s->volume[i] > 100) { s->volume[i] = 100; n++; }
+        }
+    }
 
     if (s->vsync  != 0 && s->vsync  != 1) { s->vsync  = 1; n++; }
     if (s->rumble != 0 && s->rumble != 1) { s->rumble = 1; n++; }
@@ -212,6 +243,15 @@ int hp2_settings_parse(hp2_settings *s, const char *text)
             s->deadzone = (float)atof(val); understood++;
         } else if (!strcmp(key, "rumble")) {
             if (parse_bool(val, &s->rumble)) understood++;
+        } else if (!strcmp(key, "mode")) {
+            int i = lookup(val, AUDIO_MODE, HP2_AUDIO_COUNT);
+            if (i >= 0) { s->audio_mode = (hp2_audio_mode)i; understood++; }
+        } else {
+            int i = lookup(key, VOLUME_KEY, HP2_VOL_COUNT);
+            if (i >= 0) {
+                s->volume[i] = !strcmp(val, "off") || !strcmp(val, "mute") ? 0 : atoi(val);
+                understood++;
+            }
         }
         /* anything else: ignored on purpose, for forward compatibility */
     }
@@ -246,7 +286,17 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
         "scheme = %-10s # modern, classic\n"
         "glyphs = %-10s # auto, xbox, playstation, nintendo, generic, keyboard\n"
         "deadzone = %.2f\n"
-        "rumble = %s\n",
+        "rumble = %s\n"
+        "\n"
+        "[audio]                # volumes in percent, 0 = mute\n"
+        "menu_music = %d\n"
+        "race_music = %d\n"
+        "ambient = %d\n"
+        "tires = %d\n"
+        "engine = %d\n"
+        "menu_sfx = %d\n"
+        "speech = %d\n"
+        "mode = %-10s # stereo, mono, surround\n",
         s->internal_width, s->internal_height,
         hp2_aspect_name(s->aspect),
         hp2_window_name(s->window),
@@ -256,7 +306,10 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
         hp2_scheme_name(s->scheme),
         hp2_glyph_set_name(s->glyphs),
         (double)s->deadzone,
-        s->rumble ? "on" : "off");
+        s->rumble ? "on" : "off",
+        s->volume[0], s->volume[1], s->volume[2], s->volume[3],
+        s->volume[4], s->volume[5], s->volume[6],
+        hp2_audio_mode_name(s->audio_mode));
     return (n < 0) ? 0 : (size_t)n;
 }
 

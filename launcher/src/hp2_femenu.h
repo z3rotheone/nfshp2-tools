@@ -4,14 +4,18 @@
  *   OPTIONS          the game's own screen and rows (Audio, Controller,
  *                    Display, Save/Load, Player Names, Credits; Languages
  *                    is hidden, as on the US disc), text and help lines
- *                    from FE_<LANGUAGE>.BIN. "Display" and "Controller"
- *                    open the settings list.
- *   settings list    the DISPLAY_OPTIONS layout with the hp2_menu rows in
- *                    place of the game's: label, value between the arrows,
- *                    row mask and separator cloned from the layout's first
- *                    row, scrolling 7 rows at a time inside the layout's
- *                    SCROLLING_MENU_CLIP_REG, up/down arrows when there is
- *                    more. Left/right change the selected setting.
+ *                    from FE_<LANGUAGE>.BIN. Audio, Display and Controller
+ *                    open a settings page.
+ *   settings pages   one per hp2_menu section: Audio (its rows on the
+ *                    AUDIO_OPTIONS layout, volumes as the game's sliders),
+ *                    Video (Display) and Controls (Controller) on the
+ *                    DISPLAY_OPTIONS layout. Label, value or slider, row
+ *                    mask and separator are cloned from the layout, each
+ *                    placed relative to its own stored row; 7 rows show at
+ *                    a time inside SCROLLING_MENU_CLIP_REG, with up/down
+ *                    arrows when there is more. Left/right change the
+ *                    selected setting; accept presses a button row
+ *                    (Default Volumes) or flips an on/off row.
  *
  * The selected row looks as in the game: orange label, the white
  * MI_OVERSCORE line above it and the orange MI_UNDERSCORE below, its dark
@@ -45,7 +49,9 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 
 typedef struct {
     const hp2_fe_layout *layout;
-    const hp2_fe_screen *options, *display;
+    const hp2_fe_screen *options, *display, *audio;
+    const hp2_fe_screen *page;      /* settings: the layout in use */
+    int                  first, rows;   /* settings: the page's hp2_menu rows */
     const hp2_lang      *lang;      /* may be NULL: placeholder text is used */
     hp2_settings        *cfg;
     hp2_fem_screen       screen;
@@ -67,6 +73,9 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in);
  * always enough for the shipped layouts. Item strings point into m, the
  * language buffer or hp2_menu, so they stay valid until the next input. */
 int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap);
+
+/* The open settings page's section ("Video", "Controls", "Audio"), or "". */
+const char *hp2_femenu_page(const hp2_femenu *m);
 
 /* For tests and front ends: the OPTIONS row count, the string a row shows. */
 int hp2_femenu_options_rows(const hp2_femenu *m);

@@ -16,7 +16,10 @@ dropped in later.
   and switching aspect keeps the height), aspect ratio (auto, 4:3, 16:9,
   16:10, 21:9), window mode, VSync, frame cap, anti-aliasing, anisotropic
   filtering, FPS counter. Controls: scheme, button icons,
-  dead zone, vibration. A front end only draws rows and forwards input.
+  dead zone, vibration. Audio (the game's own rows): seven volumes (menu
+  music, racing music, ambient, tires, engine, menu sounds, speech; 0-100%
+  in 5% steps), audio mode (stereo, mono, surround) and a Default Volumes
+  button. A front end only draws rows and forwards input.
 - **Controller detection** that works out which button names to show. The same
   physical button is `A` on an Xbox pad, `Cross` on a PlayStation pad and `B`
   on a Nintendo pad — binding by position and labelling separately is the only
@@ -111,8 +114,9 @@ d-pad or left stick, A (south) and B (east); keyboard and controller are
 confirmed on a desktop. The selected row looks as in the game (orange label,
 white and orange lines, the help line in the ticker; checked against PCSX2
 screenshots). On OPTIONS, *Display* opens the
-settings list at the video rows and *Controller* at the control rows; the other
-rows do nothing yet. Left/right change a setting; `hp2.ini` (the same file the
+Video page, *Controller* the Controls page and *Audio* the Audio page (the
+game's AUDIO_OPTIONS layout, volumes as its sliders); Save/Load, Player Names
+and Credits do nothing yet, and the Jukebox rows wait for a jukebox. Left/right change a setting; `hp2.ini` (the same file the
 launcher reads, `--config` to choose another) is saved when you leave the list.
 The window follows the aspect setting: 4:3 draws the 640 x 480 canvas with
 side bars (FIT), anything else keeps it at full height and tiles the
@@ -137,6 +141,16 @@ scheme = modern     # modern, classic
 glyphs = auto       # auto, xbox, playstation, nintendo, generic, keyboard
 deadzone = 0.20
 rumble = on
+
+[audio]             # volumes in percent, 0 = mute
+menu_music = 70
+race_music = 70
+ambient = 80
+tires = 80
+engine = 80
+menu_sfx = 80
+speech = 80
+mode = stereo       # stereo, mono, surround
 ```
 
 Unknown keys are ignored rather than rejected, so a newer game can read an

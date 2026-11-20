@@ -41,17 +41,27 @@ typedef enum {
     HP2_ROW_GLYPHS,
     HP2_ROW_DEADZONE,
     HP2_ROW_RUMBLE,
+    HP2_ROW_VOL_MENU_MUSIC,     /* Audio: the game's own rows, in its order */
+    HP2_ROW_VOL_RACE_MUSIC,
+    HP2_ROW_VOL_AMBIENT,
+    HP2_ROW_VOL_TIRES,
+    HP2_ROW_VOL_ENGINE,
+    HP2_ROW_VOL_MENU_SFX,
+    HP2_ROW_VOL_SPEECH,
+    HP2_ROW_AUDIO_MODE,
+    HP2_ROW_DEFAULT_VOLUMES,
     HP2_ROW_COUNT
 } hp2_row;
 
 typedef enum {
     HP2_KIND_CHOICE,   /* a list of values; left/right steps through it */
     HP2_KIND_TOGGLE,   /* on/off; either direction flips it */
-    HP2_KIND_SLIDER    /* a number in steps */
+    HP2_KIND_SLIDER,   /* a number in steps */
+    HP2_KIND_ACTION    /* does something when accepted; no value */
 } hp2_row_kind;
 
 int          hp2_menu_row_count(void);
-const char  *hp2_menu_section(int row);   /* "Video" or "Controls" */
+const char  *hp2_menu_section(int row);   /* "Video", "Controls" or "Audio" */
 const char  *hp2_menu_label(int row);     /* "Internal resolution" ... */
 const char  *hp2_menu_help(int row);      /* one line for the help bar */
 hp2_row_kind hp2_menu_kind(int row);
@@ -62,6 +72,14 @@ void hp2_menu_value(const hp2_settings *s, int row, char *buf, size_t cap);
 /* Step the row one notch: dir > 0 right, dir < 0 left. Lists that run out
  * stop at their end; enumerations wrap. Returns 1 if the setting changed. */
 int hp2_menu_adjust(hp2_settings *s, int row, int dir);
+
+/* An ACTION row's deed (Default Volumes: put the volumes back). Returns 1 if
+ * a setting changed; 0 for other rows. */
+int hp2_menu_activate(hp2_settings *s, int row);
+
+/* Where a volume row's slider stands, 0 (mute) .. 1 (full); -1 for rows
+ * that show their value as text. */
+float hp2_menu_fraction(const hp2_settings *s, int row);
 
 /* 1 if changing this row only takes effect after the game restarts. */
 int hp2_menu_needs_restart(int row);

@@ -36,7 +36,10 @@ static void test_rows(void)
         CHECK(hp2_menu_label(i)[0] != 0, "row %d has a label", i);
         CHECK(hp2_menu_section(i)[0] != 0, "row %d has a section", i);
         CHECK(hp2_menu_help(i)[0] != 0 && strlen(hp2_menu_help(i)) < 60, "row %d has a short help line", i);
-        CHECK(val(&s, i)[0] != 0, "row %d (%s) has a value", i, hp2_menu_label(i));
+        if (hp2_menu_kind(i) == HP2_KIND_ACTION)
+            CHECK(val(&s, i)[0] == 0, "button row %d (%s) has no value", i, hp2_menu_label(i));
+        else
+            CHECK(val(&s, i)[0] != 0, "row %d (%s) has a value", i, hp2_menu_label(i));
     }
     CHECK(!strcmp(hp2_menu_label(-1), ""), "bad row has an empty label");
     CHECK(!strcmp(hp2_menu_label(99), ""), "bad row has an empty label");
@@ -166,6 +169,38 @@ static void test_enums_toggles_slider(void)
     CHECK(hp2_menu_adjust(&s, HP2_ROW_DEADZONE, -1) == 0, "dead zone bottoms at 0");
 }
 
+static void test_audio(void)
+{
+    hp2_settings s;
+    int i;
+    printf("audio\n");
+    hp2_settings_defaults(&s);
+    CHECK(!strcmp(hp2_menu_section(HP2_ROW_VOL_MENU_MUSIC), "Audio") && !strcmp(hp2_menu_section(HP2_ROW_DEFAULT_VOLUMES), "Audio"), "Audio section");
+    CHECK(!strcmp(hp2_menu_label(HP2_ROW_VOL_AMBIENT), "Ambient Sound Effects"), "the game's row names");
+    CHECK(!strcmp(hp2_menu_help(HP2_ROW_VOL_SPEECH), "Set volume from mute to maximum."), "the game's help line");
+    CHECK(!strcmp(val(&s, HP2_ROW_VOL_MENU_MUSIC), "70%"), "menu music 70%%, got %s", val(&s, HP2_ROW_VOL_MENU_MUSIC));
+    CHECK(hp2_menu_fraction(&s, HP2_ROW_VOL_MENU_MUSIC) > 0.69f && hp2_menu_fraction(&s, HP2_ROW_VOL_MENU_MUSIC) < 0.71f, "slider at 0.7");
+    CHECK(hp2_menu_fraction(&s, HP2_ROW_AUDIO_MODE) < 0.0f && hp2_menu_fraction(&s, HP2_ROW_VSYNC) < 0.0f, "no slider on other rows");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_VOL_ENGINE, +1) == 1 && s.volume[HP2_VOL_ENGINE] == 85, "engine 80 -> 85");
+    for (i = 0; i < 10; i++) hp2_menu_adjust(&s, HP2_ROW_VOL_ENGINE, +1);
+    CHECK(s.volume[HP2_VOL_ENGINE] == 100 && hp2_menu_adjust(&s, HP2_ROW_VOL_ENGINE, +1) == 0, "stops at 100");
+    for (i = 0; i < 30; i++) hp2_menu_adjust(&s, HP2_ROW_VOL_SPEECH, -1);
+    CHECK(s.volume[HP2_VOL_SPEECH] == 0 && !strcmp(val(&s, HP2_ROW_VOL_SPEECH), "0%"), "mute is 0%%");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_VOL_SPEECH, -1) == 0, "stops at mute");
+    s.volume[HP2_VOL_TIRES] = 73;
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_VOL_TIRES, +1) == 1 && s.volume[HP2_VOL_TIRES] == 80, "a hand-edited 73 steps onto the 5%% grid");
+    CHECK(!strcmp(val(&s, HP2_ROW_AUDIO_MODE), "Stereo"), "stereo");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_AUDIO_MODE, +1) == 1 && !strcmp(val(&s, HP2_ROW_AUDIO_MODE), "Mono"), "mono");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_AUDIO_MODE, +1) == 1 && !strcmp(val(&s, HP2_ROW_AUDIO_MODE), "Surround"), "surround");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_AUDIO_MODE, +1) == 1 && s.audio_mode == HP2_AUDIO_STEREO, "wraps");
+    CHECK(hp2_menu_kind(HP2_ROW_DEFAULT_VOLUMES) == HP2_KIND_ACTION, "Default Volumes is a button");
+    CHECK(hp2_menu_adjust(&s, HP2_ROW_DEFAULT_VOLUMES, +1) == 0, "left/right do nothing on it");
+    CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_VOLUMES) == 1, "pressing it changes the volumes");
+    CHECK(s.volume[HP2_VOL_SPEECH] == 80 && s.volume[HP2_VOL_ENGINE] == 80 && s.volume[HP2_VOL_TIRES] == 80, "back to the defaults");
+    CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_VOLUMES) == 0, "pressing it again changes nothing");
+    CHECK(hp2_menu_activate(&s, HP2_ROW_VSYNC) == 0, "other rows are not buttons");
+}
+
 static void test_settings_file(void)
 {
     hp2_settings s, t;
@@ -216,6 +251,7 @@ static void test_never_invalid(void)
 int main(void)
 {
     test_rows();
+    test_audio();
     test_default_text();
     test_frame_cap();
     test_lists();

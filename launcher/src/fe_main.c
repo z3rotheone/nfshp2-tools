@@ -150,7 +150,7 @@ int main(int argc, char **argv)
         return 1;
     }
     if (!f.lang || hp2_lang_open(&lang, f.lang, f.lang_len) != 0) memset(&lang, 0, sizeof lang);
-    if (hp2_settings_load(&cfg, config) != 0) hp2_settings_defaults(&cfg);
+    hp2_settings_load(&cfg, config);       /* 1 = read; defaults either way first */
     if (hp2_femenu_init(&menu, &layout, lang.count ? &lang : NULL, &cfg) != 0) {
         fprintf(stderr, "FRONTB.BUN lacks the OPTIONS / DISPLAY_OPTIONS screens\n");
         return 1;

@@ -19,6 +19,17 @@ static const row_info ROWS[HP2_ROW_COUNT] = {
     { "Controls", "Button icons",         HP2_KIND_CHOICE, 0, "Choose which controller's buttons to show." },
     { "Controls", "Stick dead zone",      HP2_KIND_SLIDER, 0, "Set how far the stick moves before you steer." },
     { "Controls", "Vibration",            HP2_KIND_TOGGLE, 0, "Turn vibration on or off." },
+    /* the Audio screen's rows and help lines are the game's own (FE_ENGLISH
+     * 110001-110007, 115001, 110050; 150500-150509) */
+    { "Audio",    "Menu Music",           HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
+    { "Audio",    "Racing Music",         HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
+    { "Audio",    "Ambient Sound Effects", HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
+    { "Audio",    "Tire Sound Effects",   HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
+    { "Audio",    "Engine Sound Effects", HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
+    { "Audio",    "Menu Sound Effects",   HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
+    { "Audio",    "Speech",               HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
+    { "Audio",    "Audio Mode",           HP2_KIND_CHOICE, 0, "Set to match your sound system." },
+    { "Audio",    "Default Volumes",      HP2_KIND_ACTION, 0, "Restore factory volume settings." },
 };
 
 /* Internal resolution presets, ordered by height. 640x448 is what the PS2
@@ -157,8 +168,37 @@ void hp2_menu_value(const hp2_settings *s, int row, char *buf, size_t cap)
     }
     case HP2_ROW_DEADZONE: snprintf(buf, cap, "%d%%", (int)(s->deadzone * 100.0f + 0.5f)); break;
     case HP2_ROW_RUMBLE:   snprintf(buf, cap, "%s", s->rumble ? "On" : "Off"); break;
+    case HP2_ROW_VOL_MENU_MUSIC: case HP2_ROW_VOL_RACE_MUSIC: case HP2_ROW_VOL_AMBIENT:
+    case HP2_ROW_VOL_TIRES: case HP2_ROW_VOL_ENGINE: case HP2_ROW_VOL_MENU_SFX:
+    case HP2_ROW_VOL_SPEECH:
+        snprintf(buf, cap, "%d%%", s->volume[row - HP2_ROW_VOL_MENU_MUSIC]);
+        break;
+    case HP2_ROW_AUDIO_MODE: {
+        static const char *N[] = { "Stereo", "Mono", "Surround" };
+        snprintf(buf, cap, "%s", N[(s->audio_mode >= 0 && s->audio_mode < HP2_AUDIO_COUNT) ? s->audio_mode : 0]);
+        break;
+    }
+    case HP2_ROW_DEFAULT_VOLUMES: break;          /* a button: no value */
     case HP2_ROW_COUNT:    break;
     }
+}
+
+static int is_volume(int row) { return row >= HP2_ROW_VOL_MENU_MUSIC && row <= HP2_ROW_VOL_SPEECH; }
+
+float hp2_menu_fraction(const hp2_settings *s, int row)
+{
+    if (!s || !is_volume(row)) return -1.0f;
+    return (float)s->volume[row - HP2_ROW_VOL_MENU_MUSIC] / 100.0f;
+}
+
+int hp2_menu_activate(hp2_settings *s, int row)
+{
+    int before[HP2_VOL_COUNT], i, changed = 0;
+    if (!s || row != HP2_ROW_DEFAULT_VOLUMES) return 0;
+    for (i = 0; i < HP2_VOL_COUNT; i++) before[i] = s->volume[i];
+    hp2_settings_default_volumes(s);
+    for (i = 0; i < HP2_VOL_COUNT; i++) changed |= before[i] != s->volume[i];
+    return changed;
 }
 
 /* ------------------------------------------------------------------ adjust */
@@ -210,10 +250,27 @@ int hp2_menu_adjust(hp2_settings *s, int row, int dir)
         s->deadzone = (float)n / 20.0f;
         break;
     case HP2_ROW_RUMBLE: s->rumble = !s->rumble; break;
+    case HP2_ROW_VOL_MENU_MUSIC: case HP2_ROW_VOL_RACE_MUSIC: case HP2_ROW_VOL_AMBIENT:
+    case HP2_ROW_VOL_TIRES: case HP2_ROW_VOL_ENGINE: case HP2_ROW_VOL_MENU_SFX:
+    case HP2_ROW_VOL_SPEECH: {
+        int *v = &s->volume[row - HP2_ROW_VOL_MENU_MUSIC];
+        n = (*v + 2) / 5 + (dir > 0 ? 1 : -1);                         /* 5% steps */
+        if (n < 0) n = 0;
+        if (n > 20) n = 20;
+        *v = n * 5;
+        break;
+    }
+    case HP2_ROW_AUDIO_MODE:
+        s->audio_mode = (hp2_audio_mode)wrap((int)s->audio_mode, HP2_AUDIO_COUNT, dir);
+        break;
+    case HP2_ROW_DEFAULT_VOLUMES: break;          /* accepted, not stepped */
     case HP2_ROW_COUNT:  break;
     }
     hp2_settings_validate(s);
-    return s->internal_width != before.internal_width ||
+    for (i = 0; i < HP2_VOL_COUNT; i++)
+        if (s->volume[i] != before.volume[i]) return 1;
+    return s->audio_mode != before.audio_mode ||
+           s->internal_width != before.internal_width ||
            s->internal_height != before.internal_height ||
            s->aspect != before.aspect || s->window != before.window ||
            s->vsync != before.vsync || s->frame_cap != before.frame_cap ||

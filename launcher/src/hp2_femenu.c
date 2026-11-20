@@ -7,6 +7,7 @@
 /* string ids of OPTIONS rows: two open the settings list, Languages is not
  * shown on the US disc. Row n's help line is string 100019 + n (Audio,
  * row 1: 100020 "Set the volume and the Jukebox."). */
+#define SID_AUDIO      100001u
 #define SID_CONTROLLER 100002u
 #define SID_DISPLAY    100004u
 #define SID_LANGUAGES  100007u
@@ -78,7 +79,9 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->cfg = cfg;
     m->options = hp2_fe_find(layout, "OPTIONS");
     m->display = hp2_fe_find(layout, "DISPLAY_OPTIONS");
+    m->audio = hp2_fe_find(layout, "AUDIO_OPTIONS");
     if (!m->options || !m->display || !hp2_fe_row(m->display, 1)) return -1;
+    if (m->audio && !hp2_fe_row(m->audio, 1)) m->audio = NULL;
     {
         int i, n = hp2_fe_row_count(m->options);
         for (i = 1; i <= n && m->orows < (int)(sizeof m->orow / sizeof m->orow[0]); i++)
@@ -91,12 +94,28 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     return 0;
 }
 
-static void open_settings(hp2_femenu *m, int row)
+/* Opens the page of a section ("Video", "Controls", "Audio"): its rows are
+ * the hp2_menu rows of that section, which are contiguous. */
+static void open_page(hp2_femenu *m, const char *section)
 {
+    int r;
+    m->first = -1;
+    m->rows = 0;
+    for (r = 0; r < HP2_ROW_COUNT; r++)
+        if (!strcmp(hp2_menu_section(r), section)) {
+            if (m->first < 0) m->first = r;
+            m->rows++;
+        }
+    if (m->first < 0) return;
     m->options_sel = m->sel;
     m->screen = HP2_FEM_SETTINGS;
-    m->sel = row;
-    m->scroll = row > HP2_ROW_COUNT - HP2_FEM_VISIBLE ? HP2_ROW_COUNT - HP2_FEM_VISIBLE : row;
+    m->page = !strcmp(section, "Audio") && m->audio ? m->audio : m->display;
+    m->sel = m->scroll = m->first;
+}
+
+const char *hp2_femenu_page(const hp2_femenu *m)
+{
+    return m->screen == HP2_FEM_SETTINGS ? hp2_menu_section(m->first) : "";
 }
 
 int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
@@ -109,21 +128,30 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : n; r = HP2_FEM_REDRAW; break;
         case HP2_IN_DOWN: m->sel = m->sel < n ? m->sel + 1 : 1; r = HP2_FEM_REDRAW; break;
         case HP2_IN_ACCEPT:
-            if (w && w->string_id == SID_DISPLAY) { open_settings(m, HP2_ROW_INTERNAL_RES); r = HP2_FEM_REDRAW; }
-            else if (w && w->string_id == SID_CONTROLLER) { open_settings(m, HP2_ROW_SCHEME); r = HP2_FEM_REDRAW; }
+            if (!w) break;
+            if (w->string_id == SID_DISPLAY) open_page(m, "Video");
+            else if (w->string_id == SID_CONTROLLER) open_page(m, "Controls");
+            else if (w->string_id == SID_AUDIO) open_page(m, "Audio");
+            if (m->screen == HP2_FEM_SETTINGS) r = HP2_FEM_REDRAW;
             break;
         case HP2_IN_BACK: r = HP2_FEM_QUIT; break;
         default: break;
         }
     } else {
+        int last = m->first + m->rows - 1;
         switch (in) {
-        case HP2_IN_UP:   m->sel = m->sel > 0 ? m->sel - 1 : HP2_ROW_COUNT - 1; r = HP2_FEM_REDRAW; break;
-        case HP2_IN_DOWN: m->sel = m->sel < HP2_ROW_COUNT - 1 ? m->sel + 1 : 0; r = HP2_FEM_REDRAW; break;
+        case HP2_IN_UP:   m->sel = m->sel > m->first ? m->sel - 1 : last; r = HP2_FEM_REDRAW; break;
+        case HP2_IN_DOWN: m->sel = m->sel < last ? m->sel + 1 : m->first; r = HP2_FEM_REDRAW; break;
         case HP2_IN_LEFT:
         case HP2_IN_RIGHT:
-        case HP2_IN_ACCEPT:
-            if (in == HP2_IN_ACCEPT && hp2_menu_kind(m->sel) != HP2_KIND_TOGGLE) break;
             if (hp2_menu_adjust(m->cfg, m->sel, in == HP2_IN_LEFT ? -1 : 1)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
+            break;
+        case HP2_IN_ACCEPT:
+            if (hp2_menu_kind(m->sel) == HP2_KIND_ACTION) {
+                if (hp2_menu_activate(m->cfg, m->sel)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
+            } else if (hp2_menu_kind(m->sel) == HP2_KIND_TOGGLE) {
+                if (hp2_menu_adjust(m->cfg, m->sel, 1)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
+            }
             break;
         case HP2_IN_BACK:
             m->screen = HP2_FEM_OPTIONS;
@@ -228,16 +256,40 @@ static int options_items(hp2_femenu *m, list *l)
     return l->n;
 }
 
+/* y of the stored row (MENUITEM_n) nearest a widget: a template is placed
+ * relative to its own row (DISPLAY_OPTIONS keeps its value and arrows by row
+ * 1, AUDIO_OPTIONS by row 8, Audio Mode). */
+static float row_y_near(const hp2_fe_screen *s, float y)
+{
+    float best = 0.0f, d = 1e9f;
+    int i;
+    for (i = 0; i < s->count; i++) {
+        const hp2_fe_widget *w = &s->widgets[i];
+        float e = w->y - y;
+        if (e < 0) e = -e;
+        if (row_number(w) && e < d) { d = e; best = w->y; }
+    }
+    return best;
+}
+
+/* SLIDER1_BAR is 128 x 16; the marker (SLIDER1_SLIDER, 8 x 16 at x scale
+ * 0.5) is 4 wide and sits centred on the value. Checked against PCSX2
+ * screenshots: full volume puts it at the bar's right end. */
+#define SLIDER_W 128.0f
+#define MARKER_W 4.0f
+
 static int settings_items(hp2_femenu *m, list *l)
 {
-    const hp2_fe_screen *s = m->display;
+    const hp2_fe_screen *s = m->page;
     const hp2_fe_widget *lab = hp2_fe_row(s, 1), *lab2 = hp2_fe_row(s, 2);
     const hp2_fe_widget *mask = named(s, "MI_1_MASK"), *clipw = named(s, "SCROLLING_MENU_CLIP_REG");
     const hp2_fe_widget *la = named(s, "LEFT_ARROW"), *ra = named(s, "RIGHT_ARROW");
     const hp2_fe_widget *ua = named(s, "UP_ARROW"), *da = named(s, "DOWN_ARROW");
+    const hp2_fe_widget *bar = named(s, "AUDIO_BAR1"), *mark = named(s, "AUDIO_BAR1_V");
     const hp2_fe_widget *val = NULL, *sep = NULL;
     float pitch = lab2 ? lab2->y - lab->y : 37.0f, clip[4] = { 0, 0, 640, 480 };
-    int i, k;
+    float val_dy = 0, arrow_dy = 0;
+    int i, k, end = m->first + m->rows;
 
     if (clipw) {   /* WHITE16X16 scaled */
         clip[0] = clipw->x; clip[1] = clipw->y; clip[2] = 16.0f * clipw->sx; clip[3] = 16.0f * clipw->sy;
@@ -245,13 +297,14 @@ static int settings_items(hp2_femenu *m, list *l)
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
         int in_list = w->y >= clip[1] - 8.0f && w->y < clip[1] + clip[3];
-        /* the value of row 1: the centred text nearest its line */
-        if (w->kind == HP2_FE_TEXT && (w->align & HP2_FE_ALIGN_CENTRE) && in_list && !animated(w)
-            && (!val || w->y - lab->y < val->y - lab->y) && w->y >= lab->y)
+        /* the value template: the first centred text in the list */
+        if (!val && w->kind == HP2_FE_TEXT && (w->align & HP2_FE_ALIGN_CENTRE) && in_list && !animated(w))
             val = w;
         /* a thin separator under row 1 */
         if (!strcmp(w->name, "BOTTOM_MASK") && w->sy < 1.0f && (!sep || w->y < sep->y)) sep = w;
     }
+    if (val) val_dy = val->y - row_y_near(s, val->y);
+    if (la) arrow_dy = la->y - row_y_near(s, la->y);
 
     /* the screen itself: everything that is not a row of the stored list */
     for (i = 0; i < s->count; i++) {
@@ -259,50 +312,62 @@ static int settings_items(hp2_femenu *m, list *l)
         hp2_fe_item *it;
         if (animated(w) || is_line(w) || row_number(w) || w == val || !strcmp(w->name, "SCROLLING_TEXT")) continue;
         if (has_prefix(w->name, "MI_") && has_suffix(w->name, "_MASK")) continue;
-        if (!strcmp(w->name, "BOTTOM_MASK")) continue;
+        if (!strcmp(w->name, "BOTTOM_MASK") || has_prefix(w->name, "AUDIO_BAR")) continue;
+        if (!strcmp(w->name, "SONGNAME")) continue;                  /* the jukebox's, parked */
         if (w->kind == HP2_FE_TEXT && (w->align & HP2_FE_ALIGN_CENTRE) && w->y >= clip[1] - 8.0f
             && w->y < clip[1] + clip[3]) continue;                  /* other rows' values */
         it = push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
         /* the title (the big text above the list) names the section */
         if (it && w->kind == HP2_FE_TEXT && w->y < clip[1] - 30.0f && w->string_id)
-            it->str = hp2_menu_section(m->sel);
+            it->str = hp2_menu_section(m->first);
     }
 
     /* the rows */
-    for (k = m->scroll; k < HP2_ROW_COUNT && k < m->scroll + HP2_FEM_VISIBLE; k++) {
-        float dy = pitch * (float)(k - m->scroll);
+    for (k = m->scroll; k < end && k < m->scroll + HP2_FEM_VISIBLE; k++) {
+        float y = lab->y + pitch * (float)(k - m->scroll);
+        float f = hp2_menu_fraction(m->cfg, k);
         int on = k == m->sel;
+        hp2_row_kind kind = hp2_menu_kind(k);
         hp2_fe_item *it;
         it = push(l, lab, hp2_menu_label(k));
         if (it) {
-            it->w.y += dy;
+            it->w.y = y;
             if (on) memcpy(it->w.rgba, ORANGE, 4); else grey(it, 0x50);
             set_clip(it, clip);
         }
-        if (val) {
+        if (f >= 0.0f && bar && mark) {                             /* a volume: the slider */
+            it = push(l, bar, NULL);
+            if (it) { it->w.y = y + (bar->y - lab->y); set_clip(it, clip); }
+            it = push(l, mark, NULL);
+            if (it) {
+                it->w.x = bar->x + f * SLIDER_W - MARKER_W * 0.5f;
+                it->w.y = y + (mark->y - lab->y);
+                set_clip(it, clip);
+            }
+        } else if (val && kind != HP2_KIND_ACTION) {
             it = push(l, val, m->value[k]);
-            if (it) { it->w.y += dy; set_clip(it, clip); }
+            if (it) { it->w.y = y + val_dy; set_clip(it, clip); }
         }
         if (mask && !on) {
             it = push(l, mask, NULL);
-            if (it) { it->w.y += dy; it->w.visible = 1; set_clip(it, clip); }
+            if (it) { it->w.y = y + (mask->y - lab->y); it->w.visible = 1; set_clip(it, clip); }
         }
         if (sep) {
             it = push(l, sep, NULL);
-            if (it) { it->w.y = lab->y + (sep->y - lab->y) + dy; set_clip(it, clip); }
+            if (it) { it->w.y = y + (sep->y - lab->y); set_clip(it, clip); }
         }
-        if (on) selection_lines(m, l, s, lab->y + dy);
-        /* arrows on every row; the game leaves them off on/off rows (a
-         * deliberate difference, chosen for the port) */
-        if (on && la && ra) {
+        if (on) selection_lines(m, l, s, y);
+        /* arrows on every row that left/right changes; the game leaves them
+         * off on/off rows (a deliberate difference, chosen for the port) */
+        if (on && la && ra && kind != HP2_KIND_ACTION) {
             it = push(l, la, NULL);
-            if (it) it->w.y += dy;
+            if (it) it->w.y = y + arrow_dy;
             it = push(l, ra, NULL);
-            if (it) it->w.y += dy;
+            if (it) it->w.y = y + arrow_dy;
         }
     }
-    if (ua && m->scroll > 0) push(l, ua, NULL);
-    if (da && m->scroll + HP2_FEM_VISIBLE < HP2_ROW_COUNT) push(l, da, NULL);
+    if (ua && m->scroll > m->first) push(l, ua, NULL);
+    if (da && m->scroll + HP2_FEM_VISIBLE < end) push(l, da, NULL);
     help_bar(m, l, s);
     return l->n;
 }

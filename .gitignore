@@ -34,6 +34,7 @@ test_menu
 test_fe
 test_assets
 hp2fe
+test_settings_tmp.ini
 *.o
 *.exe
 hp2.ini

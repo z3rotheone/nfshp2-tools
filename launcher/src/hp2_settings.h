@@ -21,6 +21,10 @@
  *     scheme = modern
  *     glyphs = auto
  *     deadzone = 0.20
+ *     [audio]
+ *     menu_music = 70
+ *     ...
+ *     mode = stereo
  *
  * Unknown keys are ignored rather than rejected, so a newer game can read an
  * older file and vice versa. Every value is clamped to something usable on
@@ -57,6 +61,25 @@ typedef enum {
     HP2_SCHEME_CLASSIC,    /* face buttons, as the PS2 release shipped */
     HP2_SCHEME_COUNT
 } hp2_scheme;
+
+typedef enum {
+    HP2_AUDIO_STEREO = 0,
+    HP2_AUDIO_MONO,
+    HP2_AUDIO_SURROUND,    /* the PS2 offered Dolby Pro Logic II here */
+    HP2_AUDIO_COUNT
+} hp2_audio_mode;
+
+/* The seven volumes of the game's Audio screen, in its order. */
+typedef enum {
+    HP2_VOL_MENU_MUSIC = 0,
+    HP2_VOL_RACE_MUSIC,
+    HP2_VOL_AMBIENT,
+    HP2_VOL_TIRES,
+    HP2_VOL_ENGINE,
+    HP2_VOL_MENU_SFX,
+    HP2_VOL_SPEECH,
+    HP2_VOL_COUNT
+} hp2_volume;
 
 typedef enum {
     HP2_GLYPHS_AUTO = 0,   /* detect from the connected pad */
@@ -97,6 +120,10 @@ typedef struct {
     hp2_glyph_set   glyphs;
     float           deadzone;       /* 0.0 .. 0.9 */
     int             rumble;         /* 0 or 1 */
+
+    /* audio */
+    int             volume[HP2_VOL_COUNT];  /* percent, 0 (mute) .. 100 */
+    hp2_audio_mode  audio_mode;
 } hp2_settings;
 
 /* Fill with the defaults: 1920x1080, 16:9, borderless, vsync on, 60 fps cap,
@@ -132,6 +159,11 @@ const char *hp2_aspect_name(hp2_aspect a);
 const char *hp2_window_name(hp2_window_mode w);
 const char *hp2_scheme_name(hp2_scheme c);
 const char *hp2_glyph_set_name(hp2_glyph_set g);
+const char *hp2_audio_mode_name(hp2_audio_mode m);
+const char *hp2_volume_key(hp2_volume v);     /* "menu_music" ... */
+
+/* Puts the seven volumes back to their defaults (the Default Volumes row). */
+void hp2_settings_default_volumes(hp2_settings *s);
 
 /* The aspect as a ratio, or 0 for AUTO (meaning: ask the display). */
 float hp2_aspect_ratio(hp2_aspect a);

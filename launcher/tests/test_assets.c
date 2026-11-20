@@ -241,6 +241,29 @@ static int find_text(const hp2_fe_item *it, int n, const char *s)
     return c;
 }
 
+static int count_named(const hp2_fe_item *it, int n, const char *name)
+{
+    int i, c = 0;
+    for (i = 0; i < n; i++) c += !strcmp(it[i].w.name, name);
+    return c;
+}
+
+/* Down and up through a whole page: the selection stays on the page and in
+ * view, and min(rows, 7) rows are drawn every time. */
+static void page_walk(hp2_femenu *m, hp2_fe_item *it, int rows)
+{
+    int i, k, n, drawn, want = rows < HP2_FEM_VISIBLE ? rows : HP2_FEM_VISIBLE;
+    for (i = 0; i < 3 * rows; i++) {
+        hp2_femenu_input(m, i < rows + 2 ? HP2_IN_DOWN : HP2_IN_UP);
+        CHECK(m->sel >= m->first && m->sel < m->first + rows, "%s step %d: row %d on the page", hp2_femenu_page(m), i, m->sel);
+        CHECK(m->scroll <= m->sel && m->sel < m->scroll + HP2_FEM_VISIBLE && m->scroll >= m->first
+              && m->scroll <= m->first + rows - want, "%s step %d: row %d in view (scroll %d)", hp2_femenu_page(m), i, m->sel, m->scroll);
+        n = hp2_femenu_items(m, it, 160);
+        for (k = 0, drawn = 0; k < HP2_ROW_COUNT; k++) drawn += find_text(it, n, hp2_menu_label(k));
+        CHECK(drawn == want, "%s step %d: %d rows drawn", hp2_femenu_page(m), i, drawn);
+    }
+}
+
 static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
 {
     static hp2_fe_item it[160];
@@ -269,26 +292,61 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(m.sel == 2, "Controller");
     hp2_femenu_input(&m, HP2_IN_ACCEPT);
-    CHECK(m.screen == HP2_FEM_SETTINGS && m.sel == HP2_ROW_SCHEME, "Controller opens the list at the controls");
-    CHECK(m.scroll <= m.sel && m.sel < m.scroll + HP2_FEM_VISIBLE, "selection visible");
+    CHECK(m.screen == HP2_FEM_SETTINGS && !strcmp(hp2_femenu_page(&m), "Controls") && m.sel == HP2_ROW_SCHEME, "Controller opens the Controls page");
     n = hp2_femenu_items(&m, it, 160);
     CHECK(find_text(it, n, "Controls") == 1, "title = section");
     CHECK(find_text(it, n, hp2_menu_label(HP2_ROW_SCHEME)) == 1, "row label from hp2_menu");
+    CHECK(find_text(it, n, hp2_menu_label(HP2_ROW_VSYNC)) == 0, "no Video rows on the Controls page");
+    CHECK(count_named(it, n, "DOWN_ARROW") == 0 && count_named(it, n, "UP_ARROW") == 0, "4 rows: no scrolling");
     CHECK(!strcmp(m.help, hp2_menu_help(HP2_ROW_SCHEME)), "help line from hp2_menu");
     before = cfg.scheme;
     r = hp2_femenu_input(&m, HP2_IN_RIGHT);
     CHECK((r & HP2_FEM_CHANGED) && cfg.scheme != before, "right changes the setting");
-    for (i = 0; i < 3 * HP2_ROW_COUNT; i++) {
-        int k, rows = 0;
-        hp2_femenu_input(&m, i < HP2_ROW_COUNT + 2 ? HP2_IN_DOWN : HP2_IN_UP);
-        CHECK(m.scroll <= m.sel && m.sel < m.scroll + HP2_FEM_VISIBLE && m.scroll >= 0
-              && m.scroll <= HP2_ROW_COUNT - HP2_FEM_VISIBLE, "step %d: row %d visible (scroll %d)", i, m.sel, m.scroll);
-        n = hp2_femenu_items(&m, it, 160);
-        for (k = 0; k < HP2_ROW_COUNT; k++) rows += find_text(it, n, hp2_menu_label(k));
-        CHECK(rows == HP2_FEM_VISIBLE, "step %d: %d rows drawn", i, rows);
-    }
+    hp2_femenu_input(&m, HP2_IN_UP);
+    CHECK(m.sel == HP2_ROW_RUMBLE, "up from the page's top wraps to its bottom");
+    page_walk(&m, it, 4);
     hp2_femenu_input(&m, HP2_IN_BACK);
     CHECK(m.screen == HP2_FEM_OPTIONS && m.sel == 2, "back returns to Controller");
+
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK(!strcmp(hp2_femenu_page(&m), "Video") && m.sel == HP2_ROW_INTERNAL_RES, "Display opens the Video page");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(count_named(it, n, "DOWN_ARROW") == 1, "8 rows: more below");
+    page_walk(&m, it, 8);
+    hp2_femenu_input(&m, HP2_IN_BACK);
+
+    hp2_femenu_input(&m, HP2_IN_UP);
+    hp2_femenu_input(&m, HP2_IN_UP);
+    CHECK(m.sel == 1, "Audio");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK(!strcmp(hp2_femenu_page(&m), "Audio") && m.page == hp2_fe_find(L, "AUDIO_OPTIONS") && m.sel == HP2_ROW_VOL_MENU_MUSIC,
+          "Audio opens its page on the AUDIO_OPTIONS layout");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "Audio") == 1 && find_text(it, n, "Menu Music") == 1, "title and first row");
+    CHECK(count_named(it, n, "AUDIO_BAR1") == 7 && count_named(it, n, "AUDIO_BAR1_V") == 7, "7 sliders on the 7 volume rows shown");
+    CHECK(find_text(it, n, "70%") == 0, "volumes show as sliders, not text");
+    for (i = 0; i < n; i++)
+        if (!strcmp(it[i].w.name, "AUDIO_BAR1_V") && it[i].w.y < 90.0f)
+            CHECK(it[i].w.x > 539.0f && it[i].w.x < 540.0f, "Menu Music's marker at 70%%: x %g", it[i].w.x);
+    CHECK(!strcmp(m.help, "Set volume from mute to maximum."), "the game's help line");
+    r = hp2_femenu_input(&m, HP2_IN_RIGHT);
+    CHECK((r & HP2_FEM_CHANGED) && cfg.volume[HP2_VOL_MENU_MUSIC] == 75, "right: 75%%");
+    for (i = 0; i < 7; i++) hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(m.sel == HP2_ROW_AUDIO_MODE, "Audio Mode");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "Stereo") == 1 && count_named(it, n, "LEFT_ARROW") == 1, "its value and arrows");
+    CHECK(count_named(it, n, "UP_ARROW") == 1, "scrolled: more above");
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(m.sel == HP2_ROW_DEFAULT_VOLUMES, "Default Volumes");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(count_named(it, n, "LEFT_ARROW") == 0, "a button has no arrows");
+    CHECK(hp2_femenu_input(&m, HP2_IN_RIGHT) == 0, "right does nothing on it");
+    r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK((r & HP2_FEM_CHANGED) && cfg.volume[HP2_VOL_MENU_MUSIC] == 70, "accept resets the volumes");
+    page_walk(&m, it, 9);
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(m.screen == HP2_FEM_OPTIONS && m.sel == 1, "back returns to Audio");
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) & HP2_FEM_QUIT, "back from OPTIONS quits");
     CHECK(hp2_femenu_items(&m, it, 3) == 3, "never more than cap");
 }
