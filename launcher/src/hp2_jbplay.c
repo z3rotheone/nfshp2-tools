@@ -68,9 +68,8 @@ int hp2_jbplay_fill(hp2_jbplay *p, int16_t *out, int frames)
 {
     int got = 0, vol, i, restarts = 0;
     if (!p->jb || !p->path[0]) return 0;
-    /* a song switched off in the Jukebox stops now */
-    if (p->song >= 0 && !hp2_jbplay_in_menus(hp2_jbplay_status(p->jb, p->cfg, p->song)))
-        hp2_stream_close(&p->st);
+    /* a song switched off in the Jukebox plays on to its end; it is just not
+     * picked again */
     while (got < frames) {
         int k;
         if (p->st.done) {

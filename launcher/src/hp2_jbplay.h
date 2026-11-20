@@ -4,8 +4,8 @@
  *
  * It only produces samples (stereo int16 at the bank's rate); the caller
  * hands them to the sound card (fe_main.c queues them to SDL). It follows
- * the settings live: a song switched off in the Jukebox stops at once, a
- * volume change applies to the next samples. No SDL.
+ * the settings live: a volume change applies to the next samples; a song
+ * switched off plays to its end and is not picked again. No SDL.
  */
 #ifndef HP2_JBPLAY_H
 #define HP2_JBPLAY_H

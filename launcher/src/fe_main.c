@@ -120,15 +120,14 @@ static void update_glyphs(hp2_femenu *m, const hp2_settings *cfg, SDL_GameContro
     hp2_femenu_refresh(m);
 }
 
-/* The song changed in the Jukebox is heard now: one set to Menu or On
- * starts; the one playing, switched off, gives way to another. */
+/* A song set to Menu or On in the Jukebox starts now (unless it is already
+ * playing). One set to Off keeps playing to its end and is not picked again. */
 static void follow_jukebox(hp2_femenu *m, hp2_jbplay *p, SDL_AudioDeviceID audio)
 {
     int s = m->changed_song;
-    if (!audio || s < 0) return;
-    if (hp2_jbplay_in_menus(hp2_femenu_play(m, s))) hp2_jbplay_play(p, s);
-    else if (hp2_jbplay_now(p) == s) hp2_jbplay_skip(p);
-    else return;
+    if (!audio || s < 0 || hp2_jbplay_now(p) == s) return;
+    if (!hp2_jbplay_in_menus(hp2_femenu_play(m, s))) return;
+    hp2_jbplay_play(p, s);
     SDL_ClearQueuedAudio(audio);
 }
 

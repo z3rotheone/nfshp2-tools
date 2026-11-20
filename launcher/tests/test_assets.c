@@ -391,7 +391,10 @@ static void test_stream(void)
     CHECK(buf[0] == 0 && buf[1] == 0, "volume 0: silence");
     cfg.volume[HP2_VOL_MENU_MUSIC] = 100;
     cfg.song[1] = HP2_PLAY_OFF;
-    CHECK(hp2_jbplay_fill(&p, buf, 100) == 0 && hp2_jbplay_now(&p) == -1, "switched off for the menus: stops at once");
+    CHECK(hp2_jbplay_fill(&p, buf, 100) == 100 && hp2_jbplay_now(&p) == 1, "switched off: it plays on");
+    for (total = 0; total < 3 * 2048 * 28 && hp2_jbplay_now(&p) == 1; total += n)
+        if ((n = hp2_jbplay_fill(&p, buf, 8192)) <= 0) break;
+    CHECK(hp2_jbplay_now(&p) == -1 && hp2_jbplay_fill(&p, buf, 100) == 0, "to its end; then nothing, as no song is left for the menus");
     cfg.song[0] = HP2_PLAY_ON;
     CHECK(hp2_jbplay_fill(&p, buf, 100) == 100 && hp2_jbplay_now(&p) == 0 && buf[0] == 1, "On: song 1 plays");
     for (total = 0; total < 3 * 2048 * 28; total += n)
@@ -406,9 +409,6 @@ static void test_stream(void)
     CHECK(hp2_jbplay_play(&p, 1) == 1 && hp2_jbplay_now(&p) == 1, "play song 2 now (as the Jukebox does when it is set to Menu)");
     hp2_jbplay_fill(&p, buf, 10);
     CHECK(buf[0] == 2 && hp2_jbplay_now(&p) == 1, "and it is what plays, from its start");
-    hp2_jbplay_play(&p, 2);
-    hp2_jbplay_fill(&p, buf, 10);
-    CHECK(hp2_jbplay_now(&p) != 2, "a song set to Off does not keep playing");
     hp2_jbplay_play(&p, 1);
     hp2_jbplay_skip(&p);
     CHECK(hp2_jbplay_now(&p) == -1, "skip ends it");
