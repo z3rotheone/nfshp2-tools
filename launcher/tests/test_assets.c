@@ -719,7 +719,8 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     hp2_femenu_input(&m, HP2_IN_UP);
     hp2_femenu_input(&m, HP2_IN_UP);
     CHECK(m.sel == 3 && !strcmp(m.help, "Fill your ticket quota for big points!"), "up from the top wraps to You're The Pig");
-    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_HOT_PURSUIT, "a mode does nothing yet");
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(m.sel == 1 && hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_HOT_PURSUIT, "Ultimate Fugitive does nothing yet");
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu, on Hot Pursuit");
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(!strcmp(m.help, "Take on the world's best sports cars!"), "World Racing's help line");
@@ -749,7 +750,6 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     }
     {   /* car select */
         int i, thumbs = 0, ok = 1;
-        char want[16];
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
         CHECK(m.screen == HP2_FEM_SELECT_CAR && m.car == 0, "Quick Race opens car select on the first car");
         n = hp2_femenu_items(&m, it, 160);
@@ -905,6 +905,25 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         CHECK(m.screen == HP2_FEM_HOT_PURSUIT && m.sel == 2, "back: Hot Pursuit");
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu");
+        n = 0;      /* You're The Pig: three rows, titled with the port's name */
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.screen == HP2_FEM_CHALLENGE && m.chal_cop && find_text(it, n, "You're The Pig") == 1 && find_text(it, n, "Race Type") == 0
+              && find_text(it, n, "Skill Level") == 1 && find_text(it, n, "Setup") == 1, "You're The Pig: Players, Skill Level, Setup");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.skill == 2 && !strcmp(m.help, "Toughest cops"), "Skill Level: the cops' help line");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.screen == HP2_FEM_SELECT_CAR, "Setup: car select");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_CHALLENGE && m.sel == 3, "back: the setup, on Setup");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu again");
         hp2_femenu_input(&m, HP2_IN_DOWN);
         hp2_femenu_input(&m, HP2_IN_DOWN);
     }

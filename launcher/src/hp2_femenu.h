@@ -25,7 +25,9 @@
  *                    accept, back); back returns to Main Menu or to
  *                    Challenge. (The 3D car is not in the port.)
  *   CHALLENGE        Players, Race Type, Skill Level (left/right) and
- *                    Setup (car select), opened by the Challenge rows.
+ *                    Setup (car select), opened by the Challenge rows; You're
+ *                    The Pig opens the same screen without Race Type, titled
+ *                    with the port's name for the row.
  *   SELECT_TRACK     after the car (accept): the 15 courses, as a strip of
  *                    thumbnails starting at the selected one, with its
  *                    picture, logo, length and difficulty. Left/right pick a
@@ -104,13 +106,14 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
-    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal;   /* NULL if missing */
+    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal, *cop;   /* NULL if missing */
     int                  track;     /* SELECT_TRACK: index into the course table */
     int                  tod;       /* 0 sunny, 1 the course's other lighting */
     int                  alt;       /* 1: the course the other way round */
     int                  focus;     /* 0 the strip, 1 Time of Day, 2 Alternate */
     int                  laps;      /* the lap count the popup shows */
     int                  lap_popup; /* SELECT LAPS is open */
+    int                  chal_cop;  /* 1: the You're The Pig setup (no Race Type row) */
     int                  chal_from; /* the screen Challenge was opened from */
     int                  chal_sel;  /* that screen's row */
     int                  players;   /* Challenge: 0 One Player, 1 Two Players */

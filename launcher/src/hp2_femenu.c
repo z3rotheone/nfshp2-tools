@@ -25,7 +25,7 @@
 /* Main Menu and the mode menus, as the port has them: each entry's label
  * (a string id, or the port's own name) and help line (FE_<LANG>.BIN
  * strings 10006-10017), in the port's order. */
-enum { GO_NONE, GO_HOT_PURSUIT, GO_WORLD_RACING, GO_QUICK, GO_OPTIONS, GO_CHALLENGE, GO_SETUP };
+enum { GO_NONE, GO_HOT_PURSUIT, GO_WORLD_RACING, GO_QUICK, GO_OPTIONS, GO_CHALLENGE, GO_SETUP, GO_COP };
 typedef struct {
     uint32_t    sid;        /* label string, 0 = name only */
     const char *name;       /* the port's own label, or the fallback */
@@ -43,13 +43,18 @@ static const list_entry MAIN_LIST[] = {
 static const list_entry HOT_PURSUIT_LIST[] = {
     { 10029, "Ultimate Fugitive",    1, 10013, GO_NONE },   /* Ultimate Racer: Beat the heat in 30 events. */
     { 10030, "Racing But With Pigs", 1, 10012, GO_CHALLENGE },   /* Challenge: One-player and two-player challenges. */
-    { 10028, "You're The Pig",       1, 10014, GO_NONE },   /* You're The Cop: Fill your ticket quota for big points! */
+    { 10028, "You're The Pig",       1, 10014, GO_COP },   /* You're The Cop: Fill your ticket quota for big points! */
 };
 /* Challenge's rows: Players, Race Type, Skill Level, Setup. Their help lines
  * follow the value (list_help). */
 static const list_entry CHALLENGE_LIST[] = {
     { 20001, "Players",     0, 19000, GO_NONE },
     { 20002, "Race Type",   0, 20010, GO_NONE },
+    { 20020, "Skill Level", 0, 0,     GO_NONE },
+    { 20019, "Setup",       0, 0,     GO_SETUP },
+};
+static const list_entry COP_LIST[] = {      /* You're The Pig: no Race Type */
+    { 20001, "Players",     0, 19000, GO_NONE },
     { 20020, "Skill Level", 0, 0,     GO_NONE },
     { 20019, "Setup",       0, 0,     GO_SETUP },
 };
@@ -71,6 +76,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_SELECT_CAR   0xB5074AB4u
 #define SCR_SELECT_TRACK 0x15417B53u
 #define SCR_CHALLENGE    0x2D62CFE2u
+#define SCR_COP          0xE55F1297u
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
 
@@ -244,7 +250,7 @@ static const hp2_fe_screen *list_screen(const hp2_femenu *m)
     case HP2_FEM_MAIN:         return m->mainm;
     case HP2_FEM_HOT_PURSUIT:  return m->hotp;
     case HP2_FEM_WORLD_RACING: return m->world;
-    case HP2_FEM_CHALLENGE:    return m->chal;
+    case HP2_FEM_CHALLENGE:    return m->chal_cop ? m->cop : m->chal;
     default:                   return NULL;
     }
 }
@@ -309,7 +315,7 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
     case HP2_IN_LEFT:  m->car = (m->car + HP2_CARS - 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_RIGHT: m->car = (m->car + 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
-        if (!m->quick_mode && m->chal) { m->screen = HP2_FEM_CHALLENGE; m->sel = 4; return HP2_FEM_REDRAW; }
+        if (!m->quick_mode && m->chal) { m->screen = HP2_FEM_CHALLENGE; m->sel = m->chal_cop ? 3 : 4; return HP2_FEM_REDRAW; }
         m->screen = HP2_FEM_MAIN;
         m->sel = m->main_sel;
         return HP2_FEM_REDRAW;
@@ -379,7 +385,9 @@ static const list_entry *list_entries(const hp2_femenu *m, int *n)
     switch (m->screen) {
     case HP2_FEM_MAIN:         *n = (int)(sizeof MAIN_LIST / sizeof MAIN_LIST[0]); return MAIN_LIST;
     case HP2_FEM_HOT_PURSUIT:  *n = (int)(sizeof HOT_PURSUIT_LIST / sizeof HOT_PURSUIT_LIST[0]); return HOT_PURSUIT_LIST;
-    case HP2_FEM_CHALLENGE:    *n = (int)(sizeof CHALLENGE_LIST / sizeof CHALLENGE_LIST[0]); return CHALLENGE_LIST;
+    case HP2_FEM_CHALLENGE:
+        if (m->chal_cop) { *n = (int)(sizeof COP_LIST / sizeof COP_LIST[0]); return COP_LIST; }
+        *n = (int)(sizeof CHALLENGE_LIST / sizeof CHALLENGE_LIST[0]); return CHALLENGE_LIST;
     case HP2_FEM_WORLD_RACING: *n = (int)(sizeof WORLD_RACING_LIST / sizeof WORLD_RACING_LIST[0]); return WORLD_RACING_LIST;
     default:                   *n = 0; return NULL;
     }
@@ -409,6 +417,13 @@ static const char *quick_name(int q)
     return q == HP2_QUICK_HOT_PURSUIT ? "Hot Pursuit" : q == HP2_QUICK_WORLD_RACING ? "World Racing" : "";
 }
 
+/* Challenge's row k (1-based) as 0 Players, 1 Race Type, 2 Skill Level, 3 Setup;
+ * You're The Pig has no Race Type. */
+static int chal_kind(const hp2_femenu *m, int k)
+{
+    return m->chal_cop && k >= 2 ? k : k - 1;
+}
+
 static void list_help(hp2_femenu *m)
 {
     int n;
@@ -422,7 +437,9 @@ static void list_help(hp2_femenu *m)
         return;
     }
     if (m->screen == HP2_FEM_CHALLENGE) {      /* the help follows the value */
-        uint32_t id = m->sel == 1 ? 19000u + (uint32_t)m->players : m->sel == 2 ? 20010u + (uint32_t)m->race_type : 0u;
+        int kd = chal_kind(m, m->sel);
+        uint32_t id = kd == 0 ? 19000u + (uint32_t)m->players : kd == 1 ? 20010u + (uint32_t)m->race_type
+                    : kd == 2 ? (m->chal_cop ? 19006u : 19002u) + (uint32_t)m->skill : 19005u;
         h = id && m->lang ? hp2_lang_by_id(m->lang, id) : NULL;
         snprintf(m->help, sizeof m->help, "%s", h ? h : "");
         return;
@@ -508,6 +525,8 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->tracksel = hp2_fe_find_id(layout, SCR_SELECT_TRACK);
     m->chal = hp2_fe_find_id(layout, SCR_CHALLENGE);
     if (!hp2_fe_row(m->chal, 1)) m->chal = NULL;
+    m->cop = hp2_fe_find_id(layout, SCR_COP);
+    if (!hp2_fe_row(m->cop, 1)) m->cop = NULL;
     m->laps = 2;
     if (!hp2_fe_row(m->mainm, 1)) m->mainm = NULL;
     if (!hp2_fe_row(m->hotp, 1)) m->hotp = NULL;
@@ -587,18 +606,18 @@ static int title_input(hp2_femenu *m, hp2_fem_input in)
 static int challenge_input(hp2_femenu *m, hp2_fem_input in)
 {
     static const int span[3] = { 2, 4, 3 };
-    int *v[3];
+    int *v[3], rows = m->chal_cop ? 3 : 4, kd = chal_kind(m, m->sel);
     v[0] = &m->players; v[1] = &m->race_type; v[2] = &m->skill;
     switch (in) {
-    case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : 4; return HP2_FEM_REDRAW;
-    case HP2_IN_DOWN: m->sel = m->sel < 4 ? m->sel + 1 : 1; return HP2_FEM_REDRAW;
+    case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : rows; return HP2_FEM_REDRAW;
+    case HP2_IN_DOWN: m->sel = m->sel < rows ? m->sel + 1 : 1; return HP2_FEM_REDRAW;
     case HP2_IN_LEFT:
     case HP2_IN_RIGHT:
-        if (m->sel > 3) return 0;
-        *v[m->sel - 1] = (*v[m->sel - 1] + (in == HP2_IN_LEFT ? span[m->sel - 1] - 1 : 1)) % span[m->sel - 1];
+        if (kd > 2) return 0;
+        *v[kd] = (*v[kd] + (in == HP2_IN_LEFT ? span[kd] - 1 : 1)) % span[kd];
         return HP2_FEM_REDRAW;
     case HP2_IN_ACCEPT:
-        if (m->sel != 4 || !m->carsel) return 0;
+        if (kd != 3 || !m->carsel) return 0;
         m->screen = HP2_FEM_SELECT_CAR;
         m->car_popup = 0;
         return HP2_FEM_REDRAW;
@@ -625,7 +644,9 @@ static int list_input(hp2_femenu *m, hp2_fem_input in)
         case GO_WORLD_RACING: if (!m->world) return 0; m->screen = HP2_FEM_WORLD_RACING; break;
         case GO_OPTIONS:      m->screen = HP2_FEM_OPTIONS; break;
         case GO_CHALLENGE:
-            if (!m->chal) return 0;
+        case GO_COP:
+            if (!(e[m->sel - 1].go == GO_COP ? m->cop : m->chal)) return 0;
+            m->chal_cop = e[m->sel - 1].go == GO_COP;
             m->chal_from = m->screen; m->chal_sel = m->sel;
             m->screen = HP2_FEM_CHALLENGE;
             m->sel = 1;
@@ -889,17 +910,25 @@ static int list_items(hp2_femenu *m, list *l)
         /* the progress line ("Unlocked", the easter egg): no progress yet */
         if (w->string_id == SID_PROGRESS || !strcmp(w->name, "EASTER_EGG_STRING")) continue;
         if (m->screen == HP2_FEM_CHALLENGE) {
+            static char title[64];
             static const uint32_t rt[4] = { 20005u, 20006u, 20007u, 20008u }, sk[3] = { 55004u, 55005u, 55006u };
             const char *v = NULL;
             if (!strcmp(w->name, "ANIMATE_SELECTION") || !strcmp(w->name, "LEFT_ARROW") || !strcmp(w->name, "RIGHT_ARROW")) continue;
             if (!strcmp(w->name, "GAME_TYPE")) v = lang_or(m, 20003u + (uint32_t)m->players, "One Player");
             else if (!strcmp(w->name, "RACE_MODE")) v = lang_or(m, rt[m->race_type], "Single Race");
             else if (!strcmp(w->name, "SKILL_LEVEL")) v = lang_or(m, sk[m->skill], "Beginner");
+            if (!strcmp(w->name, "CHALLENGE_TITLE")) {      /* the name of the row it was opened from */
+                int scr = m->screen, sel = m->sel;
+                m->screen = m->chal_from;
+                snprintf(title, sizeof title, "%s", hp2_femenu_list_label(m, m->chal_sel));
+                m->screen = scr; m->sel = sel;
+                v = title;
+            }
             if (v) { push(l, w, v); continue; }
         }
         push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
     }
-    if (m->screen == HP2_FEM_CHALLENGE && m->sel <= 3) {   /* the arrows of the chosen row's value */
+    if (m->screen == HP2_FEM_CHALLENGE && chal_kind(m, m->sel) <= 2) {   /* the arrows of the chosen row's value */
         static const float row_y[3] = { 84.0f, 138.0f, 192.0f };
         int k;
         for (k = 0; k < 2; k++) {
