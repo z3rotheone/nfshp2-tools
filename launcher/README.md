@@ -127,10 +127,12 @@ starts on Options instead). Its splash picture is filled at run time from the
 intro movies, which the port cannot play yet, so it shows Main Menu's backdrop
 and the NFS logo. Accept leads to the *Main Menu* (Hot Pursuit, World Racing, Quick Race,
 Options). Quick Race is the port's own row: it picks Hot Pursuit or World
-Racing settings at random and opens *car select*: the 23 cars as a strip of
-thumbnails (left/right), with the name and the game's own specs (0-60, top
-speed, power); back returns to Main Menu. The game also shows the car in 3D
-and colour swatches, and its track list comes next: neither is in the port yet. Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
+Racing settings at random and opens *car select*, laid out as on a PCSX2 screenshot: the car's name top-left,
+the 23 cars as a strip of make logos along the bottom (left/right), the colour
+swatches down the right (up/down) and the game's own specs (0-60, top speed,
+power) at the left. Back returns to Main Menu. The game also shows the car in
+3D with a spotlit floor, and its track list comes next: neither is in the port
+yet, and the swatch colours are those of the BMW M5 for every car. Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
 Pig (the game's Ultimate Racer, Challenge and You're The Cop); World Racing
 opens Ultimate Racer and Just Race (the game's Championship and Challenge).
 The game's help lines go with the original rows; picking a mode does nothing

@@ -748,12 +748,24 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         n = hp2_femenu_items(&m, it, 160);
         for (i = 0; i < n; i++) thumbs += !strncmp(it[i].w.name, "THUMBNAIL_", 10) && strcmp(it[i].w.name, "THUMBNAIL_FRAME")
                                           && strcmp(it[i].w.name, "THUMBNAIL_RIGHT_FILM");
-        CHECK(thumbs == 5 && count_named(it, n, "THUMBNAIL_FRAME") == 1, "a strip of five thumbnails in the frame (%d)", thumbs);
+        CHECK(thumbs == 7 && count_named(it, n, "THUMBNAIL_FRAME") == 1, "a strip of seven thumbnails (two left of the frame, four right) (%d)", thumbs);
+        {
+            int sw = 0, k;
+            for (k = 0; k < n; k++) sw += !strncmp(it[k].w.name, "SWATCH_", 7) && strcmp(it[k].w.name, "SWATCH_FRAME");
+            CHECK(sw == 8 && count_named(it, n, "SWATCH_FRAME") == 1 && count_named(it, n, "UP_ARROW") == 1
+                  && count_named(it, n, "DOWN_ARROW") == 1, "eight colour swatches, a frame and the two arrows (%d)", sw);
+        }
+        CHECK(find_text(it, n, "Cars Unlocked: 23/23") == 1, "all cars unlocked");
         CHECK(find_text(it, n, "Chevrolet Corvette Z06") == 1 && find_text(it, n, "171 mph") == 1 && find_text(it, n, "3.9 sec") == 1
               && find_text(it, n, "405 BHP") == 1, "name and specs of the Corvette Z06");
         CHECK(find_text(it, n, "Top Speed:") == 1 && find_text(it, n, "0-60 mph:") == 1 && find_text(it, n, "Power:") == 1,
               "spec labels from the language file");
         CHECK(find_text(it, n, "LOCKED") == 0 && count_named(it, n, "LOCKED_BG1") == 0, "nothing locked");
+        CHECK(hp2_femenu_input(&m, HP2_IN_DOWN) == HP2_FEM_REDRAW && m.color == 1, "down: the next colour");
+        hp2_femenu_input(&m, HP2_IN_UP);
+        hp2_femenu_input(&m, HP2_IN_UP);
+        CHECK(m.color == 7 && m.car == 0, "up from the first colour wraps to the last");
+        m.color = 0;
         hp2_femenu_input(&m, HP2_IN_RIGHT);
         CHECK(m.car == 1 && !strcmp(hp2_femenu_car_name(&m, 1), "Dodge Viper GTS"), "right: the next car");
         hp2_femenu_input(&m, HP2_IN_LEFT);

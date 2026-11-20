@@ -20,6 +20,10 @@
 extern "C" {
 #endif
 
+/* An image whose texture is this hash is a flat white square (16 x 16 at
+ * scale 1) that its corner colours tint: swatches the pack has no art for. */
+#define HP2_FEDRAW_SOLID 0xFFFFFFFFu
+
 typedef struct {
     uint32_t     hash;
     SDL_Texture *tex;

@@ -270,13 +270,17 @@ static const char *lang_or(const hp2_femenu *m, uint32_t id, const char *dflt)
     return s ? s : dflt;
 }
 
+#define CAR_SWATCHES_N 8
 #define STRIP_X    375.0f      /* the frame (THUMBNAIL_FRAME) */
 #define STRIP_Y    399.0f
-#define SPEC_LIFT   90.0f      /* specs and name sit this far above the strip */
+#define SPEC_LIFT   93.0f      /* the specs sit above and left of where the layout has them */
+#define SPEC_SHIFT_X 183.0f
 
 static int car_input(hp2_femenu *m, hp2_fem_input in)
 {
     switch (in) {
+    case HP2_IN_UP:    m->color = (m->color + CAR_SWATCHES_N - 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
+    case HP2_IN_DOWN:  m->color = (m->color + 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
     case HP2_IN_LEFT:  m->car = (m->car + HP2_CARS - 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_RIGHT: m->car = (m->car + 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
@@ -779,55 +783,95 @@ static int list_items(hp2_femenu *m, list *l)
     return l->n;
 }
 
-/* SELECT_CAR: the layout's frame, films and arrows, then the strip of
- * thumbnails (the selected car's in the frame), its name and specs. */
+/* SELECT_CAR, placed as on a PCSX2 screenshot of the game: the grid fading
+ * out at the top, the name top-left, the colour swatches down the right with
+ * their arrows, and along the bottom the left arrow, the strip of thumbnails
+ * (two to the left of the frame, the selected car in it, four to the right),
+ * the right arrow and "Cars Unlocked". The 3D car and the floor spotlight are
+ * rendered by the game and are not in the port; the specs, which the game
+ * shows on a later screen, sit at the left. */
+#define SWATCH_X     586.0f
+#define SWATCH_Y     115.5f     /* first swatch; they are 16 px, 18.6 apart */
+#define SWATCH_STEP  18.6f
+#define CAR_SWATCHES 8
+#define SOLID_TEXTURE 0xFFFFFFFFu       /* hp2_fedraw's flat white (HP2_FEDRAW_SOLID) */
+/* the colours of the game's swatch column (read off a screenshot of the BMW M5) */
+static const uint8_t SWATCH_RGB[CAR_SWATCHES][3] = {
+    { 232, 232, 232 }, { 124, 120, 122 }, { 170, 185, 220 }, { 190, 24, 28 },
+    { 24, 36, 200 }, { 30, 72, 36 }, { 58, 58, 58 }, { 24, 24, 24 },
+};
+#define STRIP_STEP   38.0f
+
 static int car_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->carsel;
     const car_entry *c = &CARS[m->car];
-    static char name[96], top[24], acc[24], pwr[24];
+    static char name[96], top[24], acc[24], pwr[24], unl[48];
     int i;
     hp2_fe_item *it;
     snprintf(name, sizeof name, "%s", hp2_femenu_car_name(m, m->car));
     snprintf(acc, sizeof acc, "%s %s", lang_or(m, 42001u + (uint32_t)c->spec, "?"), lang_or(m, 42000u, "sec"));
     snprintf(top, sizeof top, "%s mph", lang_or(m, 43001u + (uint32_t)c->spec, "?"));
     snprintf(pwr, sizeof pwr, "%s %s", lang_or(m, 44001u + (uint32_t)c->spec, "?"), lang_or(m, 44000u, "BHP"));
+    snprintf(unl, sizeof unl, "%s %d/%d", lang_or(m, 49071u, "Cars Unlocked:"), HP2_CARS, HP2_CARS);
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
         const char *str = NULL;
         if (w->x >= 640.0f || w->y >= 480.0f) continue;                /* parked off screen */
         if (!strcmp(w->name, "CAR_FADE_OVERLAY") || (!strcmp(w->name, "GRID_SHADOW") && w->sy >= 29.0f)) continue;
         if (has_prefix(w->name, "THUMBNAIL_") && strcmp(w->name, "THUMBNAIL_FRAME") && strcmp(w->name, "THUMBNAIL_RIGHT_FILM")) continue;
-        if (has_prefix(w->name, "LOCKED") || has_prefix(w->name, "SWATCH") || animated(w) || !strcmp(w->name, "MENUITEM_1")
-            || !strcmp(w->name, "POINTS") || !strcmp(w->name, "CARSUNLOCKED") || !strcmp(w->name, "CAR_LOGO")
-            || !strcmp(w->name, "SCROLLING_TEXT")) continue;
+        if (has_prefix(w->name, "LOCKED") || has_prefix(w->name, "SWATCH") || !strcmp(w->name, "MENUITEM_1")
+            || !strcmp(w->name, "POINTS") || !strcmp(w->name, "CAR_LOGO") || !strcmp(w->name, "SCROLLING_TEXT")
+            || !strcmp(w->name, "ANIMATING_MENUITEM") || !strcmp(w->name, "ANIMATE_SELECTION")
+            || !strcmp(w->name, "UP_ARROW") || !strcmp(w->name, "DOWN_ARROW")) continue;
         if (w->kind == HP2_FE_TEXT) {
             str = hp2_femenu_text(m, w);
             if (!strcmp(w->name, "SPEC_TOP_SPEED")) str = top;
             else if (!strcmp(w->name, "SPEC_ACCEL")) str = acc;
             else if (!strcmp(w->name, "SPEC_POWER")) str = pwr;
+            else if (!strcmp(w->name, "CARSUNLOCKED")) str = unl;
         }
         it = push(l, w, str);
         if (!it) continue;
-        if (!strcmp(w->name, "GRID")) it->w.y = 2.0f;           /* stored scrolled up: as on the menus */
-        if (has_prefix(w->name, "SPEC"))
-            it->w.y -= SPEC_LIFT;                                 /* the specs above the strip */
+        if (!strcmp(w->name, "CARSUNLOCKED")) it->w.x = 233.0f;
+        if (has_prefix(w->name, "SPEC")) { it->w.x -= SPEC_SHIFT_X; it->w.y -= SPEC_LIFT; }
     }
-    for (i = -2; i <= 2; i++) {   /* the strip: 64 px apart, the selected car in the frame */
+    for (i = -2; i <= 4; i++) {   /* the strip */
         char nm[32];
-        const hp2_fe_widget *t;
-        hp2_fe_item *it;
+        it = NULL;
         snprintf(nm, sizeof nm, "THUMBNAIL_%s", CARS[(m->car + i + 2 * HP2_CARS) % HP2_CARS].thumb);
-        t = named(s, nm);
-        it = push(l, t, NULL);
-        if (it) { it->w.x = STRIP_X + 64.0f * (float)i; it->w.y = STRIP_Y; }
+        it = push(l, named(s, nm), NULL);
+        if (it) {
+            it->w.x = i <= 0 ? STRIP_X + STRIP_STEP * (float)i : STRIP_X + 44.0f + STRIP_STEP * (float)(i - 1);
+            it->w.y = STRIP_Y;
+        }
     }
-    {   /* the name, centred over the strip */
-        const hp2_fe_widget *n = named(s, "SELECT_CAR_NAME");
-        it = push(l, n, name);
-        if (it) { it->w.x = 310.0f; it->w.y = 340.0f - SPEC_LIFT; }
+    for (i = 0; i < CAR_SWATCHES; i++) {   /* colours, the chosen one framed */
+        char nm[16];
+        snprintf(nm, sizeof nm, "SWATCH_%d", i);
+        it = push(l, named(s, nm), NULL);
+        if (it) {   /* no art for the swatches in the pack: a flat 16 px square of the colour */
+            int k, ch;
+            it->w.x = SWATCH_X; it->w.y = SWATCH_Y + SWATCH_STEP * (float)i;
+            it->w.texture = SOLID_TEXTURE;
+            it->w.visible = 1;
+            it->w.sx = it->w.sy = 1.0f;
+            for (k = 0; k < 4; k++) {
+                for (ch = 0; ch < 3; ch++) it->w.vcol[k][ch] = (uint8_t)(SWATCH_RGB[i][ch] * 128 / 255);
+                it->w.vcol[k][3] = 0x80;
+            }
+        }
+        if (i == m->color && (it = push(l, named(s, "SWATCH_FRAME"), NULL)) != NULL) {
+            it->w.x = SWATCH_X - 2.0f;
+            it->w.y = SWATCH_Y + SWATCH_STEP * (float)i - 2.0f;
+        }
     }
-    (void)c;
+    if ((it = push(l, named(s, "UP_ARROW"), NULL)) != NULL) { it->w.x = 587.0f; it->w.y = 93.0f; }
+    if ((it = push(l, named(s, "DOWN_ARROW"), NULL)) != NULL) { it->w.x = 587.0f; it->w.y = 266.0f; }
+    {   /* the car's name where the game puts its logo */
+        it = push(l, named(s, "CLASS"), name);
+        if (it) { it->w.x = 37.0f; it->w.y = 20.0f; it->w.visible = 1; }
+    }
     return l->n;
 }
 

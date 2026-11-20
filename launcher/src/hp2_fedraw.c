@@ -32,7 +32,18 @@ static const hp2_fedraw_cached *get_tex(hp2_fedraw *d, uint32_t hash)
         if (d->cache[i].hash == hash) return &d->cache[i];
     memset(&c, 0, sizeof c);
     c.hash = hash;
-    t = hp2_tex_find(d->tex, hash);
+    if (hash == HP2_FEDRAW_SOLID) {      /* a flat white 16 x 16, for the corner colours to tint */
+        static const uint8_t white[4] = { 255, 255, 255, 255 };
+        c.tex = SDL_CreateTexture(d->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 1, 1);
+        if (c.tex) {
+            SDL_UpdateTexture(c.tex, NULL, white, 4);
+            SDL_SetTextureBlendMode(c.tex, SDL_BLENDMODE_BLEND);
+            c.w = c.h = 16;
+        }
+        t = NULL;
+    } else {
+        t = hp2_tex_find(d->tex, hash);
+    }
     if (t && t->bpp) {
         uint8_t *px = (uint8_t *)malloc((size_t)t->w * t->h * 4);
         if (px && hp2_tex_decode(t, px) == 0) {

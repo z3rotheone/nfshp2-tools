@@ -20,8 +20,8 @@
  *   SELECT_CAR       the car list of Quick Race (SELECT_CAR layout): the 23
  *                    cars, a strip of thumbnails with the selected one in
  *                    the frame, its name, make and specs (0-60, top speed,
- *                    power) from FE_<LANGUAGE>.BIN. Left/right pick a car;
- *                    back returns to Main Menu. (The game also shows the
+ *                    power) from FE_<LANGUAGE>.BIN. Left/right pick a car,
+ *                    up/down a colour swatch; back returns to Main Menu. (The game also shows the
  *                    car in 3D and colour swatches: not in the port yet.)
  *   OPTIONS          the game's own screen with the rows the port keeps:
  *                    Audio, Controller, Display, Save/Load (player
@@ -96,6 +96,7 @@ typedef struct {
     const hp2_fe_screen *options, *display, *audio;
     const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel;   /* NULL if missing */
     int                  car;       /* SELECT_CAR: index into the car table */
+    int                  color;     /* SELECT_CAR: the swatch chosen, 0-7 */
     int                  main_sel;  /* where Main Menu was left */
     int                  options_from_main;   /* back from OPTIONS: Main Menu */
     int                  quick_mode;    /* HP2_QUICK_*: Quick Race's last pick */
