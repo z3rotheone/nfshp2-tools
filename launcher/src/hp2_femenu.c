@@ -292,7 +292,9 @@ static int settings_items(hp2_femenu *m, list *l)
             if (it) { it->w.y = lab->y + (sep->y - lab->y) + dy; set_clip(it, clip); }
         }
         if (on) selection_lines(m, l, s, lab->y + dy);
-        if (on && la && ra && hp2_menu_kind(k) != HP2_KIND_TOGGLE) {
+        /* arrows on every row; the game leaves them off on/off rows (a
+         * deliberate difference, chosen for the port) */
+        if (on && la && ra) {
             it = push(l, la, NULL);
             if (it) it->w.y += dy;
             it = push(l, ra, NULL);

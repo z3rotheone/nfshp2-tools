@@ -15,8 +15,9 @@
  *
  * The selected row looks as in the game: orange label, the white
  * MI_OVERSCORE line above it and the orange MI_UNDERSCORE below, its dark
- * row mask lifted, arrows only on rows with more than two values, and its
- * help line in the ticker.
+ * row mask lifted, and its help line in the ticker. Unlike the game, which
+ * shows the left/right arrows only on rows with more than two values, the
+ * port shows them on every settings row.
  *
  * Produces a list of hp2_fe_item for hp2_fedraw; holds no SDL and does not
  * allocate, so it is tested without a window.
