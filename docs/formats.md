@@ -1195,7 +1195,33 @@ descriptor in BAN.PCK`. The last record is not a line. Descriptor word 0 is
 with a VAG header. Decoded, the first English lines are 1.0–1.7 s clips whose
 spectrogram shows syllables and voice harmonics.
 
-`SOUND\\SPEECH\\EVENTS.EVT` presumably maps game events to lines, and
-entry 367 holds the police event names ("arrest", "beginPursuitGeneral"…);
-neither is read yet. `tools/hp2_speech.py BAN DAT [--wav OUT FIRST COUNT]`
-lists the lines and writes them as WAV.
+`tools/hp2_speech.py BAN DAT [--wav OUT FIRST COUNT]` lists the lines and
+writes them as WAV.
+
+**BAN descriptors (read 2026-11-19).** Each starts `u16 line number, u16
+variant, u8 takes, u8 cues`. The variant is 0xFFFF for a line's main clip;
+other values number extra clips that share the line's name (about 480 line
+numbers cover the ~1,800 clips). Then 16 bytes of timing and the cue list:
+5 bytes per cue (`u16 time in ms, u8 index, u8 1, u8 flag`), ended by `70 70`.
+Descriptors are variable length (16–228 bytes), so the next index record, not
+a fixed 44 bytes, gives each one's extent.
+
+**`EVENTS.EVT` (entry 367)** is the vocabulary of police speech: 201 events,
+69 parameter types and 508 line names. It does not say which line an event
+plays; that choice is compiled into the game.
+- Header: `0x3E8`, 201, 69, then offsets 0x1C (events), 0x5E54 (types),
+  0x29AD0 (line names).
+- Event, 120 bytes: `char name[48]`, 18 × s32; word 4 is the event id (ids
+  skip some numbers), words 5… are the parameter type ids in call order, zero
+  padded. Example: `beginPursuitRacing` (id 8) takes linenum, fromID, cop,
+  raceType, locationID; `BeginPursuitReckless` takes nine, including
+  recklessType, carColor and carType.
+- Type, 2,124 bytes: `u32 id, u32 value count, u32 kind` (0 enum; 2/3/4
+  numbers, locations, counts), `char name[64]`, then 32 × `char value[64]`
+  (`SPCH1Type_cop_cop27`, `SPCH1Type_carColor_black`…).
+- Line name, 72 bytes: `u32 line number, u32 takes, u32 4, u32 flag`, 24
+  zero bytes, `char name[32]` (`19chat`, `SupAddDown`, `31AddCount`). The line
+  number is word 0 of the BAN descriptor, so every English line has a name.
+`tools/hp2_events.py EVENTS.EVT [--types | --lines BAN.PCK]` lists them; the
+`--lines` CSV (index, line, name, variant, takes, cues) names each speech
+clip, which is what you need to swap one voice line for another.
