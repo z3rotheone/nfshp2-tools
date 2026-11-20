@@ -20,20 +20,41 @@
 #define SID_OPTIONS_MAIN 10005u
 #define SID_PROGRESS     62001u     /* "Unlocked" on Main Menu */
 
-/* Main Menu and mode menus: the help line of a row, by its string id
- * (FE_<LANG>.BIN strings 10006-10017). */
-static const uint32_t ROW_HELP[][2] = {
-    { 10023, 10016 },   /* Hot Pursuit:    Be the cops or beat the cops! */
-    { 10022, 10015 },   /* World Racing:   Take on the world's best sports cars! */
-    { 10005, 10009 },   /* Options:        Customize your settings. */
-    { 10027, 10017 },   /* HP Quick Race:  Go straight into the action! */
-    { 10028, 10014 },   /* You're The Cop: Fill your ticket quota for big points! */
-    { 10030, 10012 },   /* HP Challenge:   One-player and two-player challenges. */
-    { 10029, 10013 },   /* Ultimate Racer: Beat the heat in 30 events. */
-    { 10024, 10006 },   /* WR Quick Race:  Go straight into the action! */
-    { 10025, 10007 },   /* WR Challenge:   One-player and two-player challenges. */
-    { 10026, 10008 },   /* Championship:   Real cars, real fast in 30 events. */
+#define SID_QUICK_RACE   10027u     /* "Quick Race" (Hot Pursuit's row) */
+
+/* Main Menu and the mode menus, as the port has them: each entry's label
+ * (a string id, or the port's own name) and help line (FE_<LANG>.BIN
+ * strings 10006-10017), in the port's order. */
+enum { GO_NONE, GO_HOT_PURSUIT, GO_WORLD_RACING, GO_QUICK, GO_OPTIONS };
+typedef struct {
+    uint32_t    sid;        /* label string, 0 = name only */
+    const char *name;       /* the port's own label, or the fallback */
+    int         own;        /* 1: name replaces the game's label */
+    uint32_t    help;
+    int         go;
+} list_entry;
+
+static const list_entry MAIN_LIST[] = {
+    { SID_HOT_PURSUIT,  "Hot Pursuit",  0, 10016, GO_HOT_PURSUIT },  /* Be the cops or beat the cops! */
+    { SID_WORLD_RACING, "World Racing", 0, 10015, GO_WORLD_RACING }, /* Take on the world's best sports cars! */
+    { SID_QUICK_RACE,   "Quick Race",   0, 10017, GO_QUICK },        /* Go straight into the action! */
+    { SID_OPTIONS_MAIN, "Options",      0, 10009, GO_OPTIONS },      /* Customize your settings. */
 };
+static const list_entry HOT_PURSUIT_LIST[] = {
+    { 10029, "Ultimate Fugitive",    1, 10013, GO_NONE },   /* Ultimate Racer: Beat the heat in 30 events. */
+    { 10030, "Racing But With Pigs", 1, 10012, GO_NONE },   /* Challenge: One-player and two-player challenges. */
+    { 10028, "You're The Pig",       1, 10014, GO_NONE },   /* You're The Cop: Fill your ticket quota for big points! */
+};
+static const list_entry WORLD_RACING_LIST[] = {
+    { 10026, "Ultimate Racer", 1, 10008, GO_NONE },   /* Championship: Real cars, real fast in 30 events. */
+    { 10025, "Just Race",      1, 10007, GO_NONE },   /* Challenge: One-player and two-player challenges. */
+};
+
+/* Row bands of these lists: SEP_H tall lines between rows, a filler from
+ * the last line down to the ticker. The band texture (e2a5c626) is 16 px
+ * tall: BOTTOM_MASK at y 228, scale 7.063 ends at 341 on Main Menu, at
+ * y 283, scale 3.625 on Hot Pursuit too. */
+#define BAND_TEX 16.0f
 
 /* screen ids (the hash of their names is unknown) */
 #define SCR_MAIN         0xAE0F8AA1u
@@ -73,9 +94,13 @@ static int row_number(const hp2_fe_widget *w)
     return n;
 }
 
+#define FONT_BUTTONSOUT 0xB85DE386u   /* GLOBALB's button glyphs: i Cross, j Triangle, k Circle */
+
 const char *hp2_femenu_text(const hp2_femenu *m, const hp2_fe_widget *w)
 {
     const char *s = NULL;
+    /* the corner prompt "(k) Help" shows Circle in the game; here Help is Triangle */
+    if (w->font == FONT_BUTTONSOUT && !strcmp(w->text, "k")) return "j";
     if (w->string_id && m->lang) s = hp2_lang_by_id(m->lang, w->string_id);
     return s ? s : w->text;
 }
@@ -214,16 +239,67 @@ static const hp2_fe_screen *list_screen(const hp2_femenu *m)
 
 static int list_rows(const hp2_fe_screen *s) { return s ? hp2_fe_row_count(s) : 0; }
 
-static void list_help(hp2_femenu *m, const hp2_fe_screen *s)
+static const list_entry *list_entries(const hp2_femenu *m, int *n)
 {
-    const hp2_fe_widget *w = hp2_fe_row(s, m->sel);
-    size_t i;
-    if (!w || !m->lang) return;
-    for (i = 0; i < sizeof ROW_HELP / sizeof ROW_HELP[0]; i++)
-        if (ROW_HELP[i][0] == w->string_id) {
-            const char *h = hp2_lang_by_id(m->lang, ROW_HELP[i][1]);
-            if (h) snprintf(m->help, sizeof m->help, "%s", h);
-        }
+    switch (m->screen) {
+    case HP2_FEM_MAIN:         *n = (int)(sizeof MAIN_LIST / sizeof MAIN_LIST[0]); return MAIN_LIST;
+    case HP2_FEM_HOT_PURSUIT:  *n = (int)(sizeof HOT_PURSUIT_LIST / sizeof HOT_PURSUIT_LIST[0]); return HOT_PURSUIT_LIST;
+    case HP2_FEM_WORLD_RACING: *n = (int)(sizeof WORLD_RACING_LIST / sizeof WORLD_RACING_LIST[0]); return WORLD_RACING_LIST;
+    default:                   *n = 0; return NULL;
+    }
+}
+
+int hp2_femenu_list_count(const hp2_femenu *m)
+{
+    int n;
+    list_entries(m, &n);
+    return n;
+}
+
+const char *hp2_femenu_list_label(const hp2_femenu *m, int k)
+{
+    int n;
+    const list_entry *e = list_entries(m, &n);
+    const char *s = NULL;
+    if (!e || k < 1 || k > n) return NULL;
+    e += k - 1;
+    if (e->own) return e->name;
+    if (e->sid && m->lang) s = hp2_lang_by_id(m->lang, e->sid);
+    return s ? s : e->name;
+}
+
+static const char *quick_name(int q)
+{
+    return q == HP2_QUICK_HOT_PURSUIT ? "Hot Pursuit" : q == HP2_QUICK_WORLD_RACING ? "World Racing" : "";
+}
+
+static void list_help(hp2_femenu *m)
+{
+    int n;
+    const list_entry *e = list_entries(m, &n);
+    const char *h;
+    if (!e || m->sel < 1 || m->sel > n) return;
+    e += m->sel - 1;
+    if (e->go == GO_QUICK && m->quick_mode) {
+        snprintf(m->help, sizeof m->help, "Quick Race: %s settings. Its race screens are not in the port yet.",
+                 quick_name(m->quick_mode));
+        return;
+    }
+    h = m->lang ? hp2_lang_by_id(m->lang, e->help) : NULL;
+    if (h) snprintf(m->help, sizeof m->help, "%s", h);
+}
+
+/* The ticker after HELP: the menu buttons, named as the pad (or keyboard)
+ * in use names them. */
+static void buttons_line(hp2_femenu *m)
+{
+    hp2_glyph_set g = hp2_menu_glyphs();
+    if (g == HP2_GLYPHS_KEYBOARD)
+        snprintf(m->help, sizeof m->help, "Enter: accept   Esc: back   H: help");
+    else
+        snprintf(m->help, sizeof m->help, "%s or %s: accept   %s: back   %s: help",
+                 hp2_button_label(HP2_BTN_SOUTH, g), hp2_button_label(HP2_BTN_START, g),
+                 hp2_button_label(HP2_BTN_EAST, g), hp2_button_label(HP2_BTN_NORTH, g));
 }
 
 static void refresh(hp2_femenu *m)
@@ -234,10 +310,12 @@ static void refresh(hp2_femenu *m)
     if (m->capture >= 0) {
         snprintf(m->value[m->capture], sizeof m->value[m->capture], "%s", "Press a button");
         snprintf(m->help, sizeof m->help, "Press the button for %s. Esc cancels.", hp2_menu_label(m->capture));
+    } else if (m->show_buttons) {
+        buttons_line(m);
     } else if (m->screen == HP2_FEM_SETTINGS) {
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
     } else if (list_screen(m)) {
-        list_help(m, list_screen(m));
+        list_help(m);
     } else if (m->screen == HP2_FEM_TITLE) {
         /* no ticker */
     } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
@@ -330,13 +408,22 @@ int hp2_femenu_start(hp2_femenu *m, hp2_fem_screen s)
     return 1;
 }
 
-/* Main Menu's row whose label has string id sid, or 1. */
-static int main_row_of(const hp2_femenu *m, uint32_t sid)
+/* Main Menu's entry that goes to go, or 1. */
+static int main_row_of(int go)
 {
-    int k, n = list_rows(m->mainm);
+    int k, n = (int)(sizeof MAIN_LIST / sizeof MAIN_LIST[0]);
     for (k = 1; k <= n; k++)
-        if (hp2_fe_row(m->mainm, k)->string_id == sid) return k;
+        if (MAIN_LIST[k - 1].go == go) return k;
     return 1;
+}
+
+/* Quick Race's dice: xorshift32 on m->seed. */
+static int roll_quick(hp2_femenu *m)
+{
+    uint32_t x = m->seed ? m->seed : 0x9E3779B9u;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    m->seed = x;
+    return (x >> 16) & 1 ? HP2_QUICK_WORLD_RACING : HP2_QUICK_HOT_PURSUIT;
 }
 
 static int title_input(hp2_femenu *m, hp2_fem_input in)
@@ -351,22 +438,26 @@ static int title_input(hp2_femenu *m, hp2_fem_input in)
 
 static int list_input(hp2_femenu *m, hp2_fem_input in)
 {
-    const hp2_fe_screen *s = list_screen(m);
-    const hp2_fe_widget *w = hp2_fe_row(s, m->sel);
-    int n = list_rows(s);
+    int n;
+    const list_entry *e = list_entries(m, &n);
+    if (in == HP2_IN_UP || in == HP2_IN_DOWN) m->quick_mode = HP2_QUICK_NONE;   /* its note goes */
     switch (in) {
     case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : n; return HP2_FEM_REDRAW;
     case HP2_IN_DOWN: m->sel = m->sel < n ? m->sel + 1 : 1; return HP2_FEM_REDRAW;
     case HP2_IN_ACCEPT:
-        if (m->screen != HP2_FEM_MAIN || !w) return 0;     /* the race modes: not yet */
+        if (!e || m->sel < 1 || m->sel > n) return 0;
+        switch (e[m->sel - 1].go) {
+        case GO_HOT_PURSUIT:  if (!m->hotp) return 0; m->screen = HP2_FEM_HOT_PURSUIT; break;
+        case GO_WORLD_RACING: if (!m->world) return 0; m->screen = HP2_FEM_WORLD_RACING; break;
+        case GO_OPTIONS:      m->screen = HP2_FEM_OPTIONS; break;
+        case GO_QUICK:        m->quick_mode = roll_quick(m); return HP2_FEM_REDRAW;   /* nothing after it yet */
+        default:              return 0;                               /* the race modes: not yet */
+        }
         m->main_sel = m->sel;
-        if (w->string_id == SID_HOT_PURSUIT && m->hotp) m->screen = HP2_FEM_HOT_PURSUIT;
-        else if (w->string_id == SID_WORLD_RACING && m->world) m->screen = HP2_FEM_WORLD_RACING;
-        else if (w->string_id == SID_OPTIONS_MAIN) m->screen = HP2_FEM_OPTIONS;
-        else return 0;
         m->sel = 1;
         return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
+        m->quick_mode = HP2_QUICK_NONE;
         if (m->screen == HP2_FEM_MAIN) {
             m->main_sel = m->sel;
             if (!m->title) return HP2_FEM_QUIT;
@@ -393,6 +484,11 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
     if (m->capture >= 0) {                      /* waiting for a button: only back cancels */
         if (in == HP2_IN_BACK) { hp2_femenu_cancel_capture(m); return HP2_FEM_REDRAW; }
         return 0;
+    }
+    if (in == HP2_IN_HELP) {
+        m->show_buttons = !m->show_buttons;
+        refresh(m);
+        return HP2_FEM_REDRAW;
     }
     if (m->screen == HP2_FEM_JUKEBOX) {
         r = jukebox_input(m, in);
@@ -424,7 +520,7 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         case HP2_IN_BACK:
             if (m->options_from_main && m->mainm) {
                 m->screen = HP2_FEM_MAIN;
-                m->sel = main_row_of(m, SID_OPTIONS_MAIN);
+                m->sel = main_row_of(GO_OPTIONS);
                 r = HP2_FEM_REDRAW;
             } else {
                 r = HP2_FEM_QUIT;
@@ -456,6 +552,7 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
             m->sel = m->options_sel;
             r = HP2_FEM_REDRAW;
             break;
+        default: break;
         }
         if (m->screen == HP2_FEM_SETTINGS) {
             if (m->sel < m->scroll) m->scroll = m->sel;
@@ -556,30 +653,72 @@ static int options_items(hp2_femenu *m, list *l)
     return l->n;
 }
 
-/* Main Menu and the mode menus: as OPTIONS, each row in its own place. */
+static int is_band(const hp2_fe_widget *w)
+{
+    return !strcmp(w->name, "BOTTOM_MASK") || (has_prefix(w->name, "MI_") && has_suffix(w->name, "_MASK"));
+}
+
+/* The topmost BOTTOM_MASK: the line under row 1. */
+static const hp2_fe_widget *first_line(const hp2_fe_screen *s)
+{
+    const hp2_fe_widget *best = NULL;
+    int i;
+    for (i = 0; i < s->count; i++)
+        if (!strcmp(s->widgets[i].name, "BOTTOM_MASK") && (!best || s->widgets[i].y < best->y)) best = &s->widgets[i];
+    return best;
+}
+
+/* Where the bands end: the bottom of the lowest BOTTOM_MASK (the filler). */
+static float bands_end(const hp2_fe_screen *s)
+{
+    float end = 0.0f;
+    int i;
+    for (i = 0; i < s->count; i++) {
+        const hp2_fe_widget *w = &s->widgets[i];
+        if (!strcmp(w->name, "BOTTOM_MASK") && w->y + w->sy * BAND_TEX > end) end = w->y + w->sy * BAND_TEX;
+    }
+    return end;
+}
+
+/* Main Menu and the mode menus: the screen's backdrop, then entry k in row
+ * k's place (past the layout's last row: that row moved down a row
+ * pitch per entry), with the bands laid out again for the entry count. */
 static int list_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = list_screen(m);
-    const hp2_fe_widget *sel = hp2_fe_row(s, m->sel);
-    char mask[24];
-    int i;
-    snprintf(mask, sizeof mask, "MI_%d_MASK", m->sel);
+    const hp2_fe_widget *r1 = hp2_fe_row(s, 1), *r2 = hp2_fe_row(s, 2);
+    const hp2_fe_widget *band = named(s, "MI_1_MASK"), *line = first_line(s);
+    int i, k, n, rows = list_rows(s);
+    float pitch = r1 && r2 ? r2->y - r1->y : 55.0f, sel_y = -1.0f, end = bands_end(s);
+    list_entries(m, &n);
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
-        int row = row_number(w);
-        hp2_fe_item *it;
-        if (animated(w) || is_line(w) || !strcmp(w->name, "SCROLLING_TEXT")) continue;
+        if (animated(w) || is_line(w) || is_band(w) || row_number(w) || !strcmp(w->name, "SCROLLING_TEXT")) continue;
         /* the progress line ("Unlocked", the easter egg): no progress yet */
         if (w->string_id == SID_PROGRESS || !strcmp(w->name, "EASTER_EGG_STRING")) continue;
-        it = push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
-        if (!it) continue;
-        if (row) {
-            if (w == sel) memcpy(it->w.rgba, ORANGE, 4);
+        push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
+    }
+    for (k = 1; k <= n; k++) {
+        const hp2_fe_widget *slot = hp2_fe_row(s, k <= rows ? k : rows);
+        hp2_fe_item *it = push(l, slot, hp2_femenu_list_label(m, k));
+        if (it) {
+            if (k > rows) it->w.y += pitch * (float)(k - rows);
+            if (k == m->sel) { memcpy(it->w.rgba, ORANGE, 4); sel_y = it->w.y; }
             else grey(it, 0x50);
         }
-        if (!strcmp(w->name, mask)) it->w.visible = 0;
+        if (band && k != m->sel && (it = push(l, band, NULL)) != NULL)   /* the selected row's band lifts */
+            it->w.y += pitch * (float)(k - 1);
     }
-    if (sel) selection_lines(m, l, s, sel->y);
+    if (line) {
+        hp2_fe_item *it;
+        for (k = 1; k < n; k++)                      /* the lines between rows */
+            if ((it = push(l, line, NULL)) != NULL) it->w.y += pitch * (float)(k - 1);
+        if (n > 0 && (it = push(l, line, NULL)) != NULL) {   /* the filler below the last */
+            it->w.y += pitch * (float)(n - 1);
+            it->w.sy = end > it->w.y ? (end - it->w.y) / BAND_TEX : 0.0f;
+        }
+    }
+    if (sel_y >= 0.0f) selection_lines(m, l, s, sel_y);
     help_bar(m, l, s);
     return l->n;
 }

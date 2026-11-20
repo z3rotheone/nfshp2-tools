@@ -104,6 +104,7 @@ int hp2_menu_bind_action(int row);
 /* Which button names the bind rows show: the pad in hand's family, resolved
  * from the Button icons setting by the front end (default: generic). */
 void hp2_menu_set_glyphs(hp2_glyph_set resolved);
+hp2_glyph_set hp2_menu_glyphs(void);   /* the set in use */
 
 /* 1 if changing this row only takes effect after the game restarts. */
 int hp2_menu_needs_restart(int row);

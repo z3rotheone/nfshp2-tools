@@ -89,6 +89,8 @@ typedef enum {
 #define SDLK_UP                     0x40000052
 #define SDLK_KP_ENTER               0x40000058
 #define SDLK_n                      110
+#define SDLK_h                      104
+#define SDLK_F1                     0x4000003A
 
 typedef struct { int sym; } SDL_Keysym;
 typedef struct { Uint32 type; SDL_Keysym keysym; } SDL_KeyboardEvent;

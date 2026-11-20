@@ -115,18 +115,24 @@ actions currently held. Escape or Ctrl+C to quit.
 ./hp2fe --disc ... --shot options.bmp --keys down,down,accept   # one frame, offscreen
 ```
 
-Arrows move, Enter/Space accepts, Esc/Backspace goes back; on a controller the
-d-pad or left stick, A (south) and B (east); keyboard and controller are
+Arrows move, Enter/Space accepts, Esc/Backspace goes back, H or F1 is help; on
+a controller the d-pad or left stick move, Cross (south) or Start accepts,
+Circle (east) goes back and Triangle (north) is help, which switches the
+ticker between the row's help line and the menu buttons (named for your pad).
+The corner prompt shows the Triangle glyph. Keyboard and controller are
 confirmed on a desktop. The selected row looks as in the game (orange label,
 white and orange lines, the help line in the ticker; checked against PCSX2
 screenshots). hp2fe starts on the title screen (PRESS START; `--options`
 starts on Options instead). Its splash picture is filled at run time from the
 intro movies, which the port cannot play yet, so it shows Main Menu's backdrop
-and the NFS logo. Accept leads to the *Main Menu* (Hot Pursuit, World Racing,
-Options); Hot Pursuit and World Racing open the game's mode menus (Quick
-Race, You're The Cop, Challenge, Ultimate Racer / Quick Race, Challenge,
-Championship) with the game's help lines; picking a mode does nothing yet.
-Back walks up the same path; back on the title quits. On OPTIONS, *Display* opens the
+and the NFS logo. Accept leads to the *Main Menu* (Hot Pursuit, World Racing, Quick Race,
+Options). Quick Race is the port's own row: it picks Hot Pursuit or World
+Racing settings at random (it says which; the race screens are not in the port
+yet). Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
+Pig (the game's Ultimate Racer, Challenge and You're The Cop); World Racing
+opens Ultimate Racer and Just Race (the game's Championship and Challenge).
+The game's help lines go with the original rows; picking a mode does nothing
+yet. Back walks up the same path; back on the title quits. On OPTIONS, *Display* opens the
 Video page, *Controller* the Controls page and *Audio* the Audio page (the
 game's AUDIO_OPTIONS layout, volumes as its sliders). *Jukebox*, right under
 Audio on OPTIONS (shown when there is a music bank), lists the music bank's songs by genre, title over artist, with where

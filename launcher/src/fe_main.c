@@ -23,6 +23,7 @@
  *   --shot OUT.bmp     render one frame offscreen, save it, exit
  *   --songbox N        with --shot: show song N's box (as when it starts)
  *   --keys LIST        inputs to apply first, e.g. down,down,accept,right
+ *                      (up down left right accept back help)
  *
  * Keys: arrows, Enter/Space = accept, Esc/Backspace = back, N = next song.
  * A controller's d-pad or left stick, A (south) = accept, B (east) = back,
@@ -45,6 +46,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define MAX_ITEMS 160
 
@@ -97,9 +99,9 @@ static int load_files(files *f, const char *disc, const char *language, char **l
 
 static int parse_input(const char *s, hp2_fem_input *in)
 {
-    static const char *names[] = { "up", "down", "left", "right", "accept", "back" };
+    static const char *names[] = { "up", "down", "left", "right", "accept", "back", "help" };
     int i;
-    for (i = 0; i < 6; i++)
+    for (i = 0; i < 7; i++)
         if (!strcmp(s, names[i])) { *in = (hp2_fem_input)i; return 1; }
     return 0;
 }
@@ -237,7 +239,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
                             "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--config PATH] [--size WxH]\n"
                             "       [--fit fit|stretch|expand]\n"
-                            "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back]\n", argv[0]);
+                            "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back,help]\n", argv[0]);
             return 2;
         }
     }
@@ -259,6 +261,7 @@ int main(int argc, char **argv)
         return 1;
     }
     if (!start_options && !hp2_femenu_start(&menu, HP2_FEM_TITLE)) hp2_femenu_start(&menu, HP2_FEM_MAIN);
+    menu.seed = (uint32_t)time(NULL) ^ (uint32_t)SDL_GetTicks() * 2654435761u;   /* Quick Race's dice */
     if (f.bank && hp2_jukebox_parse(&jb, f.bank, f.bank_len) == 0) hp2_femenu_set_jukebox(&menu, &jb);
     memset(&box, 0, sizeof box);
     box.song = box.last = -1;
@@ -356,6 +359,7 @@ int main(int argc, char **argv)
                 case SDLK_RIGHT: in = HP2_IN_RIGHT; break;
                 case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: in = HP2_IN_ACCEPT; break;
                 case SDLK_ESCAPE: case SDLK_BACKSPACE: in = HP2_IN_BACK; break;
+                case SDLK_h: case SDLK_F1: in = HP2_IN_HELP; break;
                 case SDLK_n: have = 0; if (hp2_femenu_capturing(&menu) < 0) next_song(&player, audio); break;
                 default: have = 0;
                 }
@@ -375,8 +379,11 @@ int main(int argc, char **argv)
                 case SDL_CONTROLLER_BUTTON_DPAD_DOWN: in = HP2_IN_DOWN; break;
                 case SDL_CONTROLLER_BUTTON_DPAD_LEFT: in = HP2_IN_LEFT; break;
                 case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: in = HP2_IN_RIGHT; break;
-                case SDL_CONTROLLER_BUTTON_A: in = HP2_IN_ACCEPT; break;
+                /* by position, as on the PS2: Cross (south) or Start
+                 * accepts, Circle (east) goes back, Triangle (north) is help */
+                case SDL_CONTROLLER_BUTTON_A: case SDL_CONTROLLER_BUTTON_START: in = HP2_IN_ACCEPT; break;
                 case SDL_CONTROLLER_BUTTON_B: in = HP2_IN_BACK; break;
+                case SDL_CONTROLLER_BUTTON_Y: in = HP2_IN_HELP; break;
                 default: have = 0;
                 }
             } else if (e.type == SDL_CONTROLLERAXISMOTION) {

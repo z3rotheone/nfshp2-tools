@@ -90,6 +90,7 @@ void hp2_menu_set_glyphs(hp2_glyph_set resolved)
 {
     g_glyphs = (resolved > HP2_GLYPHS_AUTO && resolved < HP2_GLYPHS_COUNT) ? resolved : HP2_GLYPHS_GENERIC;
 }
+hp2_glyph_set hp2_menu_glyphs(void) { return g_glyphs; }
 
 int hp2_menu_bind_action(int row)
 {

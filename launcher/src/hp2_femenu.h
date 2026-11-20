@@ -3,12 +3,20 @@
  *
  *   TITLE            the title screen: the splash (letterboxed) and PRESS
  *                    START; accept goes on to the Main Menu.
- *   MAIN             Main Menu: Hot Pursuit, World Racing, Options.
- *   HOT_PURSUIT      its modes: Quick Race, You're The Cop, Challenge,
- *                    Ultimate Racer.
- *   WORLD_RACING     its modes: Quick Race, Challenge, Championship.
+ *   MAIN             Main Menu: Hot Pursuit, World Racing, Quick Race,
+ *                    Options. Quick Race is the port's own row (the game
+ *                    has one in each mode menu): accept picks Hot Pursuit
+ *                    or World Racing settings at random (quick_mode).
+ *   HOT_PURSUIT      the port's order and names: Ultimate Fugitive (the
+ *                    game's Ultimate Racer), Racing But With Pigs
+ *                    (Challenge), You're The Pig (You're The Cop).
+ *   WORLD_RACING     Ultimate Racer (the game's Championship), Just Race
+ *                    (Challenge).
  *                    (Picking a mode does nothing yet: the screens after
- *                    it are not in the port so far.)
+ *                    it are not in the port so far.) These lists draw
+ *                    entry k in row k's place; their row bands (MI_k_MASK,
+ *                    the BOTTOM_MASK lines and the filler below) are laid
+ *                    out again for the entry count, 55 px a row.
  *   OPTIONS          the game's own screen with the rows the port keeps:
  *                    Audio, Controller, Display, Save/Load (player
  *                    progress; does nothing yet). Player Names, Credits
@@ -58,7 +66,14 @@ typedef enum {
     HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
     HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING
 } hp2_fem_screen;
-typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT, HP2_IN_BACK } hp2_fem_input;
+/* HP2_IN_HELP (Triangle) switches the ticker between the row's help line
+ * and the menu buttons (accept, back, help), on every screen. */
+typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT, HP2_IN_BACK, HP2_IN_HELP } hp2_fem_input;
+
+/* quick_mode: the settings Quick Race picked */
+#define HP2_QUICK_NONE          0
+#define HP2_QUICK_HOT_PURSUIT   1
+#define HP2_QUICK_WORLD_RACING  2
 
 /* hp2_femenu_input result bits */
 #define HP2_FEM_REDRAW   1    /* something on screen changed */
@@ -75,6 +90,10 @@ typedef struct {
     const hp2_fe_screen *title, *mainm, *hotp, *world;   /* NULL if missing */
     int                  main_sel;  /* where Main Menu was left */
     int                  options_from_main;   /* back from OPTIONS: Main Menu */
+    int                  quick_mode;    /* HP2_QUICK_*: Quick Race's last pick */
+    uint32_t             seed;          /* Quick Race's dice (any value; set it
+                                           from the clock) */
+    int                  show_buttons;  /* HELP: the ticker shows the buttons */
     const hp2_fe_screen *page;      /* settings: the layout in use */
     int                  first, rows;   /* settings: the page's hp2_menu rows */
     const hp2_lang      *lang;      /* may be NULL: placeholder text is used */
@@ -146,6 +165,10 @@ const char *hp2_femenu_page(const hp2_femenu *m);
 
 /* For tests and front ends: the OPTIONS row count, the string a row shows. */
 int hp2_femenu_options_rows(const hp2_femenu *m);
+/* Entries of MAIN, HOT_PURSUIT or WORLD_RACING (0 elsewhere), and entry k's
+ * label (1-based; NULL out of range). */
+int hp2_femenu_list_count(const hp2_femenu *m);
+const char *hp2_femenu_list_label(const hp2_femenu *m, int k);
 const char *hp2_femenu_text(const hp2_femenu *m, const hp2_fe_widget *w);
 
 #ifdef __cplusplus

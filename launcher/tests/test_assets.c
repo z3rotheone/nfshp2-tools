@@ -672,42 +672,88 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     CHECK(hp2_femenu_input(&m, HP2_IN_UP) == 0, "only accept or back on the title");
     CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 1, "accept: Main Menu");
     n = hp2_femenu_items(&m, it, 160);
+    CHECK(hp2_femenu_list_count(&m) == 4 && !strcmp(hp2_femenu_list_label(&m, 3), "Quick Race")
+          && !strcmp(hp2_femenu_list_label(&m, 4), "Options"), "four entries: Quick Race above Options");
     CHECK(find_text(it, n, "Main Menu") == 1 && find_text(it, n, "Hot Pursuit") == 1 && find_text(it, n, "World Racing") == 1
-          && find_text(it, n, "Options") == 1, "its title and three rows");
+          && find_text(it, n, "Quick Race") == 1 && find_text(it, n, "Options") == 1, "its title and four rows");
+    {   /* the 4th row sits a row pitch under the 3rd; bands for 4 rows */
+        int i, q = -1, o = -1, end = 0;
+        for (i = 0; i < n; i++) {
+            if (it[i].str && !strcmp(it[i].str, "Quick Race")) q = i;
+            if (it[i].str && !strcmp(it[i].str, "Options")) o = i;
+            if (!strcmp(it[i].w.name, "BOTTOM_MASK") && it[i].w.sy > 1.0f) end = (int)(it[i].w.y + it[i].w.sy * 16.0f + 0.5f);
+        }
+        CHECK(q >= 0 && o >= 0 && it[o].w.y - it[q].w.y == 55.0f && it[o].w.y == 236.0f, "Options moved down a row");
+        CHECK(count_named(it, n, "MI_1_MASK") == 3 && count_named(it, n, "BOTTOM_MASK") == 4 && end == 341,
+              "3 row bands (the selected one lifts), 3 lines and the filler down to 341 (%d)", end);
+    }
     CHECK(find_text(it, n, "Unlocked") == 0 && find_text(it, n, "Easter Egg") == 0, "no progress line yet");
     CHECK(!strcmp(m.help, "Be the cops or beat the cops!"), "Hot Pursuit's help line, got '%s'", m.help);
+    {   /* the corner prompt is Triangle (j), not the game's Circle (k) */
+        int i, g = 0;
+        for (i = 0; i < n; i++) if (it[i].w.kind == HP2_FE_TEXT && it[i].str && !strcmp(it[i].str, "j")) g++;
+        CHECK(g == 1, "the Help prompt shows the Triangle glyph");
+    }
+    CHECK(hp2_femenu_input(&m, HP2_IN_HELP) == HP2_FEM_REDRAW && strstr(m.help, ": accept") && strstr(m.help, ": back")
+          && strstr(m.help, ": help"), "help: the ticker shows the buttons ('%s')", m.help);
+    hp2_femenu_input(&m, HP2_IN_HELP);
+    CHECK(!strcmp(m.help, "Be the cops or beat the cops!"), "help again: the row's line is back");
     CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_HOT_PURSUIT, "Hot Pursuit opens its modes");
     n = hp2_femenu_items(&m, it, 160);
-    CHECK(find_text(it, n, "Quick Race") == 1 && find_text(it, n, "You're The Cop") == 1 && find_text(it, n, "Challenge") == 1
-          && find_text(it, n, "Ultimate Racer") == 1, "four modes");
-    CHECK(!strcmp(m.help, "Go straight into the action!"), "Quick Race's help line");
+    CHECK(hp2_femenu_list_count(&m) == 3 && find_text(it, n, "Ultimate Fugitive") == 1 && find_text(it, n, "Racing But With Pigs") == 1
+          && find_text(it, n, "You're The Pig") == 1, "three modes, renamed");
+    CHECK(find_text(it, n, "Quick Race") == 0 && find_text(it, n, "Ultimate Racer") == 0 && find_text(it, n, "Challenge") == 0
+          && find_text(it, n, "You're The Cop") == 0, "no Quick Race, none of the old names");
+    CHECK(!strcmp(hp2_femenu_list_label(&m, 1), "Ultimate Fugitive") && !strcmp(m.help, "Beat the heat in 30 events."),
+          "Ultimate Fugitive on top, with Ultimate Racer's help line");
+    CHECK(count_named(it, n, "MI_1_MASK") == 2 && count_named(it, n, "BOTTOM_MASK") == 3, "bands for 3 rows");
     hp2_femenu_input(&m, HP2_IN_DOWN);
-    CHECK(!strcmp(m.help, "Fill your ticket quota for big points!"), "You're The Cop's help line");
+    CHECK(!strcmp(m.help, "One-player and two-player challenges."), "Racing But With Pigs' help line");
     hp2_femenu_input(&m, HP2_IN_UP);
     hp2_femenu_input(&m, HP2_IN_UP);
-    CHECK(m.sel == 4 && !strcmp(m.help, "Beat the heat in 30 events."), "up from the top wraps to Ultimate Racer");
+    CHECK(m.sel == 3 && !strcmp(m.help, "Fill your ticket quota for big points!"), "up from the top wraps to You're The Pig");
     CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_HOT_PURSUIT, "a mode does nothing yet");
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu, on Hot Pursuit");
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(!strcmp(m.help, "Take on the world's best sports cars!"), "World Racing's help line");
     hp2_femenu_input(&m, HP2_IN_ACCEPT);
     n = hp2_femenu_items(&m, it, 160);
-    CHECK(m.screen == HP2_FEM_WORLD_RACING && find_text(it, n, "Championship") == 1, "World Racing opens its modes");
+    CHECK(m.screen == HP2_FEM_WORLD_RACING && hp2_femenu_list_count(&m) == 2 && find_text(it, n, "Ultimate Racer") == 1
+          && find_text(it, n, "Just Race") == 1 && find_text(it, n, "Championship") == 0 && find_text(it, n, "Quick Race") == 0,
+          "World Racing: Ultimate Racer and Just Race");
+    CHECK(!strcmp(m.help, "Real cars, real fast in 30 events."), "Ultimate Racer on top, with Championship's help line");
+    CHECK(count_named(it, n, "MI_1_MASK") == 1 && count_named(it, n, "BOTTOM_MASK") == 2, "bands for 2 rows");
     hp2_femenu_input(&m, HP2_IN_UP);
-    CHECK(m.sel == 3 && !strcmp(m.help, "Real cars, real fast in 30 events."), "Championship's help line");
+    CHECK(m.sel == 2 && !strcmp(m.help, "One-player and two-player challenges."), "up wraps to Just Race");
     hp2_femenu_input(&m, HP2_IN_BACK);
     CHECK(m.screen == HP2_FEM_MAIN && m.sel == 2, "back: on World Racing");
     hp2_femenu_input(&m, HP2_IN_DOWN);
-    CHECK(!strcmp(m.help, "Customize your settings."), "Options' help line");
+    CHECK(m.sel == 3 && !strcmp(m.help, "Go straight into the action!"), "Quick Race's help line");
+    {
+        int hp = 0, wr = 0, k, ok = 1;
+        for (k = 0; k < 64; k++) {
+            m.seed = 0x1234u + (uint32_t)k * 7919u;
+            ok &= hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 3;
+            hp += m.quick_mode == HP2_QUICK_HOT_PURSUIT;
+            wr += m.quick_mode == HP2_QUICK_WORLD_RACING;
+        }
+        CHECK(ok && hp + wr == 64 && hp > 10 && wr > 10, "Quick Race picks Hot Pursuit or World Racing at random (%d / %d)", hp, wr);
+        CHECK(!strncmp(m.help, "Quick Race: ", 12), "and says which ('%s')", m.help);
+    }
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(m.quick_mode == HP2_QUICK_NONE && !strcmp(m.help, "Customize your settings."), "Options' help line (the pick is dropped)");
     CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_OPTIONS && m.sel == 1, "Options opens OPTIONS");
     hp2_femenu_input(&m, HP2_IN_ACCEPT);
     CHECK(m.screen == HP2_FEM_SETTINGS && !strcmp(hp2_femenu_page(&m), "Audio"), "and its pages work as before");
+    hp2_femenu_input(&m, HP2_IN_HELP);
+    CHECK(strstr(m.help, ": accept") != NULL, "help works on a settings page too");
+    hp2_femenu_input(&m, HP2_IN_HELP);
     hp2_femenu_input(&m, HP2_IN_BACK);
-    CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 3,
+    CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_MAIN && m.sel == 4,
           "back from OPTIONS: Main Menu, on Options (not quit)");
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_TITLE, "back: the title");
     hp2_femenu_input(&m, HP2_IN_ACCEPT);
-    CHECK(m.screen == HP2_FEM_MAIN && m.sel == 3, "Main Menu remembers its row");
+    CHECK(m.screen == HP2_FEM_MAIN && m.sel == 4, "Main Menu remembers its row");
     hp2_femenu_input(&m, HP2_IN_BACK);
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) & HP2_FEM_QUIT, "back from the title quits");
 }
