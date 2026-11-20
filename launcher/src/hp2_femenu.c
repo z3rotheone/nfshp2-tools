@@ -506,7 +506,8 @@ static int jukebox_items(hp2_femenu *m, list *l)
         const hp2_jb_track *t = &m->jb->track[song];
         it = push(l, slot(s, "ARTIST", k + 1), t->title);
         if (it && on) memcpy(it->w.rgba, ORANGE, 4);
-        push(l, slot(s, "SONG", k + 1), t->artist);
+        it = push(l, slot(s, "SONG", k + 1), t->artist);
+        if (it && on) memcpy(it->w.rgba, ORANGE, 4);           /* the game colours both lines */
         {
             char name[24];
             snprintf(name, sizeof name, "SONG%dONOFF", k + 1);

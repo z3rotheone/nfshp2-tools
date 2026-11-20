@@ -420,6 +420,9 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
         CHECK(m.jsel == 1 && hp2_femenu_play(&m, first) == HP2_PLAY_HOT_PURSUIT, "first song, Hot Pursuit");
         n = hp2_femenu_items(&m, it, 160);
         CHECK(count_named(it, n, "LEFT_ARROW1") == 1 && count_named(it, n, "LEFT_ARROW") == 0, "arrows move to the song");
+        for (k = 0; k < n; k++)
+            if (!strcmp(it[k].w.name, "SONG1") || !strcmp(it[k].w.name, "ARTIST1"))
+                CHECK(it[k].w.rgba[0] == 124 && it[k].w.rgba[1] == 64, "%s orange: title and artist both", it[k].w.name);
         r = hp2_femenu_input(&m, HP2_IN_RIGHT);
         CHECK((r & HP2_FEM_CHANGED) && cfg.song[first] == HP2_PLAY_MENU_RACING, "right: next play status, kept in the settings");
         for (k = 0; k < 25; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
