@@ -1232,3 +1232,53 @@ loader `iSPCH_BindData` (strings at 0x2C5610). The English BAN is entry 361
 `tools/hp2_events.py EVENTS.EVT [--types | --lines BAN.PCK]` lists them; the
 `--lines` CSV (index, line, name, variant, takes, cues) names each speech
 clip, which is what you need to swap one voice line for another.
+
+## 17. Front-end screens: `FRONTEND\\FRONTB.BUN` and the boot sequence
+
+`FRONTB.BUN` (entry 21, 14.4 MB) holds, at top level: `0x80034000` (17 pieces of
+front-end geometry), `0xB0300001` (12.5 MB of textures), `0x80010200` (the
+screen layouts), two `0x80034A00` and four `0x00015010` **fonts** (id =
+name hash: `FONT_IMPACTBIG` 0x2D213565, `FONT_IMPACTNORMAL` 0x5F3A4A3C; each
+glyph is a character code followed by a rectangle in floats).
+
+**Screens (`0x80010200`).** 41 screens on a 640 x 480 canvas, each
+`0x80010201` = one `0x00010203` header (u32 screen id at +8, canvas at +0x18,
+u16 widget count at +0x1C) followed by widgets: `0x00010212` text,
+`0x00010210` image. The screen id is the name hash (djb2, seed 0xFFFFFFFF, x33)
+of an upper-case name; 21 are solved: `OPTIONS` 0x95AD096B, `DISPLAY_OPTIONS`
+0x8BC68340, `AUDIO_OPTIONS` 0xE116761C, `CUSTOMIZE_HUD` 0x28891A22,
+`JOYSTICK_CONFIG`, `JOYSTICK_CALIBRATION`, `JOYSTICK_PRECONFIG`,
+`LANGUAGE_OPTIONS`, `USERNAME_OPTIONS`, `JUKEBOX_INGAME`, `LOADSAVE`,
+`MEMCARD_POPUP`, `POPUP`, `TITLE_SCREEN` 0xB5761D00, `SELECT_CAR`,
+`SELECT_TRACK`, `RACE_SETUP`, `CHALLENGE`, `CREDITS`, `CREDITS_SCREEN`,
+`TREE_VIEW`. The other 20 stay as hex (main-menu and mode screens, probably).
+Widget body: name hash +8, name `char[24]` +0x10, kind +0x28 (1 text, 2 image),
+position `f32 x, y` +0x30, scale +0x38; text widgets add font +0x50, capacity
++0x54, RGBA +0x5C, **string id +0x60** and an inline default text; image
+widgets add a texture name hash +0x50. `tools/hp2_fescreens.py FRONTB.BUN
+[--screen NAME] [--strings en.json] [--json OUT]` reads all of it.
+
+The row text is a string id into `FE_<LANGUAGE>.BIN` (`Audio` 100001,
+`Controller` 100002, `Display` 100004, `Track Map` 140001, `Rearview Mirror`
+140009, `Menu Music` 110001...), so renaming a row is a text edit (section 14).
+Rows sit 37 px apart from y = 71 (`MENUITEM_1`...), with value widgets at
+x = 500 (`TRACKMAP`, `REARVIEW_ONOFF`, `UNITS`, `MONOSTEREO`) between
+`LEFT_ARROW` and `RIGHT_ARROW`. `OPTIONS` has 7 rows (Audio, Controller,
+Display, Save/Load, Player Names, Credits, Languages); `DISPLAY_OPTIONS` has 9
+(Track Map, Rearview Mirror, Units, Leaderboard, Jump Cams, Zone Cams, Player
+1/2 Options, Calibrate Display Offset); `AUDIO_OPTIONS` 11.
+
+**What is data and what is code.** The chunk only places widgets. Each screen
+is a C++ class in `frontendscreens\\options.cpp` and friends, registered in a
+static initialiser (0x1F552C registers the options screens by id) that owns
+the row behaviour: how many rows there are, what left/right changes, and which
+setting a value widget shows. A new row therefore needs a new widget pair in
+this chunk (data, and the file can now grow, section 14) **and** new MIPS code
+to drive it, which is why a native port should draw these layouts itself and
+bind the rows to its own settings (`launcher/hp2_menu`).
+
+**Boot.** `0x16F000` builds the movie-sequence object (state 2 = play
+`EALOGO_<lang>` then `NFSINTRO_<lang>`, table at 0x2FB750; state 1 = show
+`TITLE_IMAGE`). The constructor takes state 1 when the word at gp-0x59FC is
+set. `tools/hp2_skipintro.py` turns the `beqz` at 0x16F094 into a nop, so the
+game boots straight to the title screen; `--undo` restores it.
