@@ -204,7 +204,7 @@ int main(int argc, char **argv)
 
     while (!quit) {
         SDL_Event e;
-        int r = 0, ow, oh;
+        int ow, oh;
         if (!SDL_WaitEvent(&e)) break;
         do {
             hp2_fem_input in;
@@ -246,18 +246,17 @@ int main(int argc, char **argv)
                     }
                     last[axis] = dir;
                 }
-            } else if (e.type == SDL_WINDOWEVENT) r |= HP2_FEM_REDRAW;
+            }
             if (have) {
                 hp2_fem_screen before = menu.screen;
                 int res = hp2_femenu_input(&menu, in);
-                r |= res;
                 if (res & HP2_FEM_CHANGED) {
                     dirty = 1;
                     if (menu.sel == HP2_ROW_WINDOW) apply_window_mode(win, &cfg);
                 }
                 if (res & HP2_FEM_QUIT) quit = 1;
                 if (dirty && before == HP2_FEM_SETTINGS && menu.screen != before) {
-                    if (hp2_settings_save(&cfg, config) != 0) fprintf(stderr, "could not save %s\n", config);
+                    if (!hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);
                     dirty = 0;
                 }
             }
@@ -267,7 +266,7 @@ int main(int argc, char **argv)
         draw(&d, &menu, ren, ow, oh, fit_for(&cfg, forced_fit));
         SDL_RenderPresent(ren);
     }
-    if (dirty && hp2_settings_save(&cfg, config) != 0) fprintf(stderr, "could not save %s\n", config);
+    if (dirty && !hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);   /* 1 = saved */
 
     hp2_fedraw_free(&d);
     if (pad) SDL_GameControllerClose(pad);
