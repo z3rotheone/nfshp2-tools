@@ -141,8 +141,9 @@ race itself comes next: neither is in the port yet. The swatch colours are
 those of the BMW M5 for every car; elevations and best times are not known, so
 they are left blank, and difficulty is Beginner / Advanced / Expert by the
 course's number within its location (a guess). Racing But With Pigs and Just Race (the game's Challenge) open the *Challenge*
-screen: Players, Race Type, Skill Level (left/right) and Setup, which goes on to car
-select (the screen is titled with the row's name). You're The Pig opens the same
+screen: Players, Race Type, Skill Level (left/right) and Setup, which opens *Customize*
+(Cops, Opponents, Opponent Type, Opponent AI, Catch-up, Traffic, Damage, by mode;
+its value sets are a best guess from the game's strings) and then car select (the screen is titled with the row's name). You're The Pig opens the same
 screen without Race Type (Players, Skill Level, Setup). Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
 Pig (the game's Ultimate Racer, Challenge and You're The Cop); World Racing
 opens Ultimate Racer and Just Race (the game's Championship and Challenge).

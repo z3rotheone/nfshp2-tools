@@ -77,6 +77,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_SELECT_TRACK 0x15417B53u
 #define SCR_CHALLENGE    0x2D62CFE2u
 #define SCR_COP          0xE55F1297u
+#define SCR_RACE_SETUP   0xD1EADBCAu
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
 
@@ -251,6 +252,7 @@ static const hp2_fe_screen *list_screen(const hp2_femenu *m)
     case HP2_FEM_HOT_PURSUIT:  return m->hotp;
     case HP2_FEM_WORLD_RACING: return m->world;
     case HP2_FEM_CHALLENGE:    return m->chal_cop ? m->cop : m->chal;
+    case HP2_FEM_RACE_SETUP:   return m->rsetup;
     default:                   return NULL;
     }
 }
@@ -315,6 +317,7 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
     case HP2_IN_LEFT:  m->car = (m->car + HP2_CARS - 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_RIGHT: m->car = (m->car + 1) % HP2_CARS; return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
+        if (!m->quick_mode && m->rsetup) { m->screen = HP2_FEM_RACE_SETUP; m->sel = m->setup_sel > 0 ? m->setup_sel : 1; return HP2_FEM_REDRAW; }
         if (!m->quick_mode && m->chal) { m->screen = HP2_FEM_CHALLENGE; m->sel = m->chal_cop ? 3 : 4; return HP2_FEM_REDRAW; }
         m->screen = HP2_FEM_MAIN;
         m->sel = m->main_sel;
@@ -380,8 +383,64 @@ static int track_input(hp2_femenu *m, hp2_fem_input in)
     }
 }
 
+/* RACE_SETUP ("Customize"): the settings the Setup row opens, by mode. Each
+ * has a label (30001..), a set of values (strings 30008..30020) and a help
+ * line (30500..). The rows are rebuilt from the mode on every call. */
+enum { SU_COPS, SU_OPPONENTS, SU_OPPTYPE, SU_AI, SU_CATCHUP, SU_TRAFFIC, SU_DAMAGE, SU_TRACKS, SU_KINDS };
+static const struct { uint32_t label, help; int n; } SU_INFO[SU_KINDS] = {
+    { 30001u, 0u, 2 }, { 30002u, 30500u, 7 }, { 30003u, 30501u, 2 }, { 30004u, 0u, 3 },
+    { 30005u, 30502u, 2 }, { 30006u, 30503u, 4 }, { 30101u, 30504u, 2 }, { 30007u, 30505u, 2 },
+};
+
+/* The setting kinds of the screen, in row order; returns how many. */
+static int setup_kinds(const hp2_femenu *m, int *kind)
+{
+    int n = 0;
+    if (m->chal_cop) {
+        kind[n++] = SU_OPPONENTS; kind[n++] = SU_AI; kind[n++] = SU_TRAFFIC; kind[n++] = SU_DAMAGE;
+        return n;
+    }
+    if (m->race_type == 1) {                      /* Free Run: just you */
+        kind[n++] = SU_TRAFFIC; kind[n++] = SU_DAMAGE;
+        return n;
+    }
+    if (m->chal_from == HP2_FEM_HOT_PURSUIT) kind[n++] = SU_COPS;
+    kind[n++] = SU_OPPONENTS; kind[n++] = SU_OPPTYPE; kind[n++] = SU_AI; kind[n++] = SU_CATCHUP;
+    kind[n++] = SU_TRAFFIC; kind[n++] = SU_DAMAGE;
+    if (m->race_type == 2) kind[n++] = SU_TRACKS;  /* Knockout runs a sequence of tracks */
+    return n;
+}
+
+static const char *setup_value(const hp2_femenu *m, int kind, int v)
+{
+    static char num[16];
+    static const uint32_t ai[3] = { 30015u, 30016u, 30017u }, tr[4] = { 30008u, 30018u, 30019u, 30020u };
+    switch (kind) {
+    case SU_COPS:      return lang_or(m, v ? 30010u : 30011u, v ? "One" : "None");
+    case SU_OPPONENTS:
+        if (v >= 6) return lang_or(m, 30012u, "Full Grid");
+        snprintf(num, sizeof num, "%d", v + 1);
+        return num;
+    case SU_OPPTYPE:
+    case SU_TRACKS:    return lang_or(m, v ? 30014u : 30013u, v ? "Same" : "Random");
+    case SU_AI:        return lang_or(m, ai[v], "Beginner");
+    case SU_TRAFFIC:   return lang_or(m, tr[v], "Off");
+    default:           return lang_or(m, v ? 30009u : 30008u, v ? "On" : "Off");
+    }
+}
+
 static const list_entry *list_entries(const hp2_femenu *m, int *n)
 {
+    if (m->screen == HP2_FEM_RACE_SETUP) {
+        static list_entry rows[8];
+        int kind[8], i, k = setup_kinds(m, kind);
+        for (i = 0; i < k; i++) {
+            rows[i].sid = SU_INFO[kind[i]].label; rows[i].name = "Setting"; rows[i].own = 0;
+            rows[i].help = SU_INFO[kind[i]].help; rows[i].go = GO_NONE;
+        }
+        *n = k;
+        return rows;
+    }
     switch (m->screen) {
     case HP2_FEM_MAIN:         *n = (int)(sizeof MAIN_LIST / sizeof MAIN_LIST[0]); return MAIN_LIST;
     case HP2_FEM_HOT_PURSUIT:  *n = (int)(sizeof HOT_PURSUIT_LIST / sizeof HOT_PURSUIT_LIST[0]); return HOT_PURSUIT_LIST;
@@ -434,6 +493,11 @@ static void list_help(hp2_femenu *m)
     if (e->go == GO_QUICK && m->quick_mode) {
         snprintf(m->help, sizeof m->help, "Quick Race: %s settings. Its race screens are not in the port yet.",
                  quick_name(m->quick_mode));
+        return;
+    }
+    if (m->screen == HP2_FEM_RACE_SETUP) {
+        h = e->help && m->lang ? hp2_lang_by_id(m->lang, e->help) : NULL;
+        snprintf(m->help, sizeof m->help, "%s", h ? h : "");
         return;
     }
     if (m->screen == HP2_FEM_CHALLENGE) {      /* the help follows the value */
@@ -525,6 +589,10 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->tracksel = hp2_fe_find_id(layout, SCR_SELECT_TRACK);
     m->chal = hp2_fe_find_id(layout, SCR_CHALLENGE);
     if (!hp2_fe_row(m->chal, 1)) m->chal = NULL;
+    m->rsetup = hp2_fe_find_id(layout, SCR_RACE_SETUP);
+    if (!hp2_fe_row(m->rsetup, 1)) m->rsetup = NULL;
+    m->setup_val[SU_OPPONENTS] = 6; m->setup_val[SU_CATCHUP] = 1; m->setup_val[SU_TRAFFIC] = 2; m->setup_val[SU_DAMAGE] = 1;
+    m->setup_val[SU_COPS] = 1;
     m->cop = hp2_fe_find_id(layout, SCR_COP);
     if (!hp2_fe_row(m->cop, 1)) m->cop = NULL;
     m->laps = 2;
@@ -602,7 +670,36 @@ static int title_input(hp2_femenu *m, hp2_fem_input in)
     return HP2_FEM_REDRAW;
 }
 
-/* Challenge: up/down rows, left/right the value, Setup goes on to car select. */
+/* Customize: up/down settings, left/right values, accept goes on to car select. */
+static int setup_input(hp2_femenu *m, hp2_fem_input in)
+{
+    int kind[8], n = setup_kinds(m, kind);
+    switch (in) {
+    case HP2_IN_UP:   m->sel = m->sel > 1 ? m->sel - 1 : n; return HP2_FEM_REDRAW;
+    case HP2_IN_DOWN: m->sel = m->sel < n ? m->sel + 1 : 1; return HP2_FEM_REDRAW;
+    case HP2_IN_LEFT:
+    case HP2_IN_RIGHT:
+        if (m->sel < 1 || m->sel > n) return 0;
+        {
+            int *v = &m->setup_val[kind[m->sel - 1]], c = SU_INFO[kind[m->sel - 1]].n;
+            *v = (*v + (in == HP2_IN_LEFT ? c - 1 : 1)) % c;
+        }
+        return HP2_FEM_REDRAW;
+    case HP2_IN_ACCEPT:
+        if (!m->carsel) return 0;
+        m->setup_sel = m->sel;
+        m->screen = HP2_FEM_SELECT_CAR;
+        m->car_popup = 0;
+        return HP2_FEM_REDRAW;
+    case HP2_IN_BACK:
+        m->screen = HP2_FEM_CHALLENGE;
+        m->sel = m->chal_cop ? 3 : 4;
+        return HP2_FEM_REDRAW;
+    default: return 0;
+    }
+}
+
+/* Challenge: up/down rows, left/right the value, Setup goes on to Customize. */
 static int challenge_input(hp2_femenu *m, hp2_fem_input in)
 {
     static const int span[3] = { 2, 4, 3 };
@@ -617,7 +714,13 @@ static int challenge_input(hp2_femenu *m, hp2_fem_input in)
         *v[kd] = (*v[kd] + (in == HP2_IN_LEFT ? span[kd] - 1 : 1)) % span[kd];
         return HP2_FEM_REDRAW;
     case HP2_IN_ACCEPT:
-        if (kd != 3 || !m->carsel) return 0;
+        if (kd != 3) return 0;
+        if (m->rsetup) {
+            m->setup_val[SU_AI] = m->skill;        /* Opponent AI starts at the Skill Level */
+            m->screen = HP2_FEM_RACE_SETUP; m->sel = 1;
+            return HP2_FEM_REDRAW;
+        }
+        if (!m->carsel) return 0;
         m->screen = HP2_FEM_SELECT_CAR;
         m->car_popup = 0;
         return HP2_FEM_REDRAW;
@@ -705,6 +808,8 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         r = track_input(m, in);
     } else if (m->screen == HP2_FEM_TITLE) {
         r = title_input(m, in);
+    } else if (m->screen == HP2_FEM_RACE_SETUP) {
+        r = setup_input(m, in);
     } else if (m->screen == HP2_FEM_CHALLENGE) {
         r = challenge_input(m, in);
     } else if (list_screen(m)) {
@@ -909,6 +1014,9 @@ static int list_items(hp2_femenu *m, list *l)
         if (animated(w) || is_line(w) || is_band(w) || row_number(w) || !strcmp(w->name, "SCROLLING_TEXT")) continue;
         /* the progress line ("Unlocked", the easter egg): no progress yet */
         if (w->string_id == SID_PROGRESS || !strcmp(w->name, "EASTER_EGG_STRING")) continue;
+        if (m->screen == HP2_FEM_RACE_SETUP && (has_prefix(w->name, "LINE_") || !strcmp(w->name, "LEFT_ARROW")
+            || !strcmp(w->name, "RIGHT_ARROW") || !strcmp(w->name, "UP_ARROW") || !strcmp(w->name, "DOWN_ARROW")
+            || !strcmp(w->name, "ANIMATE_SELECTION"))) continue;
         if (m->screen == HP2_FEM_CHALLENGE) {
             static char title[64];
             static const uint32_t rt[4] = { 20005u, 20006u, 20007u, 20008u }, sk[3] = { 55004u, 55005u, 55006u };
@@ -927,6 +1035,25 @@ static int list_items(hp2_femenu *m, list *l)
             if (v) { push(l, w, v); continue; }
         }
         push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
+    }
+    if (m->screen == HP2_FEM_RACE_SETUP) {   /* each setting's value, and arrows on the chosen row */
+        int kind[8], cnt = setup_kinds(m, kind);
+        char nm[16];
+        for (k = 1; k <= cnt; k++) {
+            const hp2_fe_widget *lw;
+            hp2_fe_item *a;
+            snprintf(nm, sizeof nm, "LINE_%d", k);
+            lw = named(s, nm);
+            a = push(l, lw, setup_value(m, kind[k - 1], m->setup_val[kind[k - 1]]));
+            if (a && k != m->sel) grey(a, 0x50);
+            if (k == m->sel && lw) {
+                int j;
+                for (j = 0; j < 2; j++) {
+                    a = push(l, named(s, j ? "RIGHT_ARROW" : "LEFT_ARROW"), NULL);
+                    if (a) { a->w.y = lw->y; a->w.visible = 1; }
+                }
+            }
+        }
     }
     if (m->screen == HP2_FEM_CHALLENGE && chal_kind(m, m->sel) <= 2) {   /* the arrows of the chosen row's value */
         static const float row_y[3] = { 84.0f, 138.0f, 192.0f };

@@ -898,7 +898,25 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         n = hp2_femenu_items(&m, it, 160);
         CHECK(m.sel == 4 && count_named(it, n, "LEFT_ARROW") == 0, "Setup has no arrows");
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
-        CHECK(m.screen == HP2_FEM_SELECT_CAR, "Setup: car select");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.screen == HP2_FEM_RACE_SETUP && find_text(it, n, "Traffic") == 1 && find_text(it, n, "Damage") == 1
+              && find_text(it, n, "Opponents") == 0 && find_text(it, n, "Cops") == 0, "Setup: Customize; Free Run has only Traffic and Damage");
+        m.race_type = 0;
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.screen == HP2_FEM_RACE_SETUP && find_text(it, n, "Cops") == 1 && find_text(it, n, "Opponent Type") == 1
+              && find_text(it, n, "Catch-up") == 1 && find_text(it, n, "Full Grid") == 1 && find_text(it, n, "Advanced") == 1 && !strcmp(m.help, ""),
+              "Single Race Customize: opponents, type, AI (from the skill), catch-up");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        CHECK(!strcmp(m.help, "Set the number of opponents."), "Opponents' help line");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "1") == 1 && find_text(it, n, "Full Grid") == 0, "right from Full Grid: 1 opponent");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.screen == HP2_FEM_SELECT_CAR, "accept: car select");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_RACE_SETUP && m.sel == 2, "back: Customize");
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_CHALLENGE && m.sel == 4, "back: Challenge");
         hp2_femenu_input(&m, HP2_IN_BACK);
@@ -918,7 +936,12 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         CHECK(m.skill == 2 && !strcmp(m.help, "Toughest cops"), "Skill Level: the cops' help line");
         hp2_femenu_input(&m, HP2_IN_DOWN);
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
-        CHECK(m.screen == HP2_FEM_SELECT_CAR, "Setup: car select");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.screen == HP2_FEM_RACE_SETUP && find_text(it, n, "Cops") == 0 && find_text(it, n, "Opponent Type") == 0
+              && find_text(it, n, "Traffic") == 1, "You're The Pig: Customize without Cops and Opponent Type");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.screen == HP2_FEM_SELECT_CAR, "accept: car select");
+        hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_CHALLENGE && m.sel == 3, "back: the setup, on Setup");
         hp2_femenu_input(&m, HP2_IN_BACK);

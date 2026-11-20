@@ -25,7 +25,7 @@
  *                    accept, back); back returns to Main Menu or to
  *                    Challenge. (The 3D car is not in the port.)
  *   CHALLENGE        Players, Race Type, Skill Level (left/right) and
- *                    Setup (car select), opened by the Challenge rows; You're
+ *                    Setup (Customize), opened by the Challenge rows; You're
  *                    The Pig opens the same screen without Race Type, titled
  *                    with the port's name for the row.
  *   SELECT_TRACK     after the car (accept): the 15 courses, as a strip of
@@ -83,7 +83,7 @@ extern "C" {
 typedef enum {
     HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
     HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING,
-    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK, HP2_FEM_CHALLENGE
+    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK, HP2_FEM_CHALLENGE, HP2_FEM_RACE_SETUP
 } hp2_fem_screen;
 /* HP2_IN_HELP (Triangle) switches the ticker between the row's help line
  * and the menu buttons (accept, back, help), on every screen. */
@@ -106,7 +106,7 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
-    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal, *cop;   /* NULL if missing */
+    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal, *cop, *rsetup;   /* NULL if missing */
     int                  track;     /* SELECT_TRACK: index into the course table */
     int                  tod;       /* 0 sunny, 1 the course's other lighting */
     int                  alt;       /* 1: the course the other way round */
@@ -119,6 +119,8 @@ typedef struct {
     int                  players;   /* Challenge: 0 One Player, 1 Two Players */
     int                  race_type; /* 0 Single Race, 1 Free Run, 2 Knockout, 3 Lap Knockout */
     int                  skill;     /* 0 Beginner, 1 Advanced, 2 Expert */
+    int                  setup_val[8]; /* RACE_SETUP: the value of each setting (SU_*) */
+    int                  setup_sel; /* RACE_SETUP's row when car select was opened */
     int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
     int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
     int                  handling;  /* 0 Classic, 1 Extreme */
