@@ -25,10 +25,19 @@ Usage:
     python hp2_extract.py <folder containing ZDIR.BIN and ZZDATA.BIN> [-o OUT]
     python hp2_extract.py NFSHP2 -o extracted
     python hp2_extract.py NFSHP2 --list      # just show the table, write nothing
+    python hp2_extract.py NFSHP2 -o extracted --english
+                                             # leave out the other languages
+
+--english skips what only another language uses: French, German, Italian,
+Spanish and Swedish speech (about 1.2 GB), their menu text (FE_<LANGUAGE>.BIN)
+and the intro clips that exist per language (EALOGO_FR/GE/IT/SP/SW,
+NFSINTRO_FR, REWARD_FR), about 105 MB more. Entries with no known name are
+always kept, because their language cannot be told.
 
 Needs about as much free space as ZZDATA.BIN itself (roughly 3 GB).
 """
 import os
+import re
 import struct
 import sys
 
@@ -63,6 +72,16 @@ def load_names():
     return out
 
 
+# names (from archive_names.csv) that belong to a language other than English
+OTHER_LANG = re.compile(
+    r"(FRENCH|GERMAN|ITALIAN|SPANISH|SWEDISH)(BAN|DAT)?\.|FE_(FRENCH|GERMAN|ITALIAN|SPANISH|SWEDISH)\."
+    r"|_(FR|GE|IT|SP|SW)\.AVI$", re.I)
+
+
+def other_language(name):
+    return bool(name) and bool(OTHER_LANG.search(name.replace("/", "\\")))
+
+
 def guess_ext(head):
     if head[:4] == b"RIFF":
         return ".avi" if head[8:12] == b"AVI " else ".wav" if head[8:12] == b"WAVE" else ".riff"
@@ -72,6 +91,7 @@ def guess_ext(head):
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     listing = "--list" in sys.argv
+    english = "--english" in sys.argv
     out = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--out=")), None)
     if out is None and "-o" in sys.argv:
         i = sys.argv.index("-o")
@@ -112,10 +132,15 @@ def main():
     if not listing:
         os.makedirs(out, exist_ok=True)
     written = 0
+    skipped = skipped_bytes = 0
     manifest = []
     with open(zz, "rb") as f:
         for i, (eid, off, sz) in enumerate(ents):
             if sz == 0:
+                continue
+            if english and other_language(known.get("%08x" % eid, "")):
+                skipped += 1
+                skipped_bytes += sz
                 continue
             f.seek(off * SECTOR)
             if listing:
@@ -140,6 +165,9 @@ def main():
             if written % 50 == 0:
                 print("  %d files..." % written, flush=True)
 
+    if skipped:
+        print("left out %d files for other languages (%s bytes)"
+              % (skipped, "{:,}".format(skipped_bytes)))
     if listing:
         return
     with open(os.path.join(out, "names.txt"), "w") as f:
