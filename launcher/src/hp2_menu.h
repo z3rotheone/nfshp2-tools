@@ -53,6 +53,7 @@ typedef enum {
 int          hp2_menu_row_count(void);
 const char  *hp2_menu_section(int row);   /* "Video" or "Controls" */
 const char  *hp2_menu_label(int row);     /* "Internal resolution" ... */
+const char  *hp2_menu_help(int row);      /* one line for the help bar */
 hp2_row_kind hp2_menu_kind(int row);
 
 /* The value as the menu shows it ("1920 x 1080", "60 fps", "Off", "4x"). */

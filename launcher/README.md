@@ -107,7 +107,10 @@ actions currently held. Escape or Ctrl+C to quit.
 ```
 
 Arrows move, Enter/Space accepts, Esc/Backspace goes back; on a controller the
-d-pad or left stick, A (south) and B (east). On OPTIONS, *Display* opens the
+d-pad or left stick, A (south) and B (east); keyboard and controller are
+confirmed on a desktop. The selected row looks as in the game (orange label,
+white and orange lines, the help line in the ticker; checked against PCSX2
+screenshots). On OPTIONS, *Display* opens the
 settings list at the video rows and *Controller* at the control rows; the other
 rows do nothing yet. Left/right change a setting; `hp2.ini` (the same file the
 launcher reads, `--config` to choose another) is saved when you leave the list.

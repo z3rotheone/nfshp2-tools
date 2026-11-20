@@ -3,21 +3,22 @@
 #include <limits.h>
 #include <stdio.h>
 
-typedef struct { const char *section, *label; hp2_row_kind kind; int restart; } row_info;
+typedef struct { const char *section, *label; hp2_row_kind kind; int restart; const char *help; } row_info;
 
 static const row_info ROWS[HP2_ROW_COUNT] = {
-    { "Video",    "Internal resolution",  HP2_KIND_CHOICE, 0 },
-    { "Video",    "Aspect ratio",         HP2_KIND_CHOICE, 0 },
-    { "Video",    "Window mode",          HP2_KIND_CHOICE, 0 },
-    { "Video",    "VSync",                HP2_KIND_TOGGLE, 0 },
-    { "Video",    "Frame cap",            HP2_KIND_CHOICE, 0 },
-    { "Video",    "Anti-aliasing",        HP2_KIND_CHOICE, 1 },
-    { "Video",    "Anisotropic filter",   HP2_KIND_CHOICE, 0 },
-    { "Video",    "Show FPS",             HP2_KIND_TOGGLE, 0 },
-    { "Controls", "Control scheme",       HP2_KIND_CHOICE, 0 },
-    { "Controls", "Button icons",         HP2_KIND_CHOICE, 0 },
-    { "Controls", "Stick dead zone",      HP2_KIND_SLIDER, 0 },
-    { "Controls", "Vibration",            HP2_KIND_TOGGLE, 0 },
+    /* help lines in the game's own style ("Show or hide the leaderboard.") */
+    { "Video",    "Internal resolution",  HP2_KIND_CHOICE, 0, "Set the resolution the game draws at." },
+    { "Video",    "Aspect ratio",         HP2_KIND_CHOICE, 0, "Set the shape of the picture." },
+    { "Video",    "Window mode",          HP2_KIND_CHOICE, 0, "Play in a window or on the full screen." },
+    { "Video",    "VSync",                HP2_KIND_TOGGLE, 0, "Match the display's refresh to stop tearing." },
+    { "Video",    "Frame cap",            HP2_KIND_CHOICE, 0, "Set the highest frame rate." },
+    { "Video",    "Anti-aliasing",        HP2_KIND_CHOICE, 1, "Smooth jagged edges. Takes effect after a restart." },
+    { "Video",    "Anisotropic filter",   HP2_KIND_CHOICE, 0, "Keep the road sharp into the distance." },
+    { "Video",    "Show FPS",             HP2_KIND_TOGGLE, 0, "Show or hide the frame rate." },
+    { "Controls", "Control scheme",       HP2_KIND_CHOICE, 0, "Pedals on the triggers, or on the buttons." },
+    { "Controls", "Button icons",         HP2_KIND_CHOICE, 0, "Choose which controller's buttons to show." },
+    { "Controls", "Stick dead zone",      HP2_KIND_SLIDER, 0, "Set how far the stick moves before you steer." },
+    { "Controls", "Vibration",            HP2_KIND_TOGGLE, 0, "Turn vibration on or off." },
 };
 
 /* Internal resolution presets, ordered by height. 640x448 is what the PS2
@@ -63,6 +64,7 @@ static int valid(int row) { return row >= 0 && row < HP2_ROW_COUNT; }
 
 const char *hp2_menu_section(int row) { return valid(row) ? ROWS[row].section : ""; }
 const char *hp2_menu_label(int row)   { return valid(row) ? ROWS[row].label : ""; }
+const char *hp2_menu_help(int row)    { return valid(row) ? ROWS[row].help : ""; }
 hp2_row_kind hp2_menu_kind(int row)   { return valid(row) ? ROWS[row].kind : HP2_KIND_TOGGLE; }
 int hp2_menu_needs_restart(int row)   { return valid(row) ? ROWS[row].restart : 0; }
 

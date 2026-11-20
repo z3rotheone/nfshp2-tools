@@ -2,14 +2,21 @@
  * layouts and driven by hp2_menu.
  *
  *   OPTIONS          the game's own screen and rows (Audio, Controller,
- *                    Display, ...), text from FE_<LANGUAGE>.BIN. "Display"
- *                    and "Controller" open the settings list.
+ *                    Display, Save/Load, Player Names, Credits; Languages
+ *                    is hidden, as on the US disc), text and help lines
+ *                    from FE_<LANGUAGE>.BIN. "Display" and "Controller"
+ *                    open the settings list.
  *   settings list    the DISPLAY_OPTIONS layout with the hp2_menu rows in
  *                    place of the game's: label, value between the arrows,
  *                    row mask and separator cloned from the layout's first
  *                    row, scrolling 7 rows at a time inside the layout's
  *                    SCROLLING_MENU_CLIP_REG, up/down arrows when there is
  *                    more. Left/right change the selected setting.
+ *
+ * The selected row looks as in the game: orange label, the white
+ * MI_OVERSCORE line above it and the orange MI_UNDERSCORE below, its dark
+ * row mask lifted, arrows only on rows with more than two values, and its
+ * help line in the ticker.
  *
  * Produces a list of hp2_fe_item for hp2_fedraw; holds no SDL and does not
  * allocate, so it is tested without a window.
@@ -43,6 +50,8 @@ typedef struct {
     hp2_fem_screen       screen;
     int                  sel;       /* OPTIONS: row 1..n; settings: hp2_row */
     int                  options_sel;
+    int                  orows;     /* OPTIONS rows shown */
+    int                  orow[16];  /* their MENUITEM numbers, in order */
     int                  scroll;    /* settings: first row shown */
     char                 value[HP2_ROW_COUNT][HP2_MENU_VALUE];
     char                 help[96];

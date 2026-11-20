@@ -35,6 +35,7 @@ static void test_rows(void)
     for (i = 0; i < hp2_menu_row_count(); i++) {
         CHECK(hp2_menu_label(i)[0] != 0, "row %d has a label", i);
         CHECK(hp2_menu_section(i)[0] != 0, "row %d has a section", i);
+        CHECK(hp2_menu_help(i)[0] != 0 && strlen(hp2_menu_help(i)) < 60, "row %d has a short help line", i);
         CHECK(val(&s, i)[0] != 0, "row %d (%s) has a value", i, hp2_menu_label(i));
     }
     CHECK(!strcmp(hp2_menu_label(-1), ""), "bad row has an empty label");

@@ -1288,8 +1288,18 @@ x ≈ 502 (`TRACKMAP`, `REARVIEW_ONOFF`, `UNITS`, `MONOSTEREO`) between
 `LEFT_ARROW` (389) and `RIGHT_ARROW` (604), in `FONT_STATS`.
 `DISPLAY_OPTIONS` scrolls: its rows are clipped to `SCROLLING_MENU_CLIP_REG`
 (x 20, y 73, 690 x 260: seven rows), with `UP_ARROW` / `DOWN_ARROW` beside
-them. The white and orange lines at y 353 and 381 frame the help ticker
-(`SCROLLING_TEXT`, clipped to `SCROLL_TEXT_CLIP`), not the selection. `OPTIONS` has 7 rows (Audio, Controller,
+them.
+
+**The selected row** (from PCSX2 screenshots, 2026-11-19): its label turns
+orange (the colour of `NF_H_ORANGELINE`, 248/128/7), `MI_OVERSCORE` (white)
+and `MI_UNDERSCORE` (orange) move from where they are parked (y 353 / 381) to
+just above and below it (line centres 0.5 above and 32.5 below the label's
+y), and its dark `MI_n_MASK` band lifts. Values stay white; the arrows show
+only on rows with more than two values (none on on/off rows such as
+Leaderboard). The ticker shows the row's help line: OPTIONS row `MENUITEM_n`
+uses string 100019 + n (100020 "Set the volume and the Jukebox."), Display
+rows 1507xx ("Show or hide the leaderboard."), Audio 1505xx. On the US disc
+OPTIONS shows six rows: `MENUITEM_7` (Languages, 100007) is hidden. `OPTIONS` has 7 rows (Audio, Controller,
 Display, Save/Load, Player Names, Credits, Languages); `DISPLAY_OPTIONS` has 9
 (Track Map, Rearview Mirror, Units, Leaderboard, Jump Cams, Zone Cams, Player
 1/2 Options, Calibrate Display Offset); `AUDIO_OPTIONS` 11.

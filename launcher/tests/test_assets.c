@@ -251,11 +251,20 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
     printf("options menus\n");
     hp2_settings_defaults(&cfg);
     CHECK(hp2_femenu_init(&m, L, lang, &cfg) == 0, "init");
-    CHECK(hp2_femenu_options_rows(&m) == 7, "OPTIONS has 7 rows");
+    CHECK(hp2_femenu_options_rows(&m) == 6, "OPTIONS shows 6 rows (Languages hidden, as on the US disc)");
     n = hp2_femenu_items(&m, it, 160);
     CHECK(n > 20 && n < 160, "%d items", n);
-    CHECK(find_text(it, n, "Audio") == 1 && find_text(it, n, "Languages") == 1, "row text from FE_ENGLISH");
-    CHECK(hp2_femenu_input(&m, HP2_IN_UP) == HP2_FEM_REDRAW && m.sel == 7, "up from the top wraps");
+    CHECK(find_text(it, n, "Audio") == 1 && find_text(it, n, "Credits") == 1, "row text from FE_ENGLISH");
+    CHECK(find_text(it, n, "Languages") == 0, "no Languages row");
+    CHECK(!strcmp(m.help, "Set the volume and the Jukebox."), "Audio's help line, got '%s'", m.help);
+    for (i = 0; i < n; i++)
+        if (it[i].w.kind == HP2_FE_TEXT && it[i].str && !strcmp(it[i].str, "Audio"))
+            CHECK(it[i].w.rgba[0] == 124 && it[i].w.rgba[1] == 64, "selected row is orange");
+    for (i = 0, r = 0; i < n; i++)
+        if (!strcmp(it[i].w.name, "MI_OVERSCORE") || !strcmp(it[i].w.name, "MI_UNDERSCORE")) r++;
+    CHECK(r == 2, "the two selection lines");
+    CHECK(hp2_femenu_input(&m, HP2_IN_UP) == HP2_FEM_REDRAW && m.sel == 6, "up from the top wraps to Credits");
+    CHECK(!strcmp(m.help, "See who made this game."), "Credits' help line, got '%s'", m.help);
     hp2_femenu_input(&m, HP2_IN_DOWN);
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(m.sel == 2, "Controller");
@@ -265,6 +274,7 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
     n = hp2_femenu_items(&m, it, 160);
     CHECK(find_text(it, n, "Controls") == 1, "title = section");
     CHECK(find_text(it, n, hp2_menu_label(HP2_ROW_SCHEME)) == 1, "row label from hp2_menu");
+    CHECK(!strcmp(m.help, hp2_menu_help(HP2_ROW_SCHEME)), "help line from hp2_menu");
     before = cfg.scheme;
     r = hp2_femenu_input(&m, HP2_IN_RIGHT);
     CHECK((r & HP2_FEM_CHANGED) && cfg.scheme != before, "right changes the setting");
