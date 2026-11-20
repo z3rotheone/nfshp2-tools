@@ -31,6 +31,7 @@ hp2launcher
 test_core
 test_pad
 test_menu
+test_fe
 *.o
 *.exe
 hp2.ini

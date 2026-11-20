@@ -2,6 +2,9 @@
 #
 #   make           build the launcher (needs SDL2)
 #   make test      build and run the unit tests (no SDL needed)
+#   make fecheck FRONTB=path/to/FRONTB.BUN
+#                  check hp2_fe against the real front-end bundle and
+#                  against tools/hp2_fescreens.py (needs python3)
 #   make stubcheck compile-check the SDL sources without SDL installed
 #   make clean
 #
@@ -12,7 +15,7 @@
 
 CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -O2
-SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c
+SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c src/hp2_fe.c
 SDLSRC   = src/hp2_input.c src/main.c
 BIN      = hp2launcher
 
@@ -33,13 +36,15 @@ $(BIN): $(SRC) $(SDLSRC)
 	fi
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc -o $@ $(SRC) $(SDLSRC) $(SDL_LIBS) -lm
 
-test: test_core test_pad test_menu
+test: test_core test_pad test_menu test_fe
 	@echo
 	@./test_core
 	@echo
 	@./test_pad
 	@echo
 	@./test_menu
+	@echo
+	@./test_fe
 
 test_core: tests/test_core.c $(SRC)
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_core.c $(SRC) -lm
@@ -50,6 +55,15 @@ test_pad: tests/test_pad.c $(SRC)
 test_menu: tests/test_menu.c $(SRC)
 	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_menu.c $(SRC) -lm
 
+test_fe: tests/test_fe.c src/hp2_fe.c src/hp2_fe.h
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/test_fe.c src/hp2_fe.c -lm
+
+# The real FRONTB.BUN (archive entry 21) is not in the repo: pass its path.
+fecheck: test_fe
+	@if [ -z "$(FRONTB)" ]; then echo "usage: make fecheck FRONTB=path/to/FRONTB.BUN"; exit 1; fi
+	./test_fe "$(FRONTB)"
+	python3 tests/check_fe.py ./test_fe "$(FRONTB)"
+
 # Compiles the SDL-dependent sources against a stand-in header, to catch
 # mistakes in them on a machine with no SDL. Never links, never run.
 stubcheck:
@@ -58,6 +72,6 @@ stubcheck:
 	@echo "stub compile-check passed"
 
 clean:
-	rm -f $(BIN) test_core test_pad test_menu hp2.ini *.o
+	rm -f $(BIN) test_core test_pad test_menu test_fe hp2.ini *.o
 
-.PHONY: all test stubcheck clean
+.PHONY: all test fecheck stubcheck clean

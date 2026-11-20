@@ -19,6 +19,14 @@ dropped in later.
   physical button is `A` on an Xbox pad, `Cross` on a PlayStation pad and `B`
   on a Nintendo pad — binding by position and labelling separately is the only
   way to get this right for everyone.
+- **The original menu layouts** (`hp2_fe`): parses the 41 front-end screens
+  of the user's own `FRONTEND\FRONTB.BUN` (chunk `0x80010200`, see
+  `docs/formats.md` section 17) into widgets with name, position, scale, font,
+  colour, string id or texture, finds screens by name and the `MENUITEM_<n>`
+  rows in order, and works out where the 640 x 480 canvas lands on a window:
+  FIT (4:3 with bars), STRETCH (fills, distorts) or EXPAND (4:3 at window
+  height, side room for a background). It does not draw; nothing of the game
+  is compiled in.
 - **Axis shaping** with a dead zone that rescales the remaining travel, so the
   stick still reaches full tilt instead of being clipped short.
 
@@ -30,6 +38,7 @@ dropped in later.
 | `src/hp2_menu.c` | no | yes |
 | `src/hp2_glyphs.c` | no | yes |
 | `src/hp2_pad.c` | no | yes |
+| `src/hp2_fe.c` | no | yes, and against the real FRONTB.BUN |
 | `src/hp2_input.c` | yes | compile-checked |
 | `src/main.c` | yes | compile-checked |
 
@@ -43,6 +52,8 @@ is assumed anywhere else.
 ```sh
 make test        # unit tests, no SDL needed
 make stubcheck   # compile-check the SDL sources without SDL installed
+make fecheck FRONTB=~/hp2work/extracted/021_14c57a19.bin
+                 # hp2_fe on the real bundle, compared with hp2_fescreens.py
 make             # build the launcher (needs SDL2)
 ```
 
@@ -119,6 +130,16 @@ neutral labels (`Button 1`, `L1`) rather than a confident guess at Xbox.
 whitespace and case handling, clamping of out-of-range and corrupt values,
 file round-tripping, the full glyph table, binding collisions, and axis and
 trigger shaping across their whole range.
+
+`test_fe` builds bundles of its own (padding chunks, odd chunks between
+screens, more widgets than the header's count, rows stored out of order),
+damages every byte and cuts every prefix of them; built with
+`-fsanitize=address,undefined` it reads nothing past the buffer. On the real
+FRONTB.BUN it finds 41 screens and OPTIONS / DISPLAY_OPTIONS / AUDIO_OPTIONS
+with 7 / 9 / 11 rows, and `tests/check_fe.py` finds all 1,549 widgets
+identical to `tools/hp2_fescreens.py`. The rows are about 37 px apart from
+y = 71 but placed by hand (up to 2 px off) and stored out of order, so look
+them up with `hp2_fe_row`, not by position in the list.
 
 The two SDL files compile cleanly but have **never been run**, because the
 machine they were written on has no SDL. The first real run is the test: plug
