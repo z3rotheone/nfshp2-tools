@@ -10,7 +10,9 @@
 #define SID_AUDIO      100001u
 #define SID_CONTROLLER 100002u
 #define SID_DISPLAY    100004u
+#define SID_PLAYER_NAMES 100006u
 #define SID_LANGUAGES  100007u
+#define SID_CREDITS    100008u
 #define SID_HELP_BASE  100019u
 
 /* the selected row: orange like the game's NF_H_ORANGELINE (248, 128, 7) */
@@ -53,6 +55,86 @@ const char *hp2_femenu_text(const hp2_femenu *m, const hp2_fe_widget *w)
 
 int hp2_femenu_options_rows(const hp2_femenu *m) { return m->orows; }
 
+/* OPTIONS rows the port leaves out: Player Names and Credits (not wanted),
+ * Languages (not on the US disc either). */
+static int hidden_row(const hp2_fe_widget *w)
+{
+    return w && (w->string_id == SID_PLAYER_NAMES || w->string_id == SID_LANGUAGES || w->string_id == SID_CREDITS);
+}
+
+/* ---- jukebox ------------------------------------------------------------- */
+
+/* The bank's play-status number -> hp2_play. 2 is Hot Pursuit and 4 is
+ * Menu/Racing (the user's PCSX2 screenshots: instrumentals show Hot Pursuit,
+ * vocal versions Menu/Racing); 0 (Matt Ragan and the techno tracks) is not
+ * yet seen in the game and is taken as Off. */
+static hp2_play play_from_bank(int n)
+{
+    switch (n) {
+    case 2:  return HP2_PLAY_HOT_PURSUIT;
+    case 4:  return HP2_PLAY_MENU_RACING;
+    default: return HP2_PLAY_OFF;
+    }
+}
+
+hp2_play hp2_femenu_play(const hp2_femenu *m, int song)
+{
+    if (!m->jb || song < 0 || song >= m->jb->count) return HP2_PLAY_OFF;
+    if (song < HP2_SONGS && m->cfg->song[song] >= 0) return (hp2_play)m->cfg->song[song];
+    return play_from_bank(m->jb->track[song].bank_status);
+}
+
+void hp2_femenu_set_jukebox(hp2_femenu *m, const hp2_jukebox *jb)
+{
+    m->jb = jb && jb->count > 0 ? jb : NULL;
+}
+
+static void pick_genre(hp2_femenu *m, int g)
+{
+    m->genre = g;
+    m->nsongs = hp2_jukebox_songs(m->jb, g, m->songs, HP2_JB_MAX);
+    m->jscroll = 0;
+}
+
+static int jukebox_input(hp2_femenu *m, hp2_fem_input in)
+{
+    int r = 0, n = m->nsongs;
+    switch (in) {
+    case HP2_IN_UP:   m->jsel = m->jsel > 0 ? m->jsel - 1 : n; r = HP2_FEM_REDRAW; break;
+    case HP2_IN_DOWN: m->jsel = m->jsel < n ? m->jsel + 1 : 0; r = HP2_FEM_REDRAW; break;
+    case HP2_IN_LEFT:
+    case HP2_IN_RIGHT: {
+        int d = in == HP2_IN_LEFT ? -1 : 1;
+        if (m->jsel == 0) {
+            if (m->jb->genres > 1) {
+                pick_genre(m, (m->genre + d + m->jb->genres) % m->jb->genres);
+                r = HP2_FEM_REDRAW;
+            }
+        } else {
+            int song = m->songs[m->jsel - 1];
+            if (song < HP2_SONGS) {
+                m->cfg->song[song] = (hp2_femenu_play(m, song) + d + HP2_PLAY_COUNT) % HP2_PLAY_COUNT;
+                r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
+            }
+        }
+        break;
+    }
+    case HP2_IN_BACK:
+        m->screen = HP2_FEM_SETTINGS;           /* back to the Audio page, on Jukebox */
+        m->sel = HP2_ROW_JUKEBOX;
+        r = HP2_FEM_REDRAW;
+        break;
+    default: break;
+    }
+    if (m->jsel > 0) {   /* keep the selected song in view */
+        if (m->jsel - 1 < m->jscroll) m->jscroll = m->jsel - 1;
+        if (m->jsel - 1 >= m->jscroll + HP2_FEM_SONGS) m->jscroll = m->jsel - HP2_FEM_SONGS;
+    } else {
+        m->jscroll = 0;
+    }
+    return r;
+}
+
 static const hp2_fe_widget *options_row(const hp2_femenu *m, int sel)
 {
     return sel >= 1 && sel <= m->orows ? hp2_fe_row(m->options, m->orow[sel - 1]) : NULL;
@@ -80,12 +162,13 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->options = hp2_fe_find(layout, "OPTIONS");
     m->display = hp2_fe_find(layout, "DISPLAY_OPTIONS");
     m->audio = hp2_fe_find(layout, "AUDIO_OPTIONS");
+    m->jbscreen = hp2_fe_find(layout, "JUKEBOX_INGAME");
     if (!m->options || !m->display || !hp2_fe_row(m->display, 1)) return -1;
     if (m->audio && !hp2_fe_row(m->audio, 1)) m->audio = NULL;
     {
         int i, n = hp2_fe_row_count(m->options);
         for (i = 1; i <= n && m->orows < (int)(sizeof m->orow / sizeof m->orow[0]); i++)
-            if (hp2_fe_row(m->options, i)->string_id != SID_LANGUAGES) m->orow[m->orows++] = i;
+            if (!hidden_row(hp2_fe_row(m->options, i))) m->orow[m->orows++] = i;
     }
     if (m->orows < 1) return -1;
     m->screen = HP2_FEM_OPTIONS;
@@ -121,7 +204,9 @@ const char *hp2_femenu_page(const hp2_femenu *m)
 int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
 {
     int r = 0;
-    if (m->screen == HP2_FEM_OPTIONS) {
+    if (m->screen == HP2_FEM_JUKEBOX) {
+        r = jukebox_input(m, in);
+    } else if (m->screen == HP2_FEM_OPTIONS) {
         int n = m->orows;
         const hp2_fe_widget *w = options_row(m, m->sel);
         switch (in) {
@@ -147,7 +232,14 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
             if (hp2_menu_adjust(m->cfg, m->sel, in == HP2_IN_LEFT ? -1 : 1)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
             break;
         case HP2_IN_ACCEPT:
-            if (hp2_menu_kind(m->sel) == HP2_KIND_ACTION) {
+            if (m->sel == HP2_ROW_JUKEBOX) {
+                if (m->jb && m->jbscreen) {
+                    m->screen = HP2_FEM_JUKEBOX;
+                    m->jsel = 0;
+                    pick_genre(m, 0);
+                    r = HP2_FEM_REDRAW;
+                }
+            } else if (hp2_menu_kind(m->sel) == HP2_KIND_ACTION) {
                 if (hp2_menu_activate(m->cfg, m->sel)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
             } else if (hp2_menu_kind(m->sel) == HP2_KIND_TOGGLE) {
                 if (hp2_menu_adjust(m->cfg, m->sel, 1)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
@@ -159,8 +251,10 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
             r = HP2_FEM_REDRAW;
             break;
         }
-        if (m->sel < m->scroll) m->scroll = m->sel;
-        if (m->sel >= m->scroll + HP2_FEM_VISIBLE) m->scroll = m->sel - HP2_FEM_VISIBLE + 1;
+        if (m->screen == HP2_FEM_SETTINGS) {
+            if (m->sel < m->scroll) m->scroll = m->sel;
+            if (m->sel >= m->scroll + HP2_FEM_VISIBLE) m->scroll = m->sel - HP2_FEM_VISIBLE + 1;
+        }
     }
     if (r) refresh(m);
     return r;
@@ -242,7 +336,7 @@ static int options_items(hp2_femenu *m, list *l)
         int row = row_number(w);
         hp2_fe_item *it;
         if (animated(w) || is_line(w) || !strcmp(w->name, "SCROLLING_TEXT")) continue;
-        if (row && w->string_id == SID_LANGUAGES) continue;
+        if (row && hidden_row(w)) continue;
         it = push(l, w, w->kind == HP2_FE_TEXT ? hp2_femenu_text(m, w) : NULL);
         if (!it) continue;
         if (row) {
@@ -372,11 +466,68 @@ static int settings_items(hp2_femenu *m, list *l)
     return l->n;
 }
 
+/* JUKEBOX_INGAME's slot widgets: ARTISTn (the bigger line: the title, as
+ * the game shows it), SONGn (the smaller line: the artist), SONGnONOFF (play
+ * status) and LEFT_ARROWn / RIGHT_ARROWn, for n = 1..5. */
+static const hp2_fe_widget *slot(const hp2_fe_screen *s, const char *what, int n)
+{
+    char name[24];
+    snprintf(name, sizeof name, "%s%d", what, n);
+    return named(s, name);
+}
+
+static int is_slot_widget(const hp2_fe_widget *w)
+{
+    static const char *pre[] = { "ARTIST", "SONG", "LEFT_ARROW", "RIGHT_ARROW", "UP_ARROW", "DOWN_ARROW", "FAVORITE" };
+    size_t i;
+    for (i = 0; i < sizeof pre / sizeof pre[0]; i++)
+        if (has_prefix(w->name, pre[i])) return 1;
+    return !strcmp(w->name, "MENUITEM_1");
+}
+
+static int jukebox_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = m->jbscreen;
+    hp2_fe_item *it;
+    int i, k;
+    for (i = 0; i < s->count; i++)
+        if (!is_slot_widget(&s->widgets[i]))
+            push(l, &s->widgets[i], s->widgets[i].kind == HP2_FE_TEXT ? hp2_femenu_text(m, &s->widgets[i]) : NULL);
+    /* the genre row */
+    it = push(l, named(s, "MENUITEM_1"), m->jb->genre[m->genre]);
+    if (it && m->jsel == 0) memcpy(it->w.rgba, ORANGE, 4);
+    if (m->jsel == 0) {
+        push(l, named(s, "LEFT_ARROW"), NULL);
+        push(l, named(s, "RIGHT_ARROW"), NULL);
+    }
+    /* the songs */
+    for (k = 0; k < HP2_FEM_SONGS && m->jscroll + k < m->nsongs; k++) {
+        int song = m->songs[m->jscroll + k], on = m->jsel == m->jscroll + k + 1;
+        const hp2_jb_track *t = &m->jb->track[song];
+        it = push(l, slot(s, "ARTIST", k + 1), t->title);
+        if (it && on) memcpy(it->w.rgba, ORANGE, 4);
+        push(l, slot(s, "SONG", k + 1), t->artist);
+        {
+            char name[24];
+            snprintf(name, sizeof name, "SONG%dONOFF", k + 1);
+            push(l, named(s, name), hp2_play_label(hp2_femenu_play(m, song)));
+        }
+        if (on) {
+            push(l, slot(s, "LEFT_ARROW", k + 1), NULL);
+            push(l, slot(s, "RIGHT_ARROW", k + 1), NULL);
+        }
+    }
+    if (m->jscroll > 0) push(l, named(s, "UP_ARROW"), NULL);
+    if (m->jscroll + HP2_FEM_SONGS < m->nsongs) push(l, named(s, "DOWN_ARROW"), NULL);
+    return l->n;
+}
+
 int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
 {
     list l;
     l.it = items;
     l.n = 0;
     l.cap = cap;
+    if (m->screen == HP2_FEM_JUKEBOX) return jukebox_items(m, &l);
     return m->screen == HP2_FEM_OPTIONS ? options_items(m, &l) : settings_items(m, &l);
 }

@@ -34,8 +34,13 @@ uint32_t hp2_zdir_hash(const char *path);
 uint8_t *hp2_zdir_load(const hp2_zdir *z, const char *path, size_t *len);
 uint8_t *hp2_zdir_load_id(const hp2_zdir *z, uint32_t id, size_t *len);
 
+/* The first max bytes of a file (all of it if smaller): the music bank's
+ * song table without its 193 MB of audio. */
+uint8_t *hp2_zdir_load_part(const hp2_zdir *z, const char *path, size_t max, size_t *len);
+
 /* Reads a whole loose file (an extracted entry). */
 uint8_t *hp2_read_file(const char *path, size_t *len);
+uint8_t *hp2_read_file_part(const char *path, size_t max, size_t *len);
 
 #ifdef __cplusplus
 }

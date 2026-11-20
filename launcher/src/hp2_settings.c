@@ -12,6 +12,8 @@ static const char *AUDIO_MODE[] = { "stereo", "mono", "surround" };
 static const char *VOLUME_KEY[] = { "menu_music", "race_music", "ambient", "tires",
                                     "engine", "menu_sfx", "speech" };
 static const int VOLUME_DEFAULT[] = { 70, 70, 80, 80, 80, 80, 80 };
+static const char *PLAY_KEY[] = { "off", "menu", "racing", "hot_pursuit", "menu_racing", "always" };
+static const char *PLAY_LABEL[] = { "Off", "Menu", "World Racing", "Hot Pursuit", "Menu/Racing", "Always" };
 static const char *GLYPHS[] = { "auto", "xbox", "playstation", "nintendo",
                                 "generic", "keyboard" };
 
@@ -23,6 +25,16 @@ const char *hp2_audio_mode_name(hp2_audio_mode m)
 const char *hp2_volume_key(hp2_volume v)
 {
     return (v >= 0 && v < HP2_VOL_COUNT) ? VOLUME_KEY[v] : "";
+}
+
+const char *hp2_play_key(hp2_play p)   { return (p >= 0 && p < HP2_PLAY_COUNT) ? PLAY_KEY[p] : "default"; }
+const char *hp2_play_label(hp2_play p) { return (p >= 0 && p < HP2_PLAY_COUNT) ? PLAY_LABEL[p] : ""; }
+
+void hp2_settings_default_jukebox(hp2_settings *s)
+{
+    int i;
+    if (!s) return;
+    for (i = 0; i < HP2_SONGS; i++) s->song[i] = -1;
 }
 
 void hp2_settings_default_volumes(hp2_settings *s)
@@ -90,6 +102,7 @@ void hp2_settings_defaults(hp2_settings *s)
     s->rumble          = 1;
     hp2_settings_default_volumes(s);
     s->audio_mode      = HP2_AUDIO_STEREO;
+    hp2_settings_default_jukebox(s);
 }
 
 /* --------------------------------------------------------------- validate */
@@ -124,6 +137,8 @@ int hp2_settings_validate(hp2_settings *s)
             if (s->volume[i] < 0)   { s->volume[i] = 0; n++; }
             if (s->volume[i] > 100) { s->volume[i] = 100; n++; }
         }
+        for (i = 0; i < HP2_SONGS; i++)
+            if (s->song[i] < -1 || s->song[i] >= HP2_PLAY_COUNT) { s->song[i] = -1; n++; }
     }
 
     if (s->vsync  != 0 && s->vsync  != 1) { s->vsync  = 1; n++; }
@@ -246,6 +261,12 @@ int hp2_settings_parse(hp2_settings *s, const char *text)
         } else if (!strcmp(key, "mode")) {
             int i = lookup(val, AUDIO_MODE, HP2_AUDIO_COUNT);
             if (i >= 0) { s->audio_mode = (hp2_audio_mode)i; understood++; }
+        } else if (!strncmp(key, "song", 4) && key[4] >= '1' && key[4] <= '9') {
+            int k = atoi(key + 4), i = lookup(val, PLAY_KEY, HP2_PLAY_COUNT);
+            if (k >= 1 && k <= HP2_SONGS && (i >= 0 || !strcmp(val, "default"))) {
+                s->song[k - 1] = i;
+                understood++;
+            }
         } else {
             int i = lookup(key, VOLUME_KEY, HP2_VOL_COUNT);
             if (i >= 0) {
@@ -310,7 +331,22 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
         s->volume[0], s->volume[1], s->volume[2], s->volume[3],
         s->volume[4], s->volume[5], s->volume[6],
         hp2_audio_mode_name(s->audio_mode));
-    return (n < 0) ? 0 : (size_t)n;
+    if (n < 0) return 0;
+    {   /* jukebox: only the songs set by hand; the rest follow the bank */
+        int i, head = 0;
+        for (i = 0; i < HP2_SONGS; i++) {
+            int k;
+            if (s->song[i] < 0) continue;
+            k = snprintf(buf ? buf + n : NULL, (size_t)n < cap ? cap - (size_t)n : 0, "%s%s%d = %s\n",
+                         head ? "" : "\n[jukebox]              # play status of song n of the music bank:\n"
+                                     "                       # off, menu, racing, hot_pursuit, menu_racing, always\n",
+                         "song", i + 1, hp2_play_key((hp2_play)s->song[i]));
+            if (k < 0) return 0;
+            n += k;
+            head = 1;
+        }
+    }
+    return (size_t)n;
 }
 
 /* Apply a single assignment without disturbing the other fields. Done by
@@ -318,7 +354,7 @@ size_t hp2_settings_write(const hp2_settings *s, char *buf, size_t cap)
  * is exactly one place that knows the key names. */
 int hp2_settings_set(hp2_settings *s, const char *assignment)
 {
-    char buf[2048];
+    char buf[8192];   /* the whole file, with every jukebox song set: ~3.1 KB */
     size_t n;
     hp2_settings before;
 
@@ -375,7 +411,7 @@ int hp2_settings_load(hp2_settings *s, const char *path)
 
 int hp2_settings_save(const hp2_settings *s, const char *path)
 {
-    char buf[2048];
+    char buf[8192];   /* the whole file, with every jukebox song set: ~3.1 KB */
     size_t need;
     FILE *f;
 

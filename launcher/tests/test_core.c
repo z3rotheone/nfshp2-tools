@@ -298,6 +298,35 @@ static void test_audio_file(void)
     CHECK(!strcmp(hp2_volume_key(HP2_VOL_MENU_SFX), "menu_sfx") && !strcmp(hp2_audio_mode_name(HP2_AUDIO_MONO), "mono"), "names");
 }
 
+static void test_jukebox_file(void)
+{
+    hp2_settings s, t;
+    char buf[8192];
+    int i;
+    printf("jukebox settings\n");
+    hp2_settings_defaults(&s);
+    for (i = 0; i < HP2_SONGS; i++) CHECK(s.song[i] == -1, "song %d follows the bank", i + 1);
+    hp2_settings_write(&s, buf, sizeof buf);
+    CHECK(!strstr(buf, "[jukebox]"), "nothing set: no jukebox section");
+    hp2_settings_parse(&s, "song1 = off\nSong23 = Always\nsong3 = menu_racing\nsong5 = default\nsong65 = menu\nsong2 = loud\n");
+    CHECK(s.song[0] == HP2_PLAY_OFF && s.song[22] == HP2_PLAY_ALWAYS && s.song[2] == HP2_PLAY_MENU_RACING, "parsed");
+    CHECK(s.song[4] == -1 && s.song[1] == -1, "default / unknown value: the bank's");
+    hp2_settings_write(&s, buf, sizeof buf);
+    CHECK(strstr(buf, "[jukebox]") && strstr(buf, "song1 = off") && strstr(buf, "song23 = always") && !strstr(buf, "song2 ="), "only set songs written");
+    hp2_settings_parse(&t, buf);
+    CHECK(!memcmp(t.song, s.song, sizeof s.song), "round trip");
+    for (i = 0; i < HP2_SONGS; i++) s.song[i] = HP2_PLAY_HOT_PURSUIT;
+    CHECK(hp2_settings_write(&s, buf, sizeof buf) < sizeof buf, "all 64 set still fits the save buffer");
+    hp2_settings_parse(&t, buf);
+    CHECK(!memcmp(t.song, s.song, sizeof s.song), "all 64 round trip");
+    s.song[7] = 99; s.song[8] = -7;
+    hp2_settings_validate(&s);
+    CHECK(s.song[7] == -1 && s.song[8] == -1, "out of range -> the bank's");
+    hp2_settings_default_jukebox(&s);
+    CHECK(s.song[0] == -1 && s.song[63] == -1, "Default Jukebox");
+    CHECK(!strcmp(hp2_play_label(HP2_PLAY_RACING), "World Racing") && !strcmp(hp2_play_key(HP2_PLAY_MENU_RACING), "menu_racing"), "names");
+}
+
 int main(void)
 {
     test_defaults();
@@ -310,6 +339,7 @@ int main(void)
     test_glyphs();
     test_set();
     test_audio_file();
+    test_jukebox_file();
 
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

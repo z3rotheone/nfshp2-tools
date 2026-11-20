@@ -29,7 +29,9 @@ static const row_info ROWS[HP2_ROW_COUNT] = {
     { "Audio",    "Menu Sound Effects",   HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
     { "Audio",    "Speech",               HP2_KIND_SLIDER, 0, "Set volume from mute to maximum." },
     { "Audio",    "Audio Mode",           HP2_KIND_CHOICE, 0, "Set to match your sound system." },
+    { "Audio",    "Jukebox",              HP2_KIND_ACTION, 0, "Set what songs you want to hear." },
     { "Audio",    "Default Volumes",      HP2_KIND_ACTION, 0, "Restore factory volume settings." },
+    { "Audio",    "Default Jukebox",      HP2_KIND_ACTION, 0, "Restore factory Jukebox settings." },
 };
 
 /* Internal resolution presets, ordered by height. 640x448 is what the PS2
@@ -178,7 +180,8 @@ void hp2_menu_value(const hp2_settings *s, int row, char *buf, size_t cap)
         snprintf(buf, cap, "%s", N[(s->audio_mode >= 0 && s->audio_mode < HP2_AUDIO_COUNT) ? s->audio_mode : 0]);
         break;
     }
-    case HP2_ROW_DEFAULT_VOLUMES: break;          /* a button: no value */
+    case HP2_ROW_JUKEBOX: case HP2_ROW_DEFAULT_VOLUMES: case HP2_ROW_DEFAULT_JUKEBOX:
+        break;                                     /* buttons: no value */
     case HP2_ROW_COUNT:    break;
     }
 }
@@ -194,6 +197,11 @@ float hp2_menu_fraction(const hp2_settings *s, int row)
 int hp2_menu_activate(hp2_settings *s, int row)
 {
     int before[HP2_VOL_COUNT], i, changed = 0;
+    if (s && row == HP2_ROW_DEFAULT_JUKEBOX) {
+        for (i = 0; i < HP2_SONGS; i++) changed |= s->song[i] != -1;
+        hp2_settings_default_jukebox(s);
+        return changed;
+    }
     if (!s || row != HP2_ROW_DEFAULT_VOLUMES) return 0;
     for (i = 0; i < HP2_VOL_COUNT; i++) before[i] = s->volume[i];
     hp2_settings_default_volumes(s);
@@ -263,7 +271,8 @@ int hp2_menu_adjust(hp2_settings *s, int row, int dir)
     case HP2_ROW_AUDIO_MODE:
         s->audio_mode = (hp2_audio_mode)wrap((int)s->audio_mode, HP2_AUDIO_COUNT, dir);
         break;
-    case HP2_ROW_DEFAULT_VOLUMES: break;          /* accepted, not stepped */
+    case HP2_ROW_JUKEBOX: case HP2_ROW_DEFAULT_VOLUMES: case HP2_ROW_DEFAULT_JUKEBOX:
+        break;                                     /* accepted, not stepped */
     case HP2_ROW_COUNT:  break;
     }
     hp2_settings_validate(s);

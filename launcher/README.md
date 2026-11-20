@@ -18,8 +18,9 @@ dropped in later.
   filtering, FPS counter. Controls: scheme, button icons,
   dead zone, vibration. Audio (the game's own rows): seven volumes (menu
   music, racing music, ambient, tires, engine, menu sounds, speech; 0-100%
-  in 5% steps), audio mode (stereo, mono, surround) and a Default Volumes
-  button. A front end only draws rows and forwards input.
+  in 5% steps), audio mode (stereo, mono, surround), and Jukebox, Default
+  Volumes and Default Jukebox buttons. A front end only draws rows and
+  forwards input.
 - **Controller detection** that works out which button names to show. The same
   physical button is `A` on an Xbox pad, `Cross` on a PlayStation pad and `B`
   on a Nintendo pad — binding by position and labelling separately is the only
@@ -115,8 +116,14 @@ confirmed on a desktop. The selected row looks as in the game (orange label,
 white and orange lines, the help line in the ticker; checked against PCSX2
 screenshots). On OPTIONS, *Display* opens the
 Video page, *Controller* the Controls page and *Audio* the Audio page (the
-game's AUDIO_OPTIONS layout, volumes as its sliders); Save/Load, Player Names
-and Credits do nothing yet, and the Jukebox rows wait for a jukebox. Left/right change a setting; `hp2.ini` (the same file the
+game's AUDIO_OPTIONS layout, volumes as its sliders). *Jukebox* on the Audio
+page lists the music bank's songs by genre, title over artist, with where
+each plays (Off, Menu, World Racing, Hot Pursuit, Menu/Racing, Always;
+left/right changes it); *Default Jukebox* puts them all back. *Save/Load* is
+for player progress and does nothing yet; Player Names, Credits and
+Languages are left out. With `--files`, add `--jukebox` and the music bank
+(extracted entry 322) for the Jukebox; `--disc` reads it from the archive
+(only its 6 KB song table). Left/right change a setting; `hp2.ini` (the same file the
 launcher reads, `--config` to choose another) is saved when you leave the list.
 The window follows the aspect setting: 4:3 draws the 640 x 480 canvas with
 side bars (FIT), anything else keeps it at full height and tiles the
@@ -151,6 +158,9 @@ engine = 80
 menu_sfx = 80
 speech = 80
 mode = stereo       # stereo, mono, surround
+
+[jukebox]           # only songs you changed; n = order in the music bank
+song2 = always      # off, menu, racing, hot_pursuit, menu_racing, always
 ```
 
 Unknown keys are ignored rather than rejected, so a newer game can read an

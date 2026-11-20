@@ -26,6 +26,19 @@ uint8_t *hp2_read_file(const char *path, size_t *len)
     return b;
 }
 
+uint8_t *hp2_read_file_part(const char *path, size_t max, size_t *len)
+{
+    FILE *f = fopen(path, "rb");
+    uint8_t *b;
+    *len = 0;
+    if (!f) return NULL;
+    b = (uint8_t *)malloc(max ? max : 1);
+    if (b) *len = fread(b, 1, max, f);
+    fclose(f);
+    if (b && *len == 0) { free(b); b = NULL; }
+    return b;
+}
+
 static void join(char *out, size_t cap, const char *dir, const char *name)
 {
     size_t n = strlen(dir);
@@ -68,7 +81,19 @@ uint32_t hp2_zdir_hash(const char *s)
     return x;
 }
 
+static uint8_t *load(const hp2_zdir *z, uint32_t id, size_t max, size_t *len);
+
 uint8_t *hp2_zdir_load_id(const hp2_zdir *z, uint32_t id, size_t *len)
+{
+    return load(z, id, (size_t)-1, len);
+}
+
+uint8_t *hp2_zdir_load_part(const hp2_zdir *z, const char *path, size_t max, size_t *len)
+{
+    return load(z, hp2_zdir_hash(path), max, len);
+}
+
+static uint8_t *load(const hp2_zdir *z, uint32_t id, size_t max, size_t *len)
 {
     int i;
     *len = 0;
@@ -76,6 +101,7 @@ uint8_t *hp2_zdir_load_id(const hp2_zdir *z, uint32_t id, size_t *len)
         const uint8_t *r = z->index + 12 * i;
         if (rd32(r) == id) {
             uint32_t sector = rd32(r + 4), size = rd32(r + 8);
+            if ((size_t)size > max) size = (uint32_t)max;
             FILE *f = fopen(z->data, "rb");
             uint8_t *b;
             if (!f) return NULL;

@@ -3,9 +3,10 @@
 #   make           build the launcher (needs SDL2)
 #   make hp2fe     build the front-end menus (needs SDL2 2.0.18 or newer)
 #   make test      build and run the unit tests (no SDL needed)
-#   make fecheck FRONTB=... GLOBALB=... FELANG=... [DISC=...]
+#   make fecheck FRONTB=... GLOBALB=... FELANG=... [BANK=...] [DISC=...]
 #                  check the front-end modules against the real files
-#                  (archive entries 21, 302, 3; DISC = the NFSHP2 folder)
+#                  (archive entries 21, 302, 3, music bank 322; DISC =
+#                  the NFSHP2 folder)
 #                  and against tools/hp2_fescreens.py and hp2_tpk.py
 #                  (needs python3 with numpy and pillow)
 #   make stubcheck compile-check the SDL sources without SDL installed
@@ -19,7 +20,7 @@
 CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -O2
 SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c src/hp2_fe.c \
-           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_femenu.c
+           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_femenu.c src/hp2_jukebox.c
 SDLSRC   = src/hp2_input.c src/main.c
 FESRC    = src/hp2_fedraw.c src/fe_main.c
 BIN      = hp2launcher
@@ -80,10 +81,10 @@ test_assets: tests/test_assets.c $(SRC)
 # (extracted entries 21, 302 and 3, e.g. ~/hp2work/extracted/021_14c57a19.bin).
 fecheck: test_fe test_assets
 	@if [ -z "$(FRONTB)" ] || [ -z "$(GLOBALB)" ] || [ -z "$(FELANG)" ]; then \
-	  echo "usage: make fecheck FRONTB=... GLOBALB=... FELANG=... [DISC=NFSHP2 folder]"; exit 1; fi
+	  echo "usage: make fecheck FRONTB=... GLOBALB=... FELANG=... [BANK=entry 322] [DISC=NFSHP2 folder]"; exit 1; fi
 	./test_fe "$(FRONTB)"
 	python3 tests/check_fe.py ./test_fe "$(FRONTB)"
-	./test_assets --frontb "$(FRONTB)" --globalb "$(GLOBALB)" --lang "$(FELANG)" $(if $(DISC),--disc "$(DISC)")
+	./test_assets --frontb "$(FRONTB)" --globalb "$(GLOBALB)" --lang "$(FELANG)" $(if $(BANK),--jukebox "$(BANK)") $(if $(DISC),--disc "$(DISC)")
 	python3 tests/check_tex.py ./test_assets "$(FRONTB)" "$(GLOBALB)"
 
 # Compiles the SDL-dependent sources against a stand-in header, to catch

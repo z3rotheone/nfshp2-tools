@@ -310,9 +310,15 @@ A different layout from the sound banks.
 | 8 | u32 | zero |
 | 12 | char[] | name as `Artist-Title-Album-Genre-Number`, NUL-terminated |
 
-The trailing number appears to be a usage flag: instrumental versions end in 2,
-vocal versions in 4, and tracks with no album credit in 0 (*inferred* from the
-pattern across all 23 tracks).
+The trailing number is the song's **default jukebox play status**:
+instrumental versions end in 2, vocal versions in 4, and Matt Ragan's and the
+techno tracks in 0. The game's Jukebox shows 2 as *Hot Pursuit* and 4 as
+*Menu/Racing* (PCSX2 screenshots, 2026-11-19); 0 is not yet seen in the game.
+The status words are FE_ENGLISH 110041–110045 and 110052 (Off, World Racing,
+Menu, Always, Hot Pursuit, Menu/Racing); genres 110021–110029 (Rock, Techno,
+Electronica, R & B, Pop, Punk, Drum & Bass, Alternative, Top 40), of which
+the bank uses Rock (19 songs) and Techno (4). `launcher/src/hp2_jukebox.c`
+reads the table from the bank's first 6 KB.
 
 ### Stereo interleave — differs between banks
 
@@ -1299,6 +1305,16 @@ only on rows with more than two values (none on on/off rows such as
 Leaderboard). The ticker shows the row's help line: OPTIONS row `MENUITEM_n`
 uses string 100019 + n (100020 "Set the volume and the Jukebox."), Display
 rows 1507xx ("Show or hide the leaderboard."), Audio 1505xx.
+
+**Jukebox (`JUKEBOX_INGAME`).** The front end's Jukebox uses the in-race
+screen. A Genre row ("Genre:" 110056, the genre in `MENUITEM_1` at x 464,
+`LEFT_ARROW` / `RIGHT_ARROW` = `BIG_ARROW_*` at half size), headings "Song
+Info" / "Play Status" (110053 / 110054, FONT_A), then five song slots n = 1..5,
+each `ARTISTn` (FONT_STATS, scale 1: the game puts the **title** here), `SONGn`
+(scale 0.8 x 0.7: the **artist**), `SONGnONOFF` (play status, x 465) and
+`LEFT_ARROWn` / `RIGHT_ARROWn`, with `UP_ARROW` / `DOWN_ARROW` beside them. The
+selected genre or title is orange and only its row shows arrows.
+`FAVORITEARTIST_*` ("Favorite:" 110055) is parked off the canvas.
 
 **Audio sliders (`AUDIO_OPTIONS`).** Each volume row has `AUDIO_BARn`
 (`SLIDER1_BAR`, 128 x 16, eight segments) at x 452, 8 below the row's

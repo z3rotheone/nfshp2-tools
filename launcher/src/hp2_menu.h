@@ -49,7 +49,9 @@ typedef enum {
     HP2_ROW_VOL_MENU_SFX,
     HP2_ROW_VOL_SPEECH,
     HP2_ROW_AUDIO_MODE,
+    HP2_ROW_JUKEBOX,            /* a button: opens the jukebox (hp2_femenu) */
     HP2_ROW_DEFAULT_VOLUMES,
+    HP2_ROW_DEFAULT_JUKEBOX,
     HP2_ROW_COUNT
 } hp2_row;
 
@@ -73,8 +75,10 @@ void hp2_menu_value(const hp2_settings *s, int row, char *buf, size_t cap);
  * stop at their end; enumerations wrap. Returns 1 if the setting changed. */
 int hp2_menu_adjust(hp2_settings *s, int row, int dir);
 
-/* An ACTION row's deed (Default Volumes: put the volumes back). Returns 1 if
- * a setting changed; 0 for other rows. */
+/* An ACTION row's deed (Default Volumes: put the volumes back; Default
+ * Jukebox: every song back to the bank's play status). Returns 1 if a
+ * setting changed; 0 for other rows (Jukebox opens a screen: the front
+ * end's job). */
 int hp2_menu_activate(hp2_settings *s, int row);
 
 /* Where a volume row's slider stands, 0 (mute) .. 1 (full); -1 for rows

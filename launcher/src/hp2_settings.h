@@ -81,6 +81,19 @@ typedef enum {
     HP2_VOL_COUNT
 } hp2_volume;
 
+/* Where a jukebox song plays (the game's Play Status words). */
+typedef enum {
+    HP2_PLAY_OFF = 0,
+    HP2_PLAY_MENU,
+    HP2_PLAY_RACING,       /* "World Racing" */
+    HP2_PLAY_HOT_PURSUIT,
+    HP2_PLAY_MENU_RACING,
+    HP2_PLAY_ALWAYS,
+    HP2_PLAY_COUNT
+} hp2_play;
+
+#define HP2_SONGS 64           /* jukebox slots; the shipped bank has 23 */
+
 typedef enum {
     HP2_GLYPHS_AUTO = 0,   /* detect from the connected pad */
     HP2_GLYPHS_XBOX,
@@ -124,6 +137,10 @@ typedef struct {
     /* audio */
     int             volume[HP2_VOL_COUNT];  /* percent, 0 (mute) .. 100 */
     hp2_audio_mode  audio_mode;
+
+    /* jukebox: play status of song n of the music bank (bank order), or
+     * -1 for the bank's own default. Written as song<n+1> = menu_racing. */
+    int             song[HP2_SONGS];
 } hp2_settings;
 
 /* Fill with the defaults: 1920x1080, 16:9, borderless, vsync on, 60 fps cap,
@@ -164,6 +181,12 @@ const char *hp2_volume_key(hp2_volume v);     /* "menu_music" ... */
 
 /* Puts the seven volumes back to their defaults (the Default Volumes row). */
 void hp2_settings_default_volumes(hp2_settings *s);
+
+/* Every song back to the bank's own play status (the Default Jukebox row). */
+void hp2_settings_default_jukebox(hp2_settings *s);
+
+const char *hp2_play_key(hp2_play p);    /* "menu_racing" (the file)  */
+const char *hp2_play_label(hp2_play p);  /* "Menu/Racing" (the menu)  */
 
 /* The aspect as a ratio, or 0 for AUTO (meaning: ask the display). */
 float hp2_aspect_ratio(hp2_aspect a);

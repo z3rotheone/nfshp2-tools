@@ -1,10 +1,11 @@
 /* hp2_femenu - the Options menus of the port, drawn from the original
  * layouts and driven by hp2_menu.
  *
- *   OPTIONS          the game's own screen and rows (Audio, Controller,
- *                    Display, Save/Load, Player Names, Credits; Languages
- *                    is hidden, as on the US disc), text and help lines
- *                    from FE_<LANGUAGE>.BIN. Audio, Display and Controller
+ *   OPTIONS          the game's own screen with the rows the port keeps:
+ *                    Audio, Controller, Display, Save/Load (player
+ *                    progress; does nothing yet). Player Names, Credits
+ *                    and Languages are hidden. Text and help lines from
+ *                    FE_<LANGUAGE>.BIN. Audio, Display and Controller
  *                    open a settings page.
  *   settings pages   one per hp2_menu section: Audio (its rows on the
  *                    AUDIO_OPTIONS layout, volumes as the game's sliders),
@@ -15,7 +16,13 @@
  *                    a time inside SCROLLING_MENU_CLIP_REG, with up/down
  *                    arrows when there is more. Left/right change the
  *                    selected setting; accept presses a button row
- *                    (Default Volumes) or flips an on/off row.
+ *                    (Jukebox, Default Volumes, Default Jukebox) or flips
+ *                    an on/off row.
+ *   Jukebox          the JUKEBOX_INGAME layout: a Genre row (left/right
+ *                    picks the genre), then the genre's songs five at a
+ *                    time, title above artist, with their play status;
+ *                    left/right on a song changes where it plays. Needs
+ *                    hp2_femenu_set_jukebox (the music bank's table).
  *
  * The selected row looks as in the game: orange label, the white
  * MI_OVERSCORE line above it and the orange MI_UNDERSCORE below, its dark
@@ -30,6 +37,7 @@
 #define HP2_FEMENU_H
 
 #include "hp2_fe.h"
+#include "hp2_jukebox.h"
 #include "hp2_lang.h"
 #include "hp2_menu.h"
 
@@ -37,7 +45,7 @@
 extern "C" {
 #endif
 
-typedef enum { HP2_FEM_OPTIONS, HP2_FEM_SETTINGS } hp2_fem_screen;
+typedef enum { HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX } hp2_fem_screen;
 typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT, HP2_IN_BACK } hp2_fem_input;
 
 /* hp2_femenu_input result bits */
@@ -46,6 +54,7 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 #define HP2_FEM_QUIT     4    /* back out of OPTIONS: leave the menus */
 
 #define HP2_FEM_VISIBLE  7    /* settings rows shown at once */
+#define HP2_FEM_SONGS    5    /* jukebox songs shown at once */
 
 typedef struct {
     const hp2_fe_layout *layout;
@@ -61,6 +70,12 @@ typedef struct {
     int                  orow[16];  /* their MENUITEM numbers, in order */
     int                  scroll;    /* settings: first row shown */
     char                 value[HP2_ROW_COUNT][HP2_MENU_VALUE];
+    const hp2_jukebox   *jb;        /* NULL: the Jukebox row does nothing */
+    const hp2_fe_screen *jbscreen;
+    int                  genre;     /* jukebox: genre shown */
+    int                  jsel;      /* jukebox: 0 = the Genre row, 1.. = song */
+    int                  jscroll;   /* jukebox: first song shown (0-based) */
+    int                  nsongs, songs[HP2_JB_MAX];  /* the genre's songs */
     char                 help[96];
 } hp2_femenu;
 
@@ -73,6 +88,12 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in);
  * always enough for the shipped layouts. Item strings point into m, the
  * language buffer or hp2_menu, so they stay valid until the next input. */
 int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap);
+
+/* The music bank's song table, for the Jukebox screen (may be NULL). */
+void hp2_femenu_set_jukebox(hp2_femenu *m, const hp2_jukebox *jb);
+
+/* A song's play status: the one set in hp2_settings, else the bank's. */
+hp2_play hp2_femenu_play(const hp2_femenu *m, int song);
 
 /* The open settings page's section ("Video", "Controls", "Audio"), or "". */
 const char *hp2_femenu_page(const hp2_femenu *m);

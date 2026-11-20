@@ -6,6 +6,10 @@
  *                                       or extracted entries 21, 302, 3
  * options:
  *   --language NAME    FE_<NAME>.BIN with --disc (default ENGLISH)
+ *   --jukebox FILE     with --files: the music bank (entry 322,
+ *                      SOUND\JUKEBOXM.JBC) for the Jukebox screen; --disc
+ *                      reads it from the archive. Only its song table is
+ *                      read.
  *   --config PATH      settings file (default hp2.ini, shared with the
  *                      launcher; saved when you leave the settings list)
  *   --size WxH         window size (default 1280x720)
@@ -34,11 +38,11 @@
 #define MAX_ITEMS 160
 
 typedef struct {
-    uint8_t *frontb, *globalb, *lang;
-    size_t   frontb_len, globalb_len, lang_len;
+    uint8_t *frontb, *globalb, *lang, *bank;
+    size_t   frontb_len, globalb_len, lang_len, bank_len;
 } files;
 
-static int load_files(files *f, const char *disc, const char *language, char **loose)
+static int load_files(files *f, const char *disc, const char *language, char **loose, const char *bank)
 {
     memset(f, 0, sizeof *f);
     if (disc) {
@@ -52,12 +56,14 @@ static int load_files(files *f, const char *disc, const char *language, char **l
         f->frontb = hp2_zdir_load(&z, "FRONTEND\\FRONTB.BUN", &f->frontb_len);
         f->globalb = hp2_zdir_load(&z, "GLOBAL\\GLOBALB.BUN", &f->globalb_len);
         f->lang = hp2_zdir_load(&z, path, &f->lang_len);
+        f->bank = hp2_zdir_load_part(&z, "SOUND\\JUKEBOXM.JBC", hp2_jukebox_header_size(), &f->bank_len);
         hp2_zdir_close(&z);
         if (!f->lang) fprintf(stderr, "%s not in the archive; showing the layouts' own text\n", path);
     } else {
         f->frontb = hp2_read_file(loose[0], &f->frontb_len);
         f->globalb = hp2_read_file(loose[1], &f->globalb_len);
         f->lang = hp2_read_file(loose[2], &f->lang_len);
+        if (bank) f->bank = hp2_read_file_part(bank, hp2_jukebox_header_size(), &f->bank_len);
     }
     if (!f->frontb || !f->globalb) {
         fprintf(stderr, "could not read FRONTB.BUN and GLOBALB.BUN\n");
@@ -104,7 +110,8 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, SDL_Renderer *r, int W, int H, hp
 
 int main(int argc, char **argv)
 {
-    const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL;
+    const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
+    static hp2_jukebox jb;
     char *loose[3] = { NULL, NULL, NULL };
     int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0;
     files f;
@@ -123,6 +130,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--disc") && i + 1 < argc) disc = argv[++i];
         else if (!strcmp(argv[i], "--files") && i + 3 < argc) { loose[0] = argv[++i]; loose[1] = argv[++i]; loose[2] = argv[++i]; }
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
+        else if (!strcmp(argv[i], "--jukebox") && i + 1 < argc) bankpath = argv[++i];
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
         else if (!strcmp(argv[i], "--fit") && i + 1 < argc) {
@@ -133,7 +141,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--keys") && i + 1 < argc) keys = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
-                            "       [--language NAME] [--config PATH] [--size WxH] [--fit fit|stretch|expand]\n"
+                            "       [--language NAME] [--jukebox BANK] [--config PATH] [--size WxH] [--fit fit|stretch|expand]\n"
                             "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back]\n", argv[0]);
             return 2;
         }
@@ -142,7 +150,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "give --disc DIR (your disc's NFSHP2 folder) or --files; --help for more\n");
         return 2;
     }
-    if (load_files(&f, disc, language, loose) != 0) return 1;
+    if (load_files(&f, disc, language, loose, bankpath) != 0) return 1;
     if (hp2_fe_parse(f.frontb, f.frontb_len, &layout) != 0) { fprintf(stderr, "FRONTB.BUN: no screen layouts\n"); return 1; }
     if (hp2_tex_scan(&tex, f.frontb, f.frontb_len) < 0 || hp2_tex_scan(&tex, f.globalb, f.globalb_len) < 0
         || hp2_font_scan(&fonts, f.frontb, f.frontb_len) < 0 || hp2_font_scan(&fonts, f.globalb, f.globalb_len) < 0) {
@@ -155,6 +163,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "FRONTB.BUN lacks the OPTIONS / DISPLAY_OPTIONS screens\n");
         return 1;
     }
+    if (f.bank && hp2_jukebox_parse(&jb, f.bank, f.bank_len) == 0) hp2_femenu_set_jukebox(&menu, &jb);
+    else if (disc || bankpath) fprintf(stderr, "no jukebox song table; the Jukebox row does nothing\n");
     if (keys) {
         char buf[512], *t;
         snprintf(buf, sizeof buf, "%s", keys);
@@ -270,5 +280,6 @@ int main(int argc, char **argv)
     free(f.frontb);
     free(f.globalb);
     free(f.lang);
+    free(f.bank);
     return 0;
 }

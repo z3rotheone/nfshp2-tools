@@ -199,6 +199,11 @@ static void test_audio(void)
     CHECK(s.volume[HP2_VOL_SPEECH] == 80 && s.volume[HP2_VOL_ENGINE] == 80 && s.volume[HP2_VOL_TIRES] == 80, "back to the defaults");
     CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_VOLUMES) == 0, "pressing it again changes nothing");
     CHECK(hp2_menu_activate(&s, HP2_ROW_VSYNC) == 0, "other rows are not buttons");
+    CHECK(hp2_menu_kind(HP2_ROW_JUKEBOX) == HP2_KIND_ACTION && hp2_menu_activate(&s, HP2_ROW_JUKEBOX) == 0, "Jukebox: a button the front end handles");
+    s.song[4] = HP2_PLAY_ALWAYS;
+    CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_JUKEBOX) == 1 && s.song[4] == -1, "Default Jukebox resets the songs");
+    CHECK(hp2_menu_activate(&s, HP2_ROW_DEFAULT_JUKEBOX) == 0, "and again changes nothing");
+    CHECK(!strcmp(hp2_menu_help(HP2_ROW_DEFAULT_JUKEBOX), "Restore factory Jukebox settings."), "its help line");
 }
 
 static void test_settings_file(void)

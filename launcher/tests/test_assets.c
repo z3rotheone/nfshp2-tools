@@ -3,7 +3,7 @@
  * hp2_zdir (the disc archive) and hp2_femenu (the Options menus). No SDL.
  *
  *   test_assets                          synthetic data only
- *   test_assets --frontb F --globalb G --lang L [--disc DIR]
+ *   test_assets --frontb F --globalb G --lang L [--jukebox BANK] [--disc DIR]
  *                                        also the real files (entries 21,
  *                                        302 and 3; DIR = the disc's NFSHP2
  *                                        folder, to read FRONTB.BUN through
@@ -12,6 +12,7 @@
  *                                        its decoded RGBA, for check_tex.py
  */
 #include "../src/hp2_fe.h"
+#include "../src/hp2_jukebox.h"
 #include "../src/hp2_femenu.h"
 #include "../src/hp2_font.h"
 #include "../src/hp2_lang.h"
@@ -222,6 +223,62 @@ static void test_tex(void)
     CHECK(set.count == 0 && set.tex == NULL, "free");
 }
 
+/* ---- jukebox ------------------------------------------------------------ */
+
+static size_t make_bank(uint8_t *b, const char **lines, int n)
+{
+    int i;
+    size_t len = 0x60 + 0x60 * (size_t)n;
+    memset(b, 0xCC, len);
+    memset(b, 0, 0x24);
+    set32(b, 0x10); set32(b + 4, 2); set32(b + 8, 32000); set32(b + 0x20, (uint32_t)n);
+    memcpy(b + 0x24, "InGame", 7);
+    for (i = 0; i < n; i++) {
+        uint8_t *r = b + 0x60 + 0x60 * i;
+        memset(r, 0, 12);
+        set32(r, 0x17D0u + 0x1000u * (uint32_t)i);
+        memcpy(r + 12, lines[i], strlen(lines[i]) + 1);
+    }
+    return len;
+}
+
+static void test_jukebox(void)
+{
+    static const char *good[] = { "Bush-The People That We Love(Inst)-Golden State-Rock-2 ",
+                                  "Hot Action Cop-Fever for the Flava (Rmx)--Rock-4",
+                                  "Rom di Prisco-Cylkoid--Techno-0",
+                                  "A-Title-With-Dashes-Album-Rock-4" };
+    static const char *bad[] = { "No fields at all" };
+    uint8_t b[0x60 * 8];
+    hp2_jukebox jb;
+    int idx[8], n;
+    size_t len, cut;
+    printf("jukebox table\n");
+    len = make_bank(b, good, 4);
+    CHECK(hp2_jukebox_parse(&jb, b, len) == 0 && jb.count == 4 && !strcmp(jb.name, "InGame"), "parses");
+    CHECK(!strcmp(jb.track[0].artist, "Bush") && !strcmp(jb.track[0].title, "The People That We Love(Inst)")
+          && !strcmp(jb.track[0].album, "Golden State") && !strcmp(jb.track[0].genre, "Rock") && jb.track[0].bank_status == 2,
+          "fields, trailing space dropped");
+    CHECK(jb.track[1].album[0] == 0 && jb.track[1].bank_status == 4, "empty album");
+    CHECK(!strcmp(jb.track[3].title, "Title-With-Dashes") && !strcmp(jb.track[3].album, "Album"), "a title may hold dashes");
+    CHECK(jb.genres == 2 && !strcmp(jb.genre[0], "Rock") && !strcmp(jb.genre[1], "Techno"), "genres in order of first use");
+    n = hp2_jukebox_songs(&jb, 0, idx, 8);
+    CHECK(n == 3 && idx[0] == 0 && idx[1] == 1 && idx[2] == 3, "Rock: songs 0, 1, 3");
+    CHECK(hp2_jukebox_songs(&jb, 1, idx, 8) == 1 && idx[0] == 2, "Techno: song 2");
+    CHECK(hp2_jukebox_songs(&jb, 5, idx, 8) == 0, "no such genre");
+    for (cut = 0; cut < len; cut++) {
+        uint8_t *c = (uint8_t *)malloc(cut ? cut : 1);
+        memcpy(c, b, cut);
+        CHECK(hp2_jukebox_parse(&jb, c, cut) == -1, "cut at %zu fails cleanly", cut);
+        free(c);
+    }
+    len = make_bank(b, bad, 1);
+    CHECK(hp2_jukebox_parse(&jb, b, len) == -1 && jb.count == 0, "a record that is not Artist-Title-Album-Genre-N");
+    set32(b + 0x20, 1000);
+    CHECK(hp2_jukebox_parse(&jb, b, len) == -1, "absurd count");
+    CHECK(hp2_jukebox_parse(&jb, NULL, 0) == -1, "NULL");
+}
+
 static void test_zdir_hash(void)
 {
     printf("archive names\n");
@@ -264,7 +321,7 @@ static void page_walk(hp2_femenu *m, hp2_fe_item *it, int rows)
     }
 }
 
-static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
+static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_jukebox *jb)
 {
     static hp2_fe_item it[160];
     hp2_settings cfg;
@@ -274,11 +331,12 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
     printf("options menus\n");
     hp2_settings_defaults(&cfg);
     CHECK(hp2_femenu_init(&m, L, lang, &cfg) == 0, "init");
-    CHECK(hp2_femenu_options_rows(&m) == 6, "OPTIONS shows 6 rows (Languages hidden, as on the US disc)");
+    CHECK(hp2_femenu_options_rows(&m) == 4, "OPTIONS shows 4 rows (Player Names, Credits, Languages hidden)");
     n = hp2_femenu_items(&m, it, 160);
     CHECK(n > 20 && n < 160, "%d items", n);
-    CHECK(find_text(it, n, "Audio") == 1 && find_text(it, n, "Credits") == 1, "row text from FE_ENGLISH");
-    CHECK(find_text(it, n, "Languages") == 0, "no Languages row");
+    CHECK(find_text(it, n, "Audio") == 1 && find_text(it, n, "Save/Load") == 1, "row text from FE_ENGLISH");
+    CHECK(find_text(it, n, "Languages") == 0 && find_text(it, n, "Credits") == 0 && find_text(it, n, "Player Names") == 0,
+          "no Languages, Credits, Player Names");
     CHECK(!strcmp(m.help, "Set the volume and the Jukebox."), "Audio's help line, got '%s'", m.help);
     for (i = 0; i < n; i++)
         if (it[i].w.kind == HP2_FE_TEXT && it[i].str && !strcmp(it[i].str, "Audio"))
@@ -286,8 +344,8 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
     for (i = 0, r = 0; i < n; i++)
         if (!strcmp(it[i].w.name, "MI_OVERSCORE") || !strcmp(it[i].w.name, "MI_UNDERSCORE")) r++;
     CHECK(r == 2, "the two selection lines");
-    CHECK(hp2_femenu_input(&m, HP2_IN_UP) == HP2_FEM_REDRAW && m.sel == 6, "up from the top wraps to Credits");
-    CHECK(!strcmp(m.help, "See who made this game."), "Credits' help line, got '%s'", m.help);
+    CHECK(hp2_femenu_input(&m, HP2_IN_UP) == HP2_FEM_REDRAW && m.sel == 4, "up from the top wraps to Save/Load");
+    CHECK(!strcmp(m.help, "Save and load your settings."), "Save/Load's help line, got '%s'", m.help);
     hp2_femenu_input(&m, HP2_IN_DOWN);
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(m.sel == 2, "Controller");
@@ -338,21 +396,65 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang)
     CHECK(find_text(it, n, "Stereo") == 1 && count_named(it, n, "LEFT_ARROW") == 1, "its value and arrows");
     CHECK(count_named(it, n, "UP_ARROW") == 1, "scrolled: more above");
     hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(m.sel == HP2_ROW_JUKEBOX, "Jukebox");
+    if (jb) {
+        int k, first;
+        hp2_femenu_set_jukebox(&m, jb);
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_JUKEBOX, "accept opens the Jukebox");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Rock") == 1 && find_text(it, n, "Genre:") == 1, "Genre: Rock");
+        CHECK(find_text(it, n, "The People That We Love(Inst)") == 1 && find_text(it, n, "Bush") == 2, "first songs, title and artist");
+        CHECK(find_text(it, n, "Hot Pursuit") == 3 && find_text(it, n, "Menu/Racing") == 2, "bank play status 2 / 4 (as the PCSX2 screenshot)");
+        CHECK(count_named(it, n, "LEFT_ARROW") == 1 && count_named(it, n, "LEFT_ARROW1") == 0, "arrows on the Genre row only");
+        CHECK(count_named(it, n, "DOWN_ARROW") == 1 && count_named(it, n, "UP_ARROW") == 0, "more songs below");
+        for (k = 0; k < n; k++)
+            if (it[k].str && !strcmp(it[k].str, "Rock")) CHECK(it[k].w.rgba[0] == 124, "the genre is orange while its row is selected");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.nsongs == 4 && find_text(it, n, "Techno") == 1 && find_text(it, n, "Cylkoid") == 1, "right: Techno, 4 songs");
+        CHECK(count_named(it, n, "DOWN_ARROW") == 0, "4 songs fit");
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(m.genre == 0 && m.nsongs == 19, "back to Rock, 19 songs");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        first = m.songs[0];
+        CHECK(m.jsel == 1 && hp2_femenu_play(&m, first) == HP2_PLAY_HOT_PURSUIT, "first song, Hot Pursuit");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(count_named(it, n, "LEFT_ARROW1") == 1 && count_named(it, n, "LEFT_ARROW") == 0, "arrows move to the song");
+        r = hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK((r & HP2_FEM_CHANGED) && cfg.song[first] == HP2_PLAY_MENU_RACING, "right: next play status, kept in the settings");
+        for (k = 0; k < 25; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
+        CHECK(m.jsel >= 1 && m.jsel - 1 >= m.jscroll && m.jsel - 1 < m.jscroll + HP2_FEM_SONGS, "scrolling keeps the song in view");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Rock") == 1, "the genre stays on screen while scrolling");
+        CHECK(hp2_femenu_input(&m, HP2_IN_BACK) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SETTINGS && m.sel == HP2_ROW_JUKEBOX,
+              "back: the Audio page, on Jukebox");
+        hp2_femenu_set_jukebox(&m, NULL);
+    }
+    CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_SETTINGS, "no song table: Jukebox does nothing");
+    hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(m.sel == HP2_ROW_DEFAULT_VOLUMES, "Default Volumes");
     n = hp2_femenu_items(&m, it, 160);
     CHECK(count_named(it, n, "LEFT_ARROW") == 0, "a button has no arrows");
     CHECK(hp2_femenu_input(&m, HP2_IN_RIGHT) == 0, "right does nothing on it");
     r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
     CHECK((r & HP2_FEM_CHANGED) && cfg.volume[HP2_VOL_MENU_MUSIC] == 70, "accept resets the volumes");
-    page_walk(&m, it, 9);
+    hp2_femenu_input(&m, HP2_IN_DOWN);
+    CHECK(m.sel == HP2_ROW_DEFAULT_JUKEBOX, "Default Jukebox");
+    if (jb) {
+        r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK((r & HP2_FEM_CHANGED) && cfg.song[0] == -1, "accept puts every song back to the bank's");
+    }
+    page_walk(&m, it, 11);
     hp2_femenu_input(&m, HP2_IN_BACK);
     CHECK(m.screen == HP2_FEM_OPTIONS && m.sel == 1, "back returns to Audio");
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) & HP2_FEM_QUIT, "back from OPTIONS quits");
     CHECK(hp2_femenu_items(&m, it, 3) == 3, "never more than cap");
 }
 
-static void test_real(const char *fb, const char *gb, const char *lf, const char *disc)
+static void test_real(const char *fb, const char *gb, const char *lf, const char *disc, const char *bank)
 {
+    static hp2_jukebox jb;
+    int have_jb = 0;
     size_t lfb = 0, lgb = 0, llf = 0;
     uint8_t *F = hp2_read_file(fb, &lfb), *G = hp2_read_file(gb, &lgb), *Lb = lf ? hp2_read_file(lf, &llf) : NULL;
     hp2_fontset fonts = { 0 };
@@ -395,7 +497,17 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
         CHECK(hp2_lang_by_id(&lang, 1) == NULL, "no id 1");
     }
     CHECK(hp2_fe_parse(F, lfb, &L) == 0, "layouts");
-    if (Lb && lang.count) test_menu(&L, &lang);
+    if (bank) {
+        size_t bl = 0;
+        uint8_t *B = hp2_read_file_part(bank, hp2_jukebox_header_size(), &bl);
+        CHECK(B && hp2_jukebox_parse(&jb, B, bl) == 0, "song table of %s", bank);
+        CHECK(jb.count == 23 && jb.genres == 2 && !strcmp(jb.name, "InGame"), "23 songs, Rock and Techno");
+        CHECK(!strcmp(jb.track[14].artist, "Rush") && !strcmp(jb.track[14].title, "One Little Victory (Inst)")
+              && !strcmp(jb.track[14].album, "Vapor Trails"), "song 15: Rush");
+        have_jb = jb.count == 23;
+        free(B);
+    }
+    if (Lb && lang.count) test_menu(&L, &lang, have_jb ? &jb : NULL);
     hp2_fe_free(&L);
 
     if (disc) {
@@ -403,6 +515,13 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
         size_t n = 0;
         uint8_t *Z;
         CHECK(hp2_zdir_open(&z, disc) == 0 && z.count == 405, "ZDIR.BIN: 405 entries, got %d", z.count);
+        Z = hp2_zdir_load_part(&z, "SOUND\\JUKEBOXM.JBC", hp2_jukebox_header_size(), &n);
+        {
+            static hp2_jukebox j2;
+            CHECK(Z && n == hp2_jukebox_header_size() && hp2_jukebox_parse(&j2, Z, n) == 0 && j2.count == 23,
+                  "the song table straight from the archive, %zu bytes read", n);
+        }
+        free(Z);
         Z = hp2_zdir_load(&z, "FRONTEND\\FRONTB.BUN", &n);
         CHECK(Z && n == lfb && !memcmp(Z, F, n), "FRONTB.BUN through the archive = the extracted file");
         CHECK(hp2_zdir_load(&z, "NO\\SUCH.FILE", &n) == NULL, "absent path");
@@ -446,7 +565,7 @@ static int texdump(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-    const char *fb = NULL, *gb = NULL, *lf = NULL, *disc = NULL;
+    const char *fb = NULL, *gb = NULL, *lf = NULL, *disc = NULL, *bank = NULL;
     int i;
     if (argc > 1 && !strcmp(argv[1], "--texdump")) return texdump(argc - 2, argv + 2);
     for (i = 1; i + 1 < argc; i += 2) {
@@ -454,13 +573,15 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--globalb")) gb = argv[i + 1];
         else if (!strcmp(argv[i], "--lang")) lf = argv[i + 1];
         else if (!strcmp(argv[i], "--disc")) disc = argv[i + 1];
+        else if (!strcmp(argv[i], "--jukebox")) bank = argv[i + 1];
     }
     test_tokens();
     test_font();
     test_lang();
     test_tex();
+    test_jukebox();
     test_zdir_hash();
-    if (fb && gb) test_real(fb, gb, lf, disc);
+    if (fb && gb) test_real(fb, gb, lf, disc, bank);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }
