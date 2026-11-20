@@ -23,6 +23,14 @@
  *                    power) from FE_<LANGUAGE>.BIN. Left/right pick a car,
  *                    up/down a colour swatch; back returns to Main Menu. (The game also shows the
  *                    car in 3D and colour swatches: not in the port yet.)
+ *   SELECT_TRACK     after the car (accept): the 15 courses, as a strip of
+ *                    thumbnails starting at the selected one, with its
+ *                    picture, logo, length and difficulty. Left/right pick a
+ *                    course; down moves to Time of Day (left/right: sunny or
+ *                    the course's other lighting) and Alternate (the course
+ *                    the other way round), up back; accept asks SELECT LAPS
+ *                    (left/right, back closes). Every course is open: no
+ *                    points. Back returns to the car.
  *   OPTIONS          the game's own screen with the rows the port keeps:
  *                    Audio, Controller, Display, Save/Load (player
  *                    progress; does nothing yet). Player Names, Credits
@@ -71,7 +79,7 @@ extern "C" {
 typedef enum {
     HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
     HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING,
-    HP2_FEM_SELECT_CAR
+    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK
 } hp2_fem_screen;
 /* HP2_IN_HELP (Triangle) switches the ticker between the row's help line
  * and the menu buttons (accept, back, help), on every screen. */
@@ -94,7 +102,13 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
-    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel;   /* NULL if missing */
+    const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel;   /* NULL if missing */
+    int                  track;     /* SELECT_TRACK: index into the course table */
+    int                  tod;       /* 0 sunny, 1 the course's other lighting */
+    int                  alt;       /* 1: the course the other way round */
+    int                  focus;     /* 0 the strip, 1 Time of Day, 2 Alternate */
+    int                  laps;      /* the lap count the popup shows */
+    int                  lap_popup; /* SELECT LAPS is open */
     int                  car;       /* SELECT_CAR: index into the car table */
     int                  color;     /* SELECT_CAR: the swatch chosen, 0-7 */
     int                  main_sel;  /* where Main Menu was left */
@@ -177,9 +191,14 @@ int hp2_femenu_options_rows(const hp2_femenu *m);
 /* Entries of MAIN, HOT_PURSUIT or WORLD_RACING (0 elsewhere), and entry k's
  * label (1-based; NULL out of range). */
 #define HP2_CARS 23
+#define HP2_TRACKS 15
 int hp2_femenu_list_count(const hp2_femenu *m);
 /* The car table: car k's full name (NULL out of range) and its thumbnail. */
 const char *hp2_femenu_car_name(const hp2_femenu *m, int k);
+/* Course k's name, as the game's strings give it (NULL out of range), and
+ * the track number it opens: TRACKS\\TRACKB<n>.LZC, n+3 for the other lighting. */
+const char *hp2_femenu_track_name(const hp2_femenu *m, int k, int alternate);
+int hp2_femenu_track_number(const hp2_femenu *m);
 const char *hp2_femenu_list_label(const hp2_femenu *m, int k);
 const char *hp2_femenu_text(const hp2_femenu *m, const hp2_fe_widget *w);
 

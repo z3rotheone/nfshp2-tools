@@ -61,6 +61,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_HOT_PURSUIT  0x5B35F533u
 #define SCR_WORLD_RACING 0x033E7771u
 #define SCR_SELECT_CAR   0xB5074AB4u
+#define SCR_SELECT_TRACK 0x15417B53u
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
 
@@ -287,7 +288,70 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
         m->screen = HP2_FEM_MAIN;
         m->sel = m->main_sel;
         return HP2_FEM_REDRAW;
-    default: return 0;      /* accept: the track list is not in the port yet */
+    case HP2_IN_ACCEPT:
+        if (!m->tracksel) return 0;
+        m->screen = HP2_FEM_SELECT_TRACK;
+        m->focus = 0;
+        m->lap_popup = 0;
+        return HP2_FEM_REDRAW;
+    default: return 0;
+    }
+}
+
+/* ---- track select ---------------------------------------------------------- */
+
+/* The 15 courses: the track number (TRACKS\TRACKB<n>.LZC; n + 3 is the same
+ * course in its other lighting) and its length, from the track list in
+ * GLOBALB.BUN (hp2_tracklist.py). The names are the game's strings
+ * 50000 + 10 n (51000 + 10 n for the other way round). */
+typedef struct { int num; float length; } track_entry;
+static const track_entry TRACKS[HP2_TRACKS] = {
+    { 11, 4.59f }, { 12, 4.62f }, { 13, 7.75f }, { 21, 5.19f }, { 22, 5.46f },
+    { 23, 5.30f }, { 31, 6.24f }, { 32, 5.10f }, { 33, 9.47f }, { 41, 6.99f },
+    { 42, 5.67f }, { 43, 10.98f }, { 61, 5.50f }, { 62, 7.50f }, { 63, 13.25f },
+};
+
+const char *hp2_femenu_track_name(const hp2_femenu *m, int k, int alternate)
+{
+    const char *s = NULL;
+    if (k < 0 || k >= HP2_TRACKS) return NULL;
+    if (m->lang) s = hp2_lang_by_id(m->lang, (alternate ? 51000u : 50000u) + 10u * (uint32_t)TRACKS[k].num);
+    return s ? s : "Track";
+}
+
+int hp2_femenu_track_number(const hp2_femenu *m)
+{
+    return TRACKS[m->track].num + (m->tod ? 3 : 0);
+}
+
+/* The other lighting: overcast in the Parkland and the Desert, sunset (or
+ * dawn) in the three others. */
+static int overcast_course(int k) { return TRACKS[k].num < 30; }
+
+static int track_input(hp2_femenu *m, hp2_fem_input in)
+{
+    if (m->lap_popup) {
+        switch (in) {
+        case HP2_IN_LEFT:  if (m->laps > 1) m->laps--; return HP2_FEM_REDRAW;
+        case HP2_IN_RIGHT: if (m->laps < 10) m->laps++; return HP2_FEM_REDRAW;
+        case HP2_IN_BACK:  m->lap_popup = 0; return HP2_FEM_REDRAW;
+        default: return 0;          /* accept: the race itself is not in the port yet */
+        }
+    }
+    switch (in) {
+    case HP2_IN_UP:    if (m->focus > 0) m->focus--; return HP2_FEM_REDRAW;
+    case HP2_IN_DOWN:  if (m->focus < 2) m->focus++; return HP2_FEM_REDRAW;
+    case HP2_IN_LEFT:
+    case HP2_IN_RIGHT:
+        if (m->focus == 0) m->track = (m->track + (in == HP2_IN_LEFT ? HP2_TRACKS - 1 : 1)) % HP2_TRACKS;
+        else if (m->focus == 1) m->tod = !m->tod;
+        else m->alt = !m->alt;
+        return HP2_FEM_REDRAW;
+    case HP2_IN_ACCEPT: m->lap_popup = 1; return HP2_FEM_REDRAW;
+    case HP2_IN_BACK:
+        m->screen = HP2_FEM_SELECT_CAR;
+        return HP2_FEM_REDRAW;
+    default: return 0;
     }
 }
 
@@ -368,7 +432,7 @@ static void refresh(hp2_femenu *m)
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
     } else if (list_screen(m)) {
         list_help(m);
-    } else if (m->screen == HP2_FEM_TITLE || m->screen == HP2_FEM_SELECT_CAR) {
+    } else if (m->screen == HP2_FEM_TITLE || m->screen == HP2_FEM_SELECT_CAR || m->screen == HP2_FEM_SELECT_TRACK) {
         /* no ticker */
     } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
                && m->orow[m->sel - 1] == OPT_JUKEBOX) {
@@ -415,6 +479,8 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->hotp = hp2_fe_find_id(layout, SCR_HOT_PURSUIT);
     m->world = hp2_fe_find_id(layout, SCR_WORLD_RACING);
     m->carsel = hp2_fe_find_id(layout, SCR_SELECT_CAR);
+    m->tracksel = hp2_fe_find_id(layout, SCR_SELECT_TRACK);
+    m->laps = 2;
     if (!hp2_fe_row(m->mainm, 1)) m->mainm = NULL;
     if (!hp2_fe_row(m->hotp, 1)) m->hotp = NULL;
     if (!hp2_fe_row(m->world, 1)) m->world = NULL;
@@ -452,7 +518,7 @@ int hp2_femenu_start(hp2_femenu *m, hp2_fem_screen s)
 {
     const hp2_fe_screen *need = s == HP2_FEM_TITLE ? m->title : s == HP2_FEM_MAIN ? m->mainm
                               : s == HP2_FEM_HOT_PURSUIT ? m->hotp : s == HP2_FEM_WORLD_RACING ? m->world
-                              : s == HP2_FEM_SELECT_CAR ? m->carsel : s == HP2_FEM_OPTIONS ? m->options : NULL;
+                              : s == HP2_FEM_SELECT_CAR ? m->carsel : s == HP2_FEM_SELECT_TRACK ? m->tracksel : s == HP2_FEM_OPTIONS ? m->options : NULL;
     if (!need) return 0;
     m->screen = s;
     m->sel = 1;
@@ -552,6 +618,8 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         r = jukebox_input(m, in);
     } else if (m->screen == HP2_FEM_SELECT_CAR) {
         r = car_input(m, in);
+    } else if (m->screen == HP2_FEM_SELECT_TRACK) {
+        r = track_input(m, in);
     } else if (m->screen == HP2_FEM_TITLE) {
         r = title_input(m, in);
     } else if (list_screen(m)) {
@@ -875,6 +943,101 @@ static int car_items(hp2_femenu *m, list *l)
     return l->n;
 }
 
+/* SELECT_TRACK. The course's picture (TRACK<n>), logo (LOGOTRACK<n>) and
+ * thumbnails (TN_TRACK<n>, TN_TRACK<n>R for the other way round) are in the
+ * front-end pack under those names. The layout stores the lists of one
+ * mode on top of another (rows and the lap popup), so this places what it
+ * shows by itself. */
+static void fmt_laps(char *out, size_t cap, const char *fmt, int laps)
+{
+    const char *d = strstr(fmt, "%d");
+    if (!d) { snprintf(out, cap, "%s", fmt); return; }
+    snprintf(out, cap, "%.*s%d%s", (int)(d - fmt), fmt, laps, d + 2);
+}
+
+static int track_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = m->tracksel;
+    const track_entry *t = &TRACKS[m->track];
+    static char len[24], diff[40], total[64], laps[8], tod[40], alt[16];
+    char nm[32];
+    const char *dn[3];
+    int i, k, loc_diff = t->num % 10 - 1;
+    hp2_fe_item *it;
+    dn[0] = lang_or(m, 55004u, "Beginner"); dn[1] = lang_or(m, 55005u, "Advanced"); dn[2] = lang_or(m, 55006u, "Expert");
+    snprintf(len, sizeof len, "%.2f mi", (double)t->length);
+    snprintf(diff, sizeof diff, "%s", dn[loc_diff < 0 ? 0 : loc_diff > 2 ? 2 : loc_diff]);
+    fmt_laps(total, sizeof total, lang_or(m, 55025u, "Best Total Time (%d laps)"), m->laps);
+    snprintf(laps, sizeof laps, "%d", m->laps);
+    snprintf(tod, sizeof tod, "%s", m->tod ? lang_or(m, overcast_course(m->track) ? 55009u : 55010u, "Overcast") : lang_or(m, 55008u, "Sunny"));
+    snprintf(alt, sizeof alt, "%s", m->alt ? "On" : "Off");
+    for (i = 0; i < s->count; i++) {
+        const hp2_fe_widget *w = &s->widgets[i];
+        const char *str = NULL;
+        if (w->x >= 640.0f || w->y >= 480.0f || w->x < -40.0f) continue;     /* parked off screen */
+        if (has_prefix(w->name, "TN_") || has_prefix(w->name, "TOD_") || has_prefix(w->name, "LOCKED") || has_prefix(w->name, "TRACK_IMAGE_XFADE")
+            || !strcmp(w->name, "ANIMATING_MENUITEM") || !strcmp(w->name, "TRACK_ELEVATION") || !strcmp(w->name, "MENUITEM_1")
+            || !strcmp(w->name, "MENUITEM_2") || !strcmp(w->name, "DIFFICULTY_NUMBER") || !strcmp(w->name, "LEVEL")
+            || !strcmp(w->name, "UP_ARROW") || !strcmp(w->name, "DOWN_ARROW") || !strcmp(w->name, "LAP_LEFT_ARROW")
+            || !strcmp(w->name, "LAP_RIGHT_ARROW") || has_prefix(w->name, "SELECTLAP_") || !strcmp(w->name, "POPUP_LINE_1")
+            || !strcmp(w->name, "LAP_COUNT") || !strcmp(w->name, "BEST_TOTAL_TIME_STATS") || !strcmp(w->name, "BEST_LAP_TIME_STATS")
+            || !strcmp(w->name, "LEFT_ARROW_SELECT") || !strcmp(w->name, "RIGHT_ARROW_SELECT")) continue;
+        if (w->string_id == 55015u) continue;                                    /* "Elevation:": not known */
+        if (w->kind == HP2_FE_TEXT) {
+            str = hp2_femenu_text(m, w);
+            if (!strcmp(w->name, "TRACK_LENGTH")) str = len;
+            else if (!strcmp(w->name, "TRACK_DIFFICULTY")) str = diff;
+            else if (!strcmp(w->name, "BEST_TOTAL_TIME")) str = total;
+        }
+        it = push(l, w, str);
+        if (!it) continue;
+        if (!strcmp(w->name, "TRACK_IMAGE_BOO")) {
+            snprintf(nm, sizeof nm, "TRACK%d", t->num);
+            it->w.texture = hp2_fe_hash(nm);
+        } else if (!strcmp(w->name, "TRACK_LOGO")) {
+            snprintf(nm, sizeof nm, "LOGOTRACK%d%s", t->num, m->alt ? "R" : "");
+            it->w.texture = hp2_fe_hash(nm);
+        }
+    }
+    for (k = 0; k < 2; k++) {   /* arrows of the strip, as on car select */
+        it = push(l, named(s, k ? "RIGHT_ARROW_SELECT" : "LEFT_ARROW_SELECT"), NULL);
+        if (it) it->w.visible = 1;
+    }
+    for (k = 0; k < 8; k++) {   /* the strip: the selected course in the frame, the next seven after it */
+        int idx = (m->track + k) % HP2_TRACKS;
+        snprintf(nm, sizeof nm, "TN_TRACK%d%s", TRACKS[idx].num, m->alt ? "R" : "");
+        it = push(l, named(s, nm), NULL);
+        if (it) {
+            it->w.x = k == 0 ? 242.0f : 285.0f + 40.0f * (float)(k - 1);
+            it->w.y = 399.0f;
+            it->w.visible = 1;
+        }
+    }
+    {   /* Time of Day and Alternate: label, value under it, the focused one orange */
+        const hp2_fe_widget *r[2];
+        const char *lab[2], *val[2];
+        r[0] = named(s, "MENUITEM_1"); r[1] = named(s, "MENUITEM_2");
+        lab[0] = "Time of Day"; lab[1] = "Alternate";
+        val[0] = tod; val[1] = alt;
+        for (k = 0; k < 2; k++) {
+            it = push(l, r[k], lab[k]);
+            if (it) { if (m->focus == k + 1) memcpy(it->w.rgba, ORANGE, 4); else grey(it, 0x50); }
+            it = push(l, r[k], val[k]);
+            if (it) { it->w.y += 22.0f; if (m->focus == k + 1) memcpy(it->w.rgba, ORANGE, 4); }
+        }
+    }
+    if (m->lap_popup) {
+        static const char *pop[] = { "SELECTLAP_TOP", "SELECTLAP_BG", "SELECTLAP_TOPBAR", "SELECTLAP_LOWERBAR", "POPUP_LINE_1", "LAP_COUNT",
+                                     "LAP_LEFT_ARROW", "LAP_RIGHT_ARROW" };
+        for (k = 0; k < 8; k++) {
+            const hp2_fe_widget *w = named(s, pop[k]);
+            it = push(l, w, w && w->kind == HP2_FE_TEXT ? (!strcmp(pop[k], "LAP_COUNT") ? laps : hp2_femenu_text(m, w)) : NULL);
+            if (it) it->w.visible = 1;
+        }
+    }
+    return l->n;
+}
+
 /* The title screen. Its splash (SPLASH_SCREEN) is a black placeholder the
  * game fills at run time, and its other picture is a movie texture, so the
  * port shows Main Menu's backdrop (grid, blueprints, borders) with the NFS
@@ -1114,6 +1277,7 @@ int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
     if (m->screen == HP2_FEM_JUKEBOX) return jukebox_items(m, &l);
     if (m->screen == HP2_FEM_TITLE) return title_items(m, &l);
     if (m->screen == HP2_FEM_SELECT_CAR) return car_items(m, &l);
+    if (m->screen == HP2_FEM_SELECT_TRACK) return track_items(m, &l);
     if (list_screen(m)) return list_items(m, &l);
     return m->screen == HP2_FEM_OPTIONS ? options_items(m, &l) : settings_items(m, &l);
 }

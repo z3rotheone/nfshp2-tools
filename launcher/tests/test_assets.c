@@ -784,6 +784,59 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         }
         CHECK(ok, "all %d cars show a name and real specs", HP2_CARS);
         m.car = 0;
+        /* track select */
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SELECT_TRACK && m.track == 0 && m.laps == 2,
+              "accept on a car: track select");
+        n = hp2_femenu_items(&m, it, 160);
+        {
+            int tn = 0, k;
+            for (k = 0; k < n; k++) tn += !strncmp(it[k].w.name, "TN_TRACK", 8);
+            CHECK(tn == 8 && count_named(it, n, "THUMBNAIL_FRAME") == 1, "a strip of eight course thumbnails (%d)", tn);
+        }
+        CHECK(find_text(it, n, "4.59 mi") == 1 && find_text(it, n, "Beginner") == 1 && find_text(it, n, "Best Total Time (2 laps)") == 1,
+              "length, difficulty and the best-time heading");
+        CHECK(find_text(it, n, "Time of Day") == 1 && find_text(it, n, "Sunny") == 1 && find_text(it, n, "Alternate") == 1 && find_text(it, n, "Off") == 1,
+              "Time of Day and Alternate rows");
+        CHECK(count_named(it, n, "SELECTLAP_BG") == 0 && count_named(it, n, "LOCKED_BG1") == 0 && find_text(it, n, "SELECT LAPS") == 0,
+              "no popup, nothing locked");
+        CHECK(!strcmp(hp2_femenu_track_name(&m, 0, 0), "Coastal Parklands") && !strcmp(hp2_femenu_track_name(&m, 0, 1), "Coastal Parklands II")
+              && !strcmp(hp2_femenu_track_name(&m, 14, 0), "Tropical Circuit"), "course names from the language file");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.track == 1 && hp2_femenu_track_number(&m) == 12, "right: the next course (track 12)");
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(m.track == HP2_TRACKS - 1 && hp2_femenu_track_number(&m) == 63, "left from the first wraps to the last");
+        m.track = 0;
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.focus == 1 && m.tod == 1 && hp2_femenu_track_number(&m) == 14, "Time of Day: the other lighting is track + 3");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Overcast") == 1, "overcast in the Parkland");
+        m.track = 6;
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Sunset") == 1 && hp2_femenu_track_number(&m) == 34, "sunset in Greece (track 34)");
+        m.track = 0;
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(m.focus == 2 && m.alt == 1, "Alternate on");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "On") == 1 && count_named(it, n, "TN_TRACK11R") == 1 && count_named(it, n, "TN_TRACK11") == 0, "the other way round: R thumbnails");
+        hp2_femenu_input(&m, HP2_IN_UP);
+        hp2_femenu_input(&m, HP2_IN_UP);
+        CHECK(m.focus == 0, "up returns to the strip");
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.lap_popup, "accept: SELECT LAPS");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "SELECT LAPS") == 1 && find_text(it, n, "2") >= 1 && count_named(it, n, "SELECTLAP_BG") == 1, "the popup shows");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.laps == 4 && m.track == 0, "right in the popup: laps");
+        m.laps = 1;
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(m.laps == 1, "at least one lap");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(!m.lap_popup && m.screen == HP2_FEM_SELECT_TRACK, "back closes the popup");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_SELECT_CAR, "back: the car");
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 3, "back: Main Menu, on Quick Race");
     }

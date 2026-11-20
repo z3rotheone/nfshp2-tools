@@ -130,9 +130,16 @@ Options). Quick Race is the port's own row: it picks Hot Pursuit or World
 Racing settings at random and opens *car select*, laid out as on a PCSX2 screenshot: the car's name top-left,
 the 23 cars as a strip of make logos along the bottom (left/right), the colour
 swatches down the right (up/down) and the game's own specs (0-60, top speed,
-power) at the left. Back returns to Main Menu. The game also shows the car in
-3D with a spotlit floor, and its track list comes next: neither is in the port
-yet, and the swatch colours are those of the BMW M5 for every car. Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
+power) at the left. Accept opens *track select*: the 15 courses as a strip of
+thumbnails with the course's picture, logo, length and difficulty; left/right
+pick a course, down moves to Time of Day (the second lighting: overcast in the
+Parkland and Desert, sunset elsewhere) and Alternate (the course the other way
+round); accept asks SELECT LAPS. Everything is unlocked and there are no points.
+Back walks up. The game also shows the car in 3D with a spotlit floor, and the
+race itself comes next: neither is in the port yet. The swatch colours are
+those of the BMW M5 for every car; elevations and best times are not known, so
+they are left blank, and difficulty is Beginner / Advanced / Expert by the
+course's number within its location (a guess). Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
 Pig (the game's Ultimate Racer, Challenge and You're The Cop); World Racing
 opens Ultimate Racer and Just Race (the game's Championship and Challenge).
 The game's help lines go with the original rows; picking a mode does nothing
