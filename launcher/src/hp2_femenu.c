@@ -1364,8 +1364,32 @@ static hp2_fe_item *rect(list *l, const hp2_fe_widget *tmpl, float x, float y, f
     return it;
 }
 
-/* How far down the tree map is scrolled (canvas units). */
-#define TREE_BG_SCROLL 60.0f
+/* The tree view: the map panel, the map's scale, where the event on view
+ * sits (its badge's centre), the connector width, and each badge's top
+ * left against its centre and its size ([0] World Racing's card, [1] Hot
+ * Pursuit's star). Tree units are canvas units (hp2_tree.h). */
+#define TREE_PANEL_X 141.0f
+#define TREE_PANEL_Y 71.0f
+#define TREE_PANEL_W 499.0f
+#define TREE_PANEL_H 259.0f
+#define TREE_BG_SCALE 1.25f
+#define TREE_CX 320.0f
+#define TREE_CY 282.0f
+#define TREE_LINE 6.0f
+static const float BADGE_OFF[2][2] = { { -108.0f, -150.0f }, { -136.0f, -130.0f } };
+static const float BADGE_SIZE[2][2] = { { 216.0f, 312.0f }, { 272.0f, 272.0f } };
+
+static int panel_hits(float x, float y, float w, float h)
+{
+    return x < TREE_PANEL_X + TREE_PANEL_W && x + w > TREE_PANEL_X && y < TREE_PANEL_Y + TREE_PANEL_H && y + h > TREE_PANEL_Y;
+}
+
+static void panel_clip(hp2_fe_item *it)
+{
+    it->clip = 1;
+    it->clip_rect[0] = TREE_PANEL_X; it->clip_rect[1] = TREE_PANEL_Y;
+    it->clip_rect[2] = TREE_PANEL_W; it->clip_rect[3] = TREE_PANEL_H;
+}
 
 static void set_vcol(hp2_fe_item *it, int r, int g, int b, int a)
 {
@@ -1383,13 +1407,15 @@ static void set_vcol(hp2_fe_item *it, int r, int g, int b, int a)
  * right and the event's title in a bar below. Every event is open. The map
  * (PURSUIT_TREE_BG / SPEED_TREE_BG) sits in the panel and the badge (a star
  * for Hot Pursuit, a card for World Racing, green tab = unlocked) behind the
- * number. The red lines to the next events, the map's scroll to the event
- * and the ghosted car logo are not in the port yet. */
+ * number. With the trees' layout (hp2_tree, from the executable) the
+ * neighbouring events and the red connectors show round it at the game's
+ * spacing (130 x 350), clipped to the panel, and the map scrolls with the
+ * event's place in the tree. The ghosted car logo is not in the port yet. */
 static int tree_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->tree, *c = m->chal;
     const hp2_fe_widget *tmpl = named(s, "FLAG");
-    static char num[24], evn[40], title[96], status[32], reward[64], tl[40];
+    static char num[24], evn[40], title[96], status[32], reward[64], tl[40], nnum[HP2_TREE_MAX_EVENTS][12];
     int i, ev = m->tree_ev;
     hp2_fe_item *it;
     snprintf(num, sizeof num, "%d", ev + 1);
@@ -1411,17 +1437,58 @@ static int tree_items(hp2_femenu *m, list *l)
         }
     }
     if (tmpl) {
-        /* the map behind the tree (8-bit 512 x 448), clipped to the panel */
+        const hp2_tree *tr = (m->trees && m->trees[m->tree_kind].has_grid) ? &m->trees[m->tree_kind] : NULL;
+        float wx0 = 0.0f, wy0 = 0.0f, fx = 0.5f, fy = 0.2f;
+        if (tr && hp2_tree_pos(tr, ev + 1, &wx0, &wy0)) {
+            fx = (float)tr->ev[ev].col / 19.0f;
+            fy = (float)tr->ev[ev].row / 9.0f;
+        }
+        /* the map (8-bit 512 x 448) at 1.25, scrolled with the event's place
+         * in the tree, clipped to the panel */
         it = push(l, tmpl, NULL);
         if (it) {
             it->w.texture = hp2_fe_hash(m->tree_kind ? "PURSUIT_TREE_BG" : "SPEED_TREE_BG");
-            it->w.x = 141.0f; it->w.y = 71.0f - TREE_BG_SCROLL; it->w.sx = it->w.sy = 499.0f / 512.0f;
-            it->w.visible = 1; it->w.layer = 16;
+            it->w.sx = it->w.sy = TREE_BG_SCALE;
+            it->w.x = TREE_PANEL_X - fx * (512.0f * TREE_BG_SCALE - TREE_PANEL_W);
+            it->w.y = TREE_PANEL_Y - fy * (448.0f * TREE_BG_SCALE - TREE_PANEL_H);
+            it->w.visible = 1; it->w.layer = 17;
             set_vcol(it, 0x80, 0x80, 0x80, 0x80);
-            it->clip = 1; it->clip_rect[0] = 141.0f; it->clip_rect[1] = 71.0f;
-            it->clip_rect[2] = 499.0f; it->clip_rect[3] = 259.0f;
+            panel_clip(it);
         }
-        rect(l, tmpl, 141.0f, 71.0f, 499.0f, 259.0f, 120, 130, 140, 0x30, 15);      /* the map panel */
+        rect(l, tmpl, TREE_PANEL_X, TREE_PANEL_Y, TREE_PANEL_W, TREE_PANEL_H, 120, 130, 140, 0x30, 16);   /* the map panel */
+        if (tr) {      /* the connectors and the other events, in tree units round this one */
+            hp2_tree_seg seg[200];
+            int k, ns = hp2_tree_segments(tr, seg, 200);
+            for (k = 0; k < ns; k++) {
+                float x0 = TREE_CX + seg[k].x0 - wx0, y0 = TREE_CY + seg[k].y0 - wy0;
+                float x1 = TREE_CX + seg[k].x1 - wx0, y1 = TREE_CY + seg[k].y1 - wy0;
+                float rx = x0 - TREE_LINE / 2, ry = y0 - TREE_LINE / 2, rw = x1 - x0 + TREE_LINE, rh = y1 - y0 + TREE_LINE;
+                if (!panel_hits(rx, ry, rw, rh)) continue;
+                it = rect(l, tmpl, rx, ry, rw, rh, 200, 24, 24, 0x80, 15);
+                if (it) panel_clip(it);
+            }
+            for (k = 1; k <= tr->count; k++) {
+                float x, y, bx, by;
+                if (k == ev + 1 || !hp2_tree_pos(tr, k, &x, &y)) continue;
+                x = TREE_CX + x - wx0; y = TREE_CY + y - wy0;
+                bx = x + BADGE_OFF[m->tree_kind][0]; by = y + BADGE_OFF[m->tree_kind][1];
+                if (!panel_hits(bx, by, BADGE_SIZE[m->tree_kind][0], BADGE_SIZE[m->tree_kind][1])) continue;
+                it = push(l, tmpl, NULL);
+                if (it) {
+                    it->w.texture = hp2_fe_hash(m->tree_kind ? "PURSUIT_EVENT_PANEL_UNLOCKED" : "SPEED_EVENT_PANEL_UNLOCKED");
+                    it->w.x = bx; it->w.y = by; it->w.sx = it->w.sy = 1.0f; it->w.visible = 1; it->w.layer = 14;
+                    set_vcol(it, 0x80, 0x80, 0x80, 0x80);
+                    panel_clip(it);
+                }
+                snprintf(nnum[k - 1], sizeof nnum[k - 1], "%d", k);
+                it = push(l, named(s, "EVENT_NUMBER"), nnum[k - 1]);
+                if (it) {
+                    it->w.x = x; it->w.y = y - (TREE_CY - 216.0f); it->w.align = HP2_FE_ALIGN_CENTRE;
+                    it->w.visible = 1; it->w.layer = 13;
+                    panel_clip(it);
+                }
+            }
+        }
         /* the event's badge: Hot Pursuit a 272 x 272 star, World Racing a
          * 216 x 312 card; the tab is green (unlocked), chequered (won) or
          * red (locked). Every event is open in the port. Placed as the
@@ -1429,13 +1496,8 @@ static int tree_items(hp2_femenu *m, list *l)
          * 272, 199), moved with the number. */
         it = push(l, tmpl, NULL);
         if (it) {
-            if (m->tree_kind) {
-                it->w.texture = hp2_fe_hash("PURSUIT_EVENT_PANEL_UNLOCKED");
-                it->w.x = 175.0f + (320.0f - 311.0f); it->w.y = 135.0f + (216.0f - 199.0f);
-            } else {
-                it->w.texture = hp2_fe_hash("SPEED_EVENT_PANEL_UNLOCKED");
-                it->w.x = 320.0f - 108.0f; it->w.y = 135.0f + (216.0f - 199.0f) - 20.0f;
-            }
+            it->w.texture = hp2_fe_hash(m->tree_kind ? "PURSUIT_EVENT_PANEL_UNLOCKED" : "SPEED_EVENT_PANEL_UNLOCKED");
+            it->w.x = TREE_CX + BADGE_OFF[m->tree_kind][0]; it->w.y = TREE_CY + BADGE_OFF[m->tree_kind][1];
             it->w.sx = it->w.sy = 1.0f; it->w.visible = 1; it->w.layer = 10;
             set_vcol(it, 0x80, 0x80, 0x80, 0x80);
         }

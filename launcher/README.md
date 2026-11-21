@@ -77,8 +77,12 @@ is assumed anywhere else.
 ```sh
 make test        # unit tests, no SDL needed
 make stubcheck   # compile-check the SDL sources without SDL installed
-make fecheck FRONTB=~/hp2work/extracted/021_14c57a19.bin
-                 # hp2_fe on the real bundle, compared with hp2_fescreens.py
+make fecheck FRONTB=~/hp2work/extracted/021_14c57a19.bin \
+             GLOBALB=~/hp2work/extracted/302_4c937012.bin \
+             FELANG=~/hp2work/extracted/003_0e1049ed.bin \
+             EXE=~/hp2work/iso/SLUS_203.62
+                 # the real files: layouts (compared with hp2_fescreens.py),
+                 # textures, text, menu flow and the event trees' layout
 make             # build the launcher (needs SDL2)
 make hp2fe       # build the front-end menus (needs SDL2 2.0.18 or newer)
 ```
@@ -151,6 +155,11 @@ Ultimate Fugitive and Ultimate Racer open the event tree (TREE_VIEW): one event
 at a time on its map (PURSUIT_TREE_BG / SPEED_TREE_BG) with its badge (a star
 for Hot Pursuit, a card for World Racing; every event is open, so the tab is
 green), number, title, Status and Reward; left/right step through the events.
+The tree's layout (each event's column) is in the game's executable, not in
+the data files: with `--exe SLUS_203.62` (or `--disc DIR`, which looks for it
+in DIR and the folder above) the neighbouring events and the red connectors
+show round the event at the game's spacing, and the map scrolls with it.
+Without it the view shows the event alone.
 The game's help lines go with the original rows; picking a mode does nothing
 yet. Back walks up the same path; back on the title quits. On OPTIONS, *Display* opens the
 Video page, *Controller* the Controls page and *Audio* the Audio page (the

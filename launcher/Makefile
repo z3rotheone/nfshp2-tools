@@ -20,7 +20,7 @@
 CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -O2
 SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c src/hp2_fe.c \
-           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_femenu.c src/hp2_jukebox.c \
+           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_tree.c src/hp2_femenu.c src/hp2_jukebox.c \
            src/hp2_vag.c src/hp2_jbplay.c
 SDLSRC   = src/hp2_input.c src/main.c
 FESRC    = src/hp2_fedraw.c src/hp2_input.c src/fe_main.c
@@ -82,10 +82,10 @@ test_assets: tests/test_assets.c $(SRC)
 # (extracted entries 21, 302 and 3, e.g. ~/hp2work/extracted/021_14c57a19.bin).
 fecheck: test_fe test_assets
 	@if [ -z "$(FRONTB)" ] || [ -z "$(GLOBALB)" ] || [ -z "$(FELANG)" ]; then \
-	  echo "usage: make fecheck FRONTB=... GLOBALB=... FELANG=... [BANK=entry 322] [DISC=NFSHP2 folder]"; exit 1; fi
+	  echo "usage: make fecheck FRONTB=... GLOBALB=... FELANG=... [BANK=entry 322] [DISC=NFSHP2 folder] [EXE=SLUS_203.62]"; exit 1; fi
 	./test_fe "$(FRONTB)"
 	python3 tests/check_fe.py ./test_fe "$(FRONTB)"
-	./test_assets --frontb "$(FRONTB)" --globalb "$(GLOBALB)" --lang "$(FELANG)" $(if $(BANK),--jukebox "$(BANK)") $(if $(DISC),--disc "$(DISC)")
+	./test_assets --frontb "$(FRONTB)" --globalb "$(GLOBALB)" --lang "$(FELANG)" $(if $(BANK),--jukebox "$(BANK)") $(if $(DISC),--disc "$(DISC)") $(if $(EXE),--exe "$(EXE)")
 	python3 tests/check_tex.py ./test_assets "$(FRONTB)" "$(GLOBALB)"
 	$(if $(BANK),python3 tests/check_vag.py ./test_assets "$(BANK)")
 

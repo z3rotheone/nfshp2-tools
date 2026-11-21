@@ -15,6 +15,10 @@
  *   --size WxH         window size (default 1280x720)
  *   --fit fit|stretch|expand    how the 640x480 canvas fills the window
  *                      (default: fit for aspect 4:3, else expand)
+ *   --exe PATH         the disc's executable (SLUS_203.62) for the event
+ *                      trees' layout; with --disc it is looked for in DIR
+ *                      and the folder above. Without it the tree view shows
+ *                      one event at a time with no connectors.
  *   --options          start on Options instead of the title screen
  *   --no-music         no menu music (it plays the Jukebox's songs set to
  *                      Menu or On, at Menu Music volume). The Next Song
@@ -40,6 +44,7 @@
 #include "hp2_lang.h"
 #include "hp2_settings.h"
 #include "hp2_tex.h"
+#include "hp2_tree.h"
 #include "hp2_zdir.h"
 
 #include <SDL.h>
@@ -199,8 +204,9 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, SDL_Renderer *r, in
 
 int main(int argc, char **argv)
 {
-    const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
+    const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL, *exepath = NULL;
     static hp2_jukebox jb;
+    static hp2_tree trees[2];
     char *loose[3] = { NULL, NULL, NULL };
     int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1, shot_song = -1, start_options = 0;
     hp2_fe_layout glayout;
@@ -224,6 +230,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--files") && i + 3 < argc) { loose[0] = argv[++i]; loose[1] = argv[++i]; loose[2] = argv[++i]; }
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
         else if (!strcmp(argv[i], "--jukebox") && i + 1 < argc) bankpath = argv[++i];
+        else if (!strcmp(argv[i], "--exe") && i + 1 < argc) exepath = argv[++i];
         else if (!strcmp(argv[i], "--no-music")) music = 0;
         else if (!strcmp(argv[i], "--options")) start_options = 1;
         else if (!strcmp(argv[i], "--songbox") && i + 1 < argc) shot_song = atoi(argv[++i]);
@@ -237,7 +244,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--keys") && i + 1 < argc) keys = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
-                            "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--config PATH] [--size WxH]\n"
+                            "       [--language NAME] [--jukebox BANK] [--exe SLUS_203.62] [--options] [--no-music] [--config PATH] [--size WxH]\n"
                             "       [--fit fit|stretch|expand]\n"
                             "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back,help]\n", argv[0]);
             return 2;
@@ -255,11 +262,30 @@ int main(int argc, char **argv)
         return 1;
     }
     if (!f.lang || hp2_lang_open(&lang, f.lang, f.lang_len) != 0) memset(&lang, 0, sizeof lang);
+    if (hp2_tree_parse(f.frontb, f.frontb_len, trees) == 2) {   /* the trees' layout is in the executable */
+        char path[1100];
+        const char *tries[3];
+        int t, nt = 0;
+        size_t xl = 0;
+        uint8_t *x = NULL;
+        if (exepath) tries[nt++] = exepath;
+        else if (disc) {
+            static char a[1100], b[1100];
+            snprintf(a, sizeof a, "%s/SLUS_203.62", disc);
+            snprintf(b, sizeof b, "%s/../SLUS_203.62", disc);
+            tries[nt++] = a; tries[nt++] = b;
+        }
+        for (t = 0; t < nt && !x; t++) { x = hp2_read_file(tries[t], &xl); snprintf(path, sizeof path, "%s", tries[t]); }
+        if (x && !hp2_tree_grid(trees, x, xl)) fprintf(stderr, "%s: no event tree layout found\n", path);
+        else if (!x && exepath) fprintf(stderr, "could not read %s\n", exepath);
+        free(x);
+    }
     hp2_settings_load(&cfg, config);       /* 1 = read; defaults either way first */
     if (hp2_femenu_init(&menu, &layout, lang.count ? &lang : NULL, &cfg) != 0) {
         fprintf(stderr, "FRONTB.BUN lacks the OPTIONS / DISPLAY_OPTIONS screens\n");
         return 1;
     }
+    menu.trees = trees;
     if (!start_options && !hp2_femenu_start(&menu, HP2_FEM_TITLE)) hp2_femenu_start(&menu, HP2_FEM_MAIN);
     menu.seed = (uint32_t)time(NULL) ^ (uint32_t)SDL_GetTicks() * 2654435761u;   /* Quick Race's dice */
     if (f.bank && hp2_jukebox_parse(&jb, f.bank, f.bank_len) == 0) hp2_femenu_set_jukebox(&menu, &jb);

@@ -3,11 +3,12 @@
  * hp2_zdir (the disc archive) and hp2_femenu (the Options menus). No SDL.
  *
  *   test_assets                          synthetic data only
- *   test_assets --frontb F --globalb G --lang L [--jukebox BANK] [--disc DIR]
+ *   test_assets --frontb F --globalb G --lang L [--jukebox BANK] [--disc DIR] [--exe SLUS_203.62]
  *                                        also the real files (entries 21,
  *                                        302 and 3; DIR = the disc's NFSHP2
  *                                        folder, to read FRONTB.BUN through
- *                                        ZDIR.BIN and compare)
+ *                                        ZDIR.BIN and compare; the executable
+ *                                        for the event trees' layout)
  *   test_assets --texdump FILE...        one line per texture with a hash of
  *                                        its decoded RGBA, for check_tex.py
  *   test_assets --vagdump BANK SONG FRAMES
@@ -22,6 +23,7 @@
 #include "../src/hp2_font.h"
 #include "../src/hp2_lang.h"
 #include "../src/hp2_tex.h"
+#include "../src/hp2_tree.h"
 #include "../src/hp2_zdir.h"
 
 #include <math.h>
@@ -489,6 +491,97 @@ static void page_walk(hp2_femenu *m, hp2_fe_item *it, int rows)
     }
 }
 
+/* ---- event trees ---- */
+
+static hp2_tree real_trees[2];
+static int have_real_trees;
+
+static size_t put32(uint8_t *b, size_t o, uint32_t v) { b[o] = (uint8_t)v; b[o + 1] = (uint8_t)(v >> 8); b[o + 2] = (uint8_t)(v >> 16); b[o + 3] = (uint8_t)(v >> 24); return o + 4; }
+
+/* A tree chunk: 1 -> 2, 3 -> 4 (4 needs 2 and 3). */
+static size_t synth_tree(uint8_t *b, size_t o, const char *name)
+{
+    size_t start = o, body, c;
+    int e;
+    o = put32(b, o, 0x80034A00u); o = put32(b, o, 0);
+    body = o;
+    o = put32(b, o, 1); o = put32(b, o, 64);
+    memset(b + o, 0, 64); memcpy(b + o, name, strlen(name)); o += 64;
+    o = put32(b, o, 0x00034A03u); o = put32(b, o, 3 * 8);
+    for (e = 0; e < 3; e++) {   /* links: event 1, event 2, event 3 */
+        b[o] = 1; b[o + 1] = 0; b[o + 2] = (uint8_t)(e + 1); b[o + 3] = 0; put32(b, o + 4, 7); o += 8;
+    }
+    o = put32(b, o, 0x00034A05u); o = put32(b, o, 4 * 188);
+    c = o;
+    memset(b + o, 0, 4 * 188);
+    for (e = 0; e < 4; e++) {
+        uint8_t *r = b + c + (size_t)e * 188;
+        r[0x28] = (uint8_t)(e + 1);
+        if (e == 1 || e == 2) { r[0x3D] = 1; r[0x7C] = 0; }
+        if (e == 3) { r[0x3D] = 2; r[0x7C] = 1; r[0x7E] = 2; }
+    }
+    o += 4 * 188;
+    put32(b, start + 4, (uint32_t)(o - body));
+    return o;
+}
+
+static void synth_grid(uint8_t *g, int bad)
+{
+    memset(g, ' ', 200);
+    g[8] = 'x'; g[20 + 4] = 'x'; g[20 + 12] = 'x'; g[bad ? 60 + 8 : 40 + 8] = 'x';
+}
+
+static void test_tree(void)
+{
+    static uint8_t fb[4096], ex[1024];
+    static hp2_tree t[2];
+    hp2_tree_seg seg[32];
+    size_t n = 0, cut;
+    float x, y;
+    int k, ok;
+    printf("event trees\n");
+    n = synth_tree(fb, 16, "Hot Pursuit");
+    n = synth_tree(fb, n, "Championship");
+    CHECK(hp2_tree_parse(fb, n, t) == 2 && t[0].present && t[1].present && t[0].count == 4 && t[1].count == 4,
+          "two trees, kind by name, 4 events each");
+    CHECK(t[1].ev[3].nlinks == 2 && t[1].ev[3].links[0] == 2 && t[1].ev[3].links[1] == 3 && t[1].ev[3].depth == 2
+          && t[1].ev[0].depth == 0, "links and depth");
+    CHECK(hp2_tree_segments(&t[0], seg, 32) == 0 && !hp2_tree_pos(&t[0], 1, &x, &y), "no grid: no positions, no lines");
+    memset(ex, 0x55, sizeof ex);
+    synth_grid(ex + 100, 0); synth_grid(ex + 308, 1);
+    CHECK(hp2_tree_grid(t, ex, sizeof ex) == 0 && !t[0].has_grid && !t[1].has_grid, "a grid whose rows are not the depths is refused");
+    synth_grid(ex + 308, 0);
+    CHECK(hp2_tree_grid(t, ex, sizeof ex) == 1 && t[0].has_grid && t[1].has_grid, "grids found by content");
+    CHECK(hp2_tree_pos(&t[1], 3, &x, &y) && x == 12 * 130.0f && y == 350.0f, "event 3 at column 12, row 1");
+    k = hp2_tree_segments(&t[1], seg, 32);
+    ok = k == 8;
+    for (n = 0; ok && n < (size_t)k; n++) {   /* bars at 175 and 525 from 520 to 1560; verticals at 520, 1040, 1560 */
+        if (seg[n].y0 == seg[n].y1) ok &= (seg[n].y0 == 175.0f || seg[n].y0 == 525.0f) && seg[n].x0 == 520.0f && seg[n].x1 == 1560.0f;
+        else ok &= seg[n].x0 == seg[n].x1 && (seg[n].x0 == 520.0f || seg[n].x0 == 1040.0f || seg[n].x0 == 1560.0f) && seg[n].y0 < seg[n].y1;
+    }
+    CHECK(ok, "two groups: two bars and six verticals (%d)", k);
+    CHECK(hp2_tree_segments(&t[1], seg, 3) == 3, "segments stop at max");
+    n = synth_tree(fb, 16, "Hot Pursuit");
+    n = synth_tree(fb, n, "Championship");
+    ok = 1;
+    for (cut = 0; cut < n; cut++) {   /* every prefix parses without reading past it */
+        uint8_t *c = (uint8_t *)malloc(cut ? cut : 1);
+        memcpy(c, fb, cut);
+        if (hp2_tree_parse(c, cut, t) == 2 && cut < n) ok = 0;
+        free(c);
+    }
+    CHECK(ok, "every cut-short FRONTB gives fewer than two trees");
+    CHECK(hp2_tree_parse(NULL, 0, t) == 0 && hp2_tree_grid(t, NULL, 0) == 0, "no data");
+}
+
+static int count_red(const hp2_fe_item *it, int n)
+{
+    int i, c = 0;
+    for (i = 0; i < n; i++)
+        if (it[i].w.kind == HP2_FE_IMAGE && it[i].w.texture == 0xFFFFFFFFu && it[i].w.vcol[0][0] == 200 * 128 / 255 && it[i].w.vcol[0][1] == 24 * 128 / 255) c++;
+    return c;
+}
+
 static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_jukebox *jb)
 {
     static hp2_fe_item it[160];
@@ -679,6 +772,7 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     printf("main menu flow\n");
     hp2_settings_defaults(&cfg);
     CHECK(hp2_femenu_init(&m, L, lang, &cfg) == 0 && hp2_femenu_start(&m, HP2_FEM_TITLE) && m.screen == HP2_FEM_TITLE, "starts on the title");
+    m.trees = have_real_trees ? real_trees : NULL;
     n = hp2_femenu_items(&m, it, 160);
     CHECK(find_text(it, n, "PRESS START") == 1 && count_named(it, n, "TITLE_FULLSCREEN") == 0 && count_named(it, n, "TITLE_LETTERBOX") == 0,
           "PRESS START, not the placeholder splash");
@@ -971,6 +1065,17 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
               && find_text(it, n, "Event 2") == 1 && find_text(it, n, "Unlocked") == 1, "Ultimate Fugitive: event 2 on the tree");
         CHECK(count_texture(it, n, hp2_fe_hash("PURSUIT_EVENT_PANEL_UNLOCKED")) == 1 && count_texture(it, n, hp2_fe_hash("PURSUIT_TREE_BG")) == 1,
               "Ultimate Fugitive: the star badge and the map");
+        if (have_real_trees) {
+            int k;
+            CHECK(count_red(it, n) > 0, "event 2: its connectors (%d)", count_red(it, n));
+            for (k = 0; k < 9; k++) hp2_femenu_input(&m, HP2_IN_RIGHT);
+            n = hp2_femenu_items(&m, it, 200);
+            CHECK(m.tree_ev == 10 && count_texture(it, n, hp2_fe_hash("PURSUIT_EVENT_PANEL_UNLOCKED")) >= 2 && find_text(it, n, "12") == 1,
+                  "event 11: event 12 beside it (column 11, three to the right)");
+            for (k = 0; k < 9; k++) hp2_femenu_input(&m, HP2_IN_LEFT);
+        } else {
+            CHECK(count_red(it, n) == 0, "no layout: no connectors");
+        }
         hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back from the tree: Main Menu");
@@ -1016,7 +1121,7 @@ static double tex_vdiff(const hp2_tex *t)
     return n ? sum / n : -1.0;
 }
 
-static void test_real(const char *fb, const char *gb, const char *lf, const char *disc, const char *bank)
+static void test_real(const char *fb, const char *gb, const char *lf, const char *disc, const char *bank, const char *exe)
 {
     static hp2_jukebox jb;
     int have_jb = 0;
@@ -1080,6 +1185,23 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
         CHECK(hp2_lang_by_id(&lang, 1) == NULL, "no id 1");
     }
     CHECK(hp2_fe_parse(F, lfb, &L) == 0, "layouts");
+    CHECK(hp2_tree_parse(F, lfb, real_trees) == 2 && real_trees[0].count == 32 && real_trees[1].count == 32, "two event trees, 32 events each");
+    CHECK(real_trees[0].ev[27].nlinks == 4 && real_trees[0].ev[27].links[0] == 22 && real_trees[0].ev[27].links[3] == 25,
+          "Championship event 28 needs events 22, 23, 24 and 25");
+    CHECK(real_trees[1].ev[31].depth == 9 && real_trees[1].ev[0].depth == 0 && real_trees[1].ev[10].nlinks == 3, "Hot Pursuit: depths 0 to 9, event 11 has three links");
+    if (exe) {
+        size_t xl = 0;
+        uint8_t *X = hp2_read_file(exe, &xl);
+        hp2_tree_seg seg[200];
+        float x, y;
+        CHECK(X && hp2_tree_grid(real_trees, X, xl) == 1, "the layout grids in %s, every row = depth", exe);
+        CHECK(hp2_tree_pos(&real_trees[1], 6, &x, &y) && x == 8 * 130.0f && y == 2 * 350.0f
+              && hp2_tree_pos(&real_trees[0], 6, &x, &y) && x == 9 * 130.0f, "event 6: column 8 (Hot Pursuit), 9 (Championship)");
+        CHECK(hp2_tree_segments(&real_trees[0], seg, 200) == 78 && hp2_tree_segments(&real_trees[1], seg, 200) == 78,
+              "connectors: 78 + 78 segments, got %d + %d", hp2_tree_segments(&real_trees[0], seg, 200), hp2_tree_segments(&real_trees[1], seg, 200));
+        have_real_trees = real_trees[0].has_grid;
+        free(X);
+    }
     if (bank) {
         size_t bl = 0;
         uint8_t *B = hp2_read_file_part(bank, hp2_jukebox_header_size(), &bl);
@@ -1205,7 +1327,7 @@ static int vagdump(const char *bank, int k, int frames)
 
 int main(int argc, char **argv)
 {
-    const char *fb = NULL, *gb = NULL, *lf = NULL, *disc = NULL, *bank = NULL;
+    const char *fb = NULL, *gb = NULL, *lf = NULL, *disc = NULL, *bank = NULL, *exe = NULL;
     int i;
     if (argc > 1 && !strcmp(argv[1], "--texdump")) return texdump(argc - 2, argv + 2);
     if (argc == 5 && !strcmp(argv[1], "--vagdump")) return vagdump(argv[2], atoi(argv[3]), atoi(argv[4]));
@@ -1215,6 +1337,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--lang")) lf = argv[i + 1];
         else if (!strcmp(argv[i], "--disc")) disc = argv[i + 1];
         else if (!strcmp(argv[i], "--jukebox")) bank = argv[i + 1];
+        else if (!strcmp(argv[i], "--exe")) exe = argv[i + 1];
     }
     test_tokens();
     test_font();
@@ -1224,7 +1347,8 @@ int main(int argc, char **argv)
     test_adpcm();
     test_stream();
     test_zdir_hash();
-    if (fb && gb) test_real(fb, gb, lf, disc, bank);
+    test_tree();
+    if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

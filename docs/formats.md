@@ -179,7 +179,12 @@ GRID (4-bit 512 x 384), LOGOTRACK33 / LOGOTRACK61_FR and their R versions
 MOVIE_256_384_* test cards (8-bit 128 x 192, 256 x 384). All checked by eye
 against both readings (the swizzled reading of each is visibly scrambled;
 GRID_BLUEPRINT1 shows a clean wireframe 360 only read linear). The earlier
-rule (multiples of 128 / 64) had these wrong.
+rule (multiples of 128 / 64) had these wrong. Across every pack on the disc
+the change touches 25 textures: the 15 above, the 512 x 448 boot and legal
+screens of entry 2 (EA_LEGAL, ANTIPIRACY, LEGAL, FEATURELIST, CONTROLS,
+DISCLAIMER, FIRSTLEGAL) and, in entry 276, RIVER_TOP (4-bit 384 x 128) and
+TWALLEVERGREENSOLID / TWLLEVERGREEN (4-bit 384 x 512). All checked by eye:
+each is clean only when read linear.
 
 Everything else — and that is most textures — is stored as plain rows of
 pixels. For 4 bpp linear data the **low nibble of each byte is the left pixel**.
@@ -1427,18 +1432,50 @@ settings list in the DISPLAY_OPTIONS layout with them.
 
 ### Event trees (FRONTB chunk `0x80034A00`, two of them)
 
-Tree 0 is the World Racing "Ultimate Racer" championship (31 events), tree 1
-is Hot Pursuit "Ultimate Fugitive" (32 events: 31 is the bonus event, 32 the
-super bonus "Championship Duel").
+Read by `eventtree.cpp` (loader 0x1FFC40 in SLUS_203.62) and drawn by
+`tEventTreeView` (0x1F96B8) with `tEventLeaf`, `tEventGroup` and
+`tLineSegment`. `launcher/src/hp2_tree.c` implements the layout below.
 
-* Chunk `0x00034A05`: 32 records of 188 bytes. Record r's title string is
-  `base + r` (World Racing 70000, Hot Pursuit 70031) and its blurb is
-  World Racing 70064 + r, Hot Pursuit 70095 + r. Byte 62 is the node index.
-  A u16 block of six child-slot node indices follows (values >= 0x7E mean
-  empty); a non-decreasing cursor sits at offset 160.
-* Chunks `0x34A01`, `02`, `03`, `04`, `06` (line-piece masks, 6-bit junction
-  types, grid cells as mask, x, y) are not decoded yet, so the connector
-  lines between events cannot be drawn.
+* Child `0x00000001` (64 bytes) is the tree's name: "Championship" (World
+  Racing, the port's Ultimate Racer; tree kind 0) or "Hot Pursuit" (kind 1;
+  the executable also knows "... E3" variants). Both trees have 32 events
+  (31 and 32 are the bonus events).
+* The loader keeps each other child as a pointer and an item count in the
+  tree object: `34A01` at +0x14 (4-byte items), `34A02` +0x1C (4-byte),
+  `34A03` +0x24 (8-byte), `34A04` +0x2C (8-byte), `34A06` +0x34 (4-byte).
+  `34A05` is the event list: 188-byte records; the loader writes the tree
+  pointer into each record's first word (the 8 zero bytes on disc).
+* Event record (`34A05`): +0x28 event number, +0x29 race type (the start
+  code switches on it, 1..6), +0x2B..+0x3A small race settings copied into
+  the race setup, counts at +0x3B (`34A01` items), +0x3C (`34A02`), +0x3D
+  (`34A03`), +0x3E (`34A04`), +0x3F (`34A06`), and s16 index lists into
+  those tables at +0x44, +0x6C, +0x7C, +0x8C and +0x9C; +0x42 is one more
+  `34A03` index. Title string = base + r (World Racing 70000, Hot Pursuit
+  70031), blurb = 70064 / 70095 + r. Unused list slots hold leftover bytes.
+* **`34A03` = prerequisite links**, 8 bytes: u16 kind (1 or 2), u16 event
+  number, u32 value (kind 2: values like 1,200,000; kind 1: 1..3; meaning
+  not known, perhaps a points or place requirement). Event e's links name
+  the events it follows from; event 1 has none.
+* `34A01` (u16 0xFFFF + u16), `34A02` (byte 0 = a track number 11..65,
+  flags, u16), `34A04` (8 bytes; feeds a lookup in the 0x560-byte car
+  database) and `34A06` (4 bytes) are race parameters copied when an event
+  starts (0x1FEE20). They are **not** the tree's lines.
+* **Layout grids (in the executable, not on the data disc):** two 200-byte
+  grids of ' ' and 'x', 20 columns x 10 rows, Championship at 0x31B3C0 and
+  Hot Pursuit 208 bytes later (NTSC-U addresses; `hp2_tree.c` finds them by
+  content). The n-th 'x' (row-major) is event n. Column = cell % 20, row =
+  cell / 20. **For all 64 events the row equals the event's depth** (steps
+  back to event 1 along each event's first link), which is how the game
+  computes y.
+* Positions in tree units: x = 130 x column (float at gp-0x41B0 =
+  0x331740), y = 350 x depth (gp-0x41B4). A 272-wide star badge at scale 1
+  fits this spacing.
+* Connectors (`tEventGroup`, 0x1F81B8): each event joins, as a parent, the
+  group of its children; parents sharing a child share a group. A group's
+  bar runs at the midpoint between the parents' y and the children's y,
+  from the leftmost to the rightmost member (sorted by x), with a vertical
+  from every member to the bar. Segments whose span covers a won path get
+  a second colour (0x1F8450); both colours are set at run time.
 * No reward field has been found; the blurb text names unlocked events and
   rewards ("unlock Events 2 and 3, as well as the Lotus Elise").
 * Texture names in the packs are cut at 23 characters; the hashes give the

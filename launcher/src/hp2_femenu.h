@@ -75,6 +75,7 @@
 #include "hp2_jukebox.h"
 #include "hp2_lang.h"
 #include "hp2_menu.h"
+#include "hp2_tree.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -124,6 +125,9 @@ typedef struct {
     int                  tree_kind; /* event tree: 0 Ultimate Racer (Championship), 1 Ultimate Fugitive (Hot Pursuit) */
     int                  tree_ev;   /* the event on view, 0-based */
     int                  tree_from; /* the screen the tree was opened from */
+    const hp2_tree      *trees;     /* [0] Championship, [1] Hot Pursuit, or NULL;
+                                       with their grid the tree view draws the
+                                       neighbouring events and connectors */
     int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
     int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
     int                  handling;  /* 0 Classic, 1 Extreme */
