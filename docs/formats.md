@@ -298,6 +298,41 @@ mono.
 
 Read with `tools/hp2_audio.py`.
 
+### Sample banks: `SOUND\\<NAME>.MSH` + `.MSB`
+
+*Verified against data: all engine banks, COMMON.*
+
+The 26 `.MSH`/`.MSB` pairs (COMMON, FRONTEND, INGAME, the five ambiences, the
+18 engines) are a second kind of bank: the `.MSH` holds the headers, the
+`.MSB` the raw PS-ADPCM, with no VAG headers.
+
+`.MSH`: `u32` file size, `u32 16`, `u32` count, then one 52-byte record per
+sample:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| 0 | char[32] | name |
+| 32 | u8, u8 | 0, 1 |
+| 34 | u16 | sample rate (22,050 in every engine bank) |
+| 36 | u16, u16 | 0x1FFF / 0x3FFF, 0x3FFF: the SPU's ADSR words, probably |
+| 40 | u32 | offset of the sample in the `.MSB` |
+| 44 | 8 bytes | 0 |
+
+A sample runs to the next one's offset (the last to the end of the file).
+In the engine banks each starts with a silent block, has flag 6 (loop
+start) on the next and flag 3 (loop end) on its last: the whole sample is a
+loop. COMMON holds the menu sounds, each twice (MenuStart, MenuLeftRight...).
+
+**Engine banks** hold 13 samples named `<prefix>` + `C` (coasting) or `L`
+(under load) + `E` (engine) or `X` (exhaust) + `id`, `Lo`, `Md` or `Hi`, and
+`<prefix>Horn`: the 911 Turbo's `NEWEBXR` has BXRCEHi, BXRCEid, BXRCEMd, the
+same for CX, then BXRLEHi, BXRLELo, BXRLEMd and LX (coasting has idle, mid,
+high; load has low, mid, high). Loops last 0.8–1.5 s. The rpm each was
+recorded at is not in the bank (pitch estimates by autocorrelation were not
+consistent enough to rely on); `launcher/src/hp2_engine.c` assumes idle and
+30, 55 and 80% of the redline and crossfades. `test_assets --enginedump`
+lists a bank.
+
 ---
 
 ## 6. Music banks
@@ -1398,6 +1433,31 @@ bind the rows to its own settings (`launcher/hp2_menu`).
 `TITLE_IMAGE`). The constructor takes state 1 when the word at gp-0x59FC is
 set. `tools/hp2_skipintro.py` turns the `beqz` at 0x16F094 into a nop, so the
 game boots straight to the title screen; `--undo` restores it.
+
+### The race display (`GLOBAL\\INGAMEB.BUN`)
+
+`INGAMEB.BUN` holds 35 layouts of the same kind: the pause menus, results
+tables, the race-over and pre-race panels, and the race display itself,
+screen `0xF1F1F8E5`: 182 widgets for every mode at once (the code shows the
+ones a race needs). Screen `0x936ACE42` holds `PRERACE_3`, `_2`, `_1` and
+`PRERACE_GO` (textures `03`, `02`, `01`, `GO`); GO sits below the canvas
+(y = 492), for the code to bring in.
+
+The third-person rev counter (`launcher/src/track_main.c` draws it):
+
+| Widget | Texture | Notes |
+|---|---|---|
+| `SPEEDOMETER` (492, 319) | `3RDPERSON_10000` | the face; `GLOBAL\\HUDTEX.BIN` has `3RDPERSON_6000` to `_10000`, one per redline; vertex alpha 0x46 |
+| `TACH_NEEDLE` (557, 335) | `3RDPERSON_NEEDLE`, 24 × 112 | its hub is at (12, 56) of the texture, which this widget puts at (77, 72) of the face: the centre of the figures' arc. The needle hangs down from the hub |
+| `SPEED_STRING3` (519, 409) | FONT_HUD | the speed, in the face's black box; `GEAR_STRING3` (605, 413) the gear |
+| `TIME_TRIAL_BG_1..3`, `TIME_TITLE_1..3`, `LAP_COUNTER`, `BEST_LAP_TIME`, `LAP_TIME` | `WHITE16X16`, FONT_A | the lap panel, top right |
+| `WRONG_WAY_IMAGE` | `WRONG_WAY_SIGN` | |
+
+Measured on the faces: 0 sits 130° left of straight up and the top figure
+(7 on `_7000`, 10 on `_10000`) 30° right of it, so 160° spans the face.
+The lap panel's texts carry alignment bit 0 (`0x1`), which no menu uses;
+their x is the right end of the panel's bars, so they are read as
+right-aligned (inferred, the code has not been checked).
 
 ### The song box (`GLOBAL\\GLOBALB.BUN`)
 

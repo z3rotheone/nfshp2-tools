@@ -1,0 +1,61 @@
+/* hp2_race - laps, the race clock and wrong-way detection along a track's
+ * main route (docs/formats.md 11, "Routes").
+ *
+ * The main route is a list of points, each with its progress: the distance
+ * along the route from the start. A car's progress is that of the nearest
+ * point on the route's polyline; on a circuit the change from one step to
+ * the next is taken the short way round, so crossing the start line adds a
+ * whole lap and driving it backwards takes the lap away again. Shortcuts
+ * need nothing extra: their points carry the main route's progress.
+ *
+ * A race: a countdown (3, 2, 1, GO), then the clock runs until the last lap
+ * is done (on a point-to-point track: until the finish). No SDL, plain C99.
+ */
+#ifndef HP2_RACE_H
+#define HP2_RACE_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define HP2_RACE_MAX_LAPS 16
+
+enum { HP2_RACE_COUNTDOWN, HP2_RACE_RUNNING, HP2_RACE_FINISHED };
+
+typedef struct {
+    /* the route (not owned) */
+    const float *route;         /* n x (x, y, progress) */
+    int          n, loop;
+    float        len;
+    /* the race */
+    int          laps;          /* to run */
+    int          state;
+    float        countdown;     /* seconds left before GO */
+    float        clock;         /* since GO */
+    float        lap_start;     /* clock when the current lap began */
+    float        lap_time[HP2_RACE_MAX_LAPS];
+    float        best;          /* best lap, 0 = none yet */
+    int          lap;           /* 1-based lap being run; laps + 1 when finished */
+    float        progress;      /* along the route, 0 .. len */
+    float        travelled;     /* progress summed over laps; < 0 behind the line */
+    int          wrong_way;     /* 1 while driving against the route */
+    float        wrong_time;
+    float        dir[2];        /* the route's direction at the car */
+} hp2_race;
+
+/* route: n points of (x, y, progress); loop: a circuit; len: a lap, or the
+ * distance to the finish. laps is forced to 1 on a point-to-point track. */
+void hp2_race_init(hp2_race *r, const float *route, int n, int loop, float len, int laps);
+/* Progress of a point along the route, and the route's direction there. */
+float hp2_race_progress(const hp2_race *r, float x, float y, float dir[2]);
+/* Advances the race by dt seconds with the car at (x, y), moving (vx, vy).
+ * Returns 1 the step a lap (or the race) is completed. */
+int hp2_race_step(hp2_race *r, float dt, float x, float y, float vx, float vy);
+
+/* "1:23.45" (minutes, seconds, hundredths) into buf. */
+void hp2_race_time(float t, char *buf, int size);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

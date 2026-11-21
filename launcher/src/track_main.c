@@ -29,6 +29,11 @@
  * Both: F fog on/off, R back to the start, P prints the camera, F12 saves a
  * screenshot, Esc quits.
  *
+ * A race: 3, 2, 1, GO, then --laps laps (default 3; one run on a
+ * point-to-point track) on the track's main route, with the game's race
+ * display (rev counter, speed, gear, lap, lap time, best lap, wrong way)
+ * and the car's engine sound. R starts the race again.
+ *
  * --shot OUT.bmp renders one frame and exits: behind the car, or with
  * --cam X,Y,Z,YAW,PITCH (degrees) from there. --sim SECONDS[,STEER] drives
  * that long at full throttle first (steer -1..1), for testing.
@@ -36,6 +41,11 @@
 #include "hp2_car.h"
 #include "hp2_coll.h"
 #include "hp2_drive.h"
+#include "hp2_engine.h"
+#include "hp2_fe.h"
+#include "hp2_font.h"
+#include "hp2_hud.h"
+#include "hp2_race.h"
 #include "hp2_scene.h"
 #include "hp2_tex.h"
 #include "hp2_zdir.h"
@@ -43,6 +53,7 @@
 #include <SDL.h>
 #include <SDL_opengl.h>
 
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,8 +120,8 @@ typedef struct {
     uint8_t *tex[4];
     size_t   tex_len[4];
     int      ntex;
-    uint8_t *globalb, *cartex, *geom;
-    size_t   globalb_len, cartex_len, geom_len;
+    uint8_t *globalb, *cartex, *geom, *ingame, *hudtex, *msh, *msb;
+    size_t   globalb_len, cartex_len, geom_len, ingame_len, hudtex_len, msh_len, msb_len;
 } files;
 
 static uint8_t *maybe_decompress(uint8_t *b, size_t *len)
@@ -154,8 +165,24 @@ static int load_disc(files *f, hp2_zdir *zp, const char *dir, int track)
     f->globalb = hp2_zdir_load(&z, "GLOBAL\\GLOBALB.BUN", &f->globalb_len);
     if (!f->globalb) f->globalb = maybe_decompress(hp2_zdir_load(&z, "GLOBAL\\GLOBALB.LZC", &f->globalb_len), &f->globalb_len);
     f->cartex = hp2_zdir_load(&z, "CARS\\TEXTURES.BIN", &f->cartex_len);
+    f->ingame = hp2_zdir_load(&z, "GLOBAL\\INGAMEB.BUN", &f->ingame_len);
+    if (!f->ingame) f->ingame = maybe_decompress(hp2_zdir_load(&z, "GLOBAL\\INGAMEB.LZC", &f->ingame_len), &f->ingame_len);
+    f->hudtex = hp2_zdir_load(&z, "GLOBAL\\HUDTEX.BIN", &f->hudtex_len);
     *zp = z;                            /* kept open: the car's model is chosen later */
     return 0;
+}
+
+/* The car's engine sound bank, SOUND\NEWE<NAME>.MSH + .MSB. */
+static void load_engine(const hp2_zdir *z, const hp2_carrec *rec, files *f)
+{
+    char path[64];
+    int i;
+    if (!rec->engine[0]) return;
+    snprintf(path, sizeof path, "SOUND\\%s.MSH", rec->engine);
+    for (i = 0; path[i]; i++) path[i] = (char)toupper((unsigned char)path[i]);
+    f->msh = hp2_zdir_load(z, path, &f->msh_len);
+    memcpy(path + strlen(path) - 3, "MSB", 3);
+    f->msb = hp2_zdir_load(z, path, &f->msb_len);
 }
 
 /* The car's model from the disc, once the record is known. */
@@ -581,6 +608,88 @@ static void chase_camera(const hp2_drive *d, camera *c, float k)
     c->pitch = atan2f(dz, sqrtf(dx * dx + dy * dy)) * 180 / PI;
 }
 
+/* The race display: the third-person rev counter (its face by the car's
+ * redline), speed and gear, the lap panel, wrong way, the countdown and the
+ * result. Positions, fonts and colours are the game's race screen's. */
+typedef struct {
+    hp2_hud              hud;
+    const hp2_fe_screen *race, *pre;
+} hudstate;
+
+static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *r, int W, int H)
+{
+    static const float pivot[2] = { 12, 56 };   /* the needle's hub in its texture */
+    hp2_hud *h = &hs->hud;
+    const hp2_fe_widget *x;
+    char buf[48], t1[24], t2[24];
+    float mph = fabsf(d->speed) / 0.44704f;
+    int face = (int)ceilf(d->redline_rpm / 1000.0f);
+    if (!hs->race) return;
+    if (face < 6) face = 6;
+    if (face > 10) face = 10;
+    hp2_hud_begin(h, W, H);
+    /* rev counter: 0 sits 130 degrees left of straight up, the face's top
+     * figure 30 degrees right of it (measured on 3RDPERSON_7000 and _10000) */
+    if ((x = hp2_hud_widget(hs->race, "SPEEDOMETER"))) {
+        snprintf(buf, sizeof buf, "3RDPERSON_%d000", face);
+        hp2_hud_image(h, x, hp2_fe_hash(buf), 0, NULL, 1);
+    }
+    if ((x = hp2_hud_widget(hs->race, "TACH_NEEDLE"))) {
+        /* the needle hangs down from its hub in the texture: 180 turns it up */
+        float a = 180.0f - 130.0f + 160.0f * d->rpm / (face * 1000.0f);
+        hp2_hud_image(h, x, 0, a, pivot, 1);
+    }
+    if ((x = hp2_hud_widget(hs->race, "SPEED_STRING3"))) {
+        snprintf(buf, sizeof buf, "%d", (int)(mph + 0.5f));
+        hp2_hud_text(h, x, buf);
+    }
+    if ((x = hp2_hud_widget(hs->race, "GEAR_STRING3"))) {
+        snprintf(buf, sizeof buf, "%s", d->gear < 0 ? "R" : d->gear == 0 ? "N" : "");
+        if (d->gear > 0) snprintf(buf, sizeof buf, "%d", d->gear);
+        hp2_hud_text(h, x, buf);
+    }
+    /* the lap panel: Lap n/N, this lap's time, the best lap */
+    if (r->n) {
+        int i, lap = r->lap > r->laps ? r->laps : r->lap;
+        static const char *bg[3] = { "TIME_TRIAL_BG_1", "TIME_TRIAL_BG_2", "TIME_TRIAL_BG_3" };
+        for (i = 0; i < 3; i++)
+            if ((x = hp2_hud_widget(hs->race, bg[i]))) hp2_hud_image(h, x, 0, 0, NULL, 1);
+        if ((x = hp2_hud_widget(hs->race, "TIME_TITLE_1"))) hp2_hud_text(h, x, "Lap");
+        if ((x = hp2_hud_widget(hs->race, "TIME_TITLE_2"))) hp2_hud_text(h, x, "Time");
+        if ((x = hp2_hud_widget(hs->race, "TIME_TITLE_3"))) hp2_hud_text(h, x, "Best");
+        snprintf(buf, sizeof buf, "%d/%d", lap, r->laps);
+        if ((x = hp2_hud_widget(hs->race, "LAP_COUNTER"))) hp2_hud_text(h, x, buf);
+        hp2_race_time(r->state == HP2_RACE_FINISHED ? r->lap_time[r->laps - 1] : r->clock - r->lap_start, t1, sizeof t1);
+        if ((x = hp2_hud_widget(hs->race, "BEST_LAP_TIME"))) hp2_hud_text(h, x, t1);
+        if (r->best > 0) hp2_race_time(r->best, t2, sizeof t2);
+        else snprintf(t2, sizeof t2, "-:--.--");
+        if ((x = hp2_hud_widget(hs->race, "LAP_TIME"))) hp2_hud_text(h, x, t2);
+        if (r->wrong_way && r->state == HP2_RACE_RUNNING && (x = hp2_hud_widget(hs->race, "WRONG_WAY_IMAGE")))
+            hp2_hud_image(h, x, 0, 0, NULL, 1);
+        if (r->state == HP2_RACE_COUNTDOWN && hs->pre) {
+            const char *n = r->countdown > 2 ? "PRERACE_3" : r->countdown > 1 ? "PRERACE_2" : "PRERACE_1";
+            if ((x = hp2_hud_widget(hs->pre, n))) hp2_hud_image(h, x, 0, 0, NULL, 1);
+        } else if (r->state == HP2_RACE_RUNNING && r->clock < 1 && hs->pre && (x = hp2_hud_widget(hs->pre, "PRERACE_GO"))) {
+            hp2_fe_widget go = *x;
+            go.x = 288;                 /* the layout keeps GO below the screen, for the code to bring in */
+            go.y = 183;
+            hp2_hud_image(h, &go, 0, 0, NULL, 1 - r->clock);
+        }
+        if (r->state == HP2_RACE_FINISHED) {
+            float total = 0;
+            for (i = 0; i < r->laps; i++) total += r->lap_time[i];
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, "Race Over");
+            hp2_race_time(total, t1, sizeof t1);
+            snprintf(buf, sizeof buf, "Time %s", t1);
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, buf);
+            hp2_race_time(r->best, t2, sizeof t2);
+            snprintf(buf, sizeof buf, "Best Lap %s", t2);
+            if (r->laps > 1 && (x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_3"))) hp2_hud_text(h, x, buf);
+        }
+    }
+    hp2_hud_end();
+}
+
 static void start_car(const world *w, hp2_drive *d)
 {
     const hp2_scene *sc = &w->sc;
@@ -602,7 +711,15 @@ int main(int argc, char **argv)
     const char *disc = NULL, *scen = NULL, *texf[4], *shot = NULL, *cam = NULL, *carname = "911TURBO";
     const char *gbf = NULL, *ctf = NULL, *geof = NULL, *sim = NULL;
     int ntexf = 0, track = 0, W = 1280, H = 720, i, quit = 0, fog = 1, grab = 0, shots = 0;
-    int want_car = 1, driving = 0, skin = 1, have_zdir = 0, titled = 0;
+    int want_car = 1, driving = 0, skin = 1, have_zdir = 0, titled = 0, laps = 3, sound = 1;
+    const char *igf = NULL, *htf = NULL, *mshf = NULL, *msbf = NULL;
+    hp2_fontset fonts = { 0 };
+    hp2_fe_layout layout;
+    hudstate hs;
+    hp2_race race;
+    hp2_engine eng;
+    int has_eng = 0;
+    SDL_AudioDeviceID audio = 0;
     hp2_zdir zdir;
     hp2_drive car;
     hp2_carrec recs[HP2_CARDB_MAX];
@@ -634,11 +751,19 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--cartex") && i + 1 < argc) ctf = argv[++i];
         else if (!strcmp(argv[i], "--geometry") && i + 1 < argc) geof = argv[++i];
         else if (!strcmp(argv[i], "--sim") && i + 1 < argc) sim = argv[++i];
+        else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--no-sound")) sound = 0;
+        else if (!strcmp(argv[i], "--ingame") && i + 1 < argc) igf = argv[++i];
+        else if (!strcmp(argv[i], "--hudtex") && i + 1 < argc) htf = argv[++i];
+        else if (!strcmp(argv[i], "--msh") && i + 1 < argc) mshf = argv[++i];
+        else if (!strcmp(argv[i], "--msb") && i + 1 < argc) msbf = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
         else {
             fprintf(stderr, "usage: %s --disc DIR --track NN | --scenery FILE [--tex FILE]...\n"
                             "       [--car NAME] [--skin N] [--no-car]\n"
                             "       [--globalb FILE --cartex FILE --geometry FILE]   (the car, with --scenery)\n"
+                            "       [--ingame INGAMEB.BUN --hudtex HUDTEX.BIN --msh F --msb F]   (display, engine)\n"
+                            "       [--laps N] [--no-sound]\n"
                             "       [--size WxH] [--no-fog] [--shot OUT.bmp] [--cam X,Y,Z,YAW,PITCH] [--sim S[,STEER]]\n"
                             "tracks: 11-16 21-26 31-36 41-46 61-66\n", argv[0]);
             return 2;
@@ -662,6 +787,10 @@ int main(int argc, char **argv)
         if (gbf) f.globalb = maybe_decompress(hp2_read_file(gbf, &f.globalb_len), &f.globalb_len);
         if (ctf) f.cartex = hp2_read_file(ctf, &f.cartex_len);
         if (geof) f.geom = maybe_decompress(hp2_read_file(geof, &f.geom_len), &f.geom_len);
+        if (igf) f.ingame = maybe_decompress(hp2_read_file(igf, &f.ingame_len), &f.ingame_len);
+        if (htf) f.hudtex = hp2_read_file(htf, &f.hudtex_len);
+        if (mshf) f.msh = hp2_read_file(mshf, &f.msh_len);
+        if (msbf) f.msb = hp2_read_file(msbf, &f.msb_len);
     } else {
         fprintf(stderr, "give --disc DIR --track NN (DIR = your disc's NFSHP2 folder), or --scenery FILE\n");
         return 2;
@@ -685,6 +814,9 @@ int main(int argc, char **argv)
             return 2;
         }
         if (!f.geom && have_zdir) f.geom = load_geometry(&zdir, rec, &f.geom_len);
+        if (!f.msh && have_zdir) load_engine(&zdir, rec, &f);
+        if (f.msh && f.msb && hp2_engine_load(&eng, f.msh, f.msh_len, f.msb, f.msb_len, rec->idle_rpm, rec->redline_rpm) == 0)
+            has_eng = 1;
         if (f.geom && hp2_car_build(&w.car, f.geom, f.geom_len, rec) == 0) {
             w.has_car = 1;
             if (f.cartex) hp2_tex_scan(&ts, f.cartex, f.cartex_len);
@@ -698,6 +830,23 @@ int main(int argc, char **argv)
     }
     if (have_zdir) hp2_zdir_close(&zdir);
     driving = w.has_car;
+    /* the race display: the race screen of INGAMEB.BUN, its textures, the
+     * gauge faces of HUDTEX.BIN and the fonts of GLOBALB and INGAMEB */
+    memset(&layout, 0, sizeof layout);
+    memset(&hs, 0, sizeof hs);
+    if (f.ingame && hp2_fe_parse(f.ingame, f.ingame_len, &layout) == 0) {
+        hs.race = hp2_fe_find_id(&layout, HP2_HUD_SCREEN);
+        hs.pre = hp2_fe_find_id(&layout, HP2_PRERACE_SCREEN);
+        hp2_tex_scan(&ts, f.ingame, f.ingame_len);
+        hp2_font_scan(&fonts, f.ingame, f.ingame_len);
+    }
+    if (f.hudtex) hp2_tex_scan(&ts, f.hudtex, f.hudtex_len);
+    if (f.globalb) hp2_font_scan(&fonts, f.globalb, f.globalb_len);
+    hp2_hud_init(&hs.hud, &ts, &fonts);
+    hp2_race_init(&race, w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
+    if (w.has_car)
+        printf("race: %d lap%s of %.0f m (%s); %s\n", race.laps, race.laps > 1 ? "s" : "", race.len,
+               race.loop ? "circuit" : "point to point", has_eng ? "engine sound loaded" : "no engine sound");
 
     if (SDL_Init(SDL_INIT_VIDEO | (shot ? 0 : SDL_INIT_GAMECONTROLLER)) != 0) {
         fprintf(stderr, "SDL: %s\n", SDL_GetError());
@@ -732,9 +881,14 @@ int main(int argc, char **argv)
             memset(&in, 0, sizeof in);
             in.throttle = 1;
             in.steer = steer;
-            for (t = 0; t < secs; t += 0.05f) hp2_drive_step(&car, &w.coll, &in, 0.05f);
-            printf("after %.1f s: %.1f mph, at %.1f %.1f %.1f, heading %.1f\n", secs, car.speed / 0.44704f,
-                   car.pos[0], car.pos[1], car.pos[2], car.heading * 180 / PI);
+            race.countdown = 0;
+            for (t = 0; t < secs; t += 0.05f) {
+                hp2_drive_step(&car, &w.coll, &in, 0.05f);
+                hp2_race_step(&race, 0.05f, car.pos[0], car.pos[1], car.vel[0], car.vel[1]);
+            }
+            printf("after %.1f s: %.1f mph, gear %d at %.0f rpm, at %.1f %.1f %.1f, heading %.1f, progress %.0f\n", secs,
+                   car.speed / 0.44704f, car.gear, car.rpm, car.pos[0], car.pos[1], car.pos[2], car.heading * 180 / PI,
+                   race.progress);
         }
         chase_camera(&car, &c, 1);
     }
@@ -750,6 +904,7 @@ int main(int argc, char **argv)
         int dw, dh;
         SDL_GL_GetDrawableSize(win, &dw, &dh);
         draw(&w, &c, dw, dh, fog, w.has_car ? &car : NULL);
+        if (w.has_car && !cam) draw_hud(&hs, &car, &race, dw, dh);
         glFinish();
         if (save_shot(shot, dw, dh) != 0) { fprintf(stderr, "could not save %s\n", shot); return 1; }
         printf("wrote %s (%dx%d)\n", shot, dw, dh);
@@ -762,6 +917,17 @@ int main(int argc, char **argv)
     printf("Car: W/Up accelerate, S/Down brake/reverse, A/D or Left/Right steer, Space handbrake;\n"
            "C switches to the free camera: WASD/arrows move, Q/E down/up, right mouse or M to look,\n"
            "Shift fast, Ctrl slow, wheel speed. F fog, R start, P print camera, F12 screenshot, Esc quit\n");
+    if (has_eng && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+        SDL_AudioSpec want, have;
+        memset(&want, 0, sizeof want);
+        want.freq = 44100;
+        want.format = AUDIO_S16SYS;
+        want.channels = 2;
+        want.samples = 512;
+        audio = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+        if (audio) SDL_PauseAudioDevice(audio, 0);
+        else fprintf(stderr, "no sound: %s\n", SDL_GetError());
+    }
     last = SDL_GetTicks();
     while (!quit) {
         SDL_Event ev;
@@ -779,7 +945,11 @@ int main(int argc, char **argv)
                     break;
                 case SDLK_f: fog = !fog; break;
                 case SDLK_r:
-                    if (driving) { start_car(&w, &car); chase_camera(&car, &c, 1); }
+                    if (driving) {
+                        start_car(&w, &car);
+                        chase_camera(&car, &c, 1);
+                        hp2_race_init(&race, w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
+                    }
                     else start_camera(&w.sc, &c);
                     break;
                 case SDLK_c:
@@ -831,7 +1001,15 @@ int main(int argc, char **argv)
             in.steer = (float)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]))
                        + axis(pad, SDL_CONTROLLER_AXIS_LEFTX);
             in.handbrake = k[SDL_SCANCODE_SPACE] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A));
-            hp2_drive_step(&car, &w.coll, &in, dt);
+            if (race.state == HP2_RACE_COUNTDOWN) {
+                /* held at the line: the engine revs with the throttle */
+                float want = car.idle_rpm + in.throttle * (0.7f * car.redline_rpm - car.idle_rpm);
+                car.rpm += (want - car.rpm) * fminf(1, 8 * dt);
+                car.load += (in.throttle - car.load) * fminf(1, 10 * dt);
+            } else {
+                hp2_drive_step(&car, &w.coll, &in, dt);
+            }
+            hp2_race_step(&race, dt, car.pos[0], car.pos[1], car.vel[0], car.vel[1]);
             chase_camera(&car, &c, 1 - expf(-8 * dt));
             if (now / 250 != (Uint32)titled) {
                 char title[96];
@@ -842,7 +1020,16 @@ int main(int argc, char **argv)
             }
             SDL_GL_GetDrawableSize(win, &dw, &dh);
             draw(&w, &c, dw, dh, fog, &car);
+            draw_hud(&hs, &car, &race, dw, dh);
             SDL_GL_SwapWindow(win);
+            if (audio) {
+                static int16_t mixbuf[2 * 1024];
+                /* keep about 60 ms queued: enough to never run dry, little enough to answer the throttle */
+                while (SDL_GetQueuedAudioSize(audio) < 44100 * 4 * 6 / 100) {
+                    hp2_engine_mix(&eng, car.rpm, car.load, 0.6f, mixbuf, 512, 44100);
+                    SDL_QueueAudio(audio, mixbuf, 512 * 4);
+                }
+            }
             continue;
         }
         c.yaw -= axis(pad, SDL_CONTROLLER_AXIS_RIGHTX) * 120 * dt;
@@ -868,6 +1055,8 @@ int main(int argc, char **argv)
         draw(&w, &c, dw, dh, fog, w.has_car ? &car : NULL);
         SDL_GL_SwapWindow(win);
     }
+    if (audio) SDL_CloseAudioDevice(audio);
+    if (has_eng) hp2_engine_free(&eng);
     if (pad) SDL_GameControllerClose(pad);
     SDL_GL_DeleteContext(gl);
     SDL_DestroyWindow(win);

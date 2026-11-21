@@ -67,6 +67,9 @@ dropped in later.
 | `src/hp2_coll.c` | no | yes; the ground identical to the collision read by `hp2_scenery.py` |
 | `src/hp2_car.c` | no | yes, and on the real car database and 911 Turbo |
 | `src/hp2_drive.c` | no | yes, on a floor and wall built in the test |
+| `src/hp2_race.c` | no | yes; laps on a square built in the test and on real routes |
+| `src/hp2_engine.c` | no | yes, a bank built in the test; `--enginedump` reads all 18 real ones |
+| `src/hp2_hud.c` | yes (OpenGL) | screenshots, offscreen |
 | `src/track_main.c` | yes (and OpenGL) | screenshots, offscreen |
 | `src/hp2_fedraw.c` | yes | screenshots, offscreen |
 | `src/fe_main.c` | yes | screenshots, offscreen |
@@ -126,6 +129,7 @@ actions currently held. Escape or Ctrl+C to quit.
 ./hp2track --disc ... --track 24 --no-car                         # just fly around
 ./hp2track --scenery 196_5ebf48d3.bin --tex 258_395d331a.bin --tex 259_04dce816.bin \
            --globalb 302_4c937012.bin --cartex 012_0287bf4f.bin --geometry 067_89c70f1a.bin
+./hp2track --disc ... --track 24 --laps 5                         # a 5-lap race (default 3)
 ./hp2track --disc ... --track 24 --shot t24.bmp --sim 4           # one frame after 4 s of throttle
 ```
 
@@ -158,7 +162,29 @@ stick moves, the right stick looks and the triggers go down and up. Both: F
 toggles fog, R goes back to the start, P prints the camera as a `--cam`
 option, F12 saves a screenshot, Esc quits.
 
-Not there yet: other cars, sounds, damage, lights at night, a HUD, laps;
+**A race.** The car waits at the start for 3, 2, 1 (the game's own
+countdown pictures; the engine revs if you press the throttle), then GO and
+the clock runs. Laps are counted along the track's main route: crossing the
+line adds one, driving back over it does not, and shortcuts work. On a
+point-to-point track it is one run to the finish. R starts again.
+
+**The race display** is the game's own, from the race screen in
+`GLOBAL\INGAMEB.BUN` (positions, fonts, colours) with the gauge faces from
+`GLOBAL\HUDTEX.BIN`: the third-person rev counter for the car's redline
+with its needle, the speed and gear in its black box (bottom right), and
+the lap panel (Lap 1/3, this lap's time, the best lap; top right). Wrong
+way shows the game's sign; at the end, Race Over with the total time and
+the best lap. On a wide window the gauges stay in the corners.
+
+**Engine sound.** The car's own bank (`SOUND\NEWE<NAME>.MSH/.MSB`, e.g.
+NEWEBXR for the 911): engine and exhaust loops, coasting and under load,
+crossfaded and pitched by the engine speed. The engine speed comes from an
+automatic gearbox using the car's real gear ratios, final drive and tyre
+size (the 911 is in 2nd at 68 mph, 6,400 rpm). The rpm each loop was
+recorded at is not in the files, so the pitches are a best guess.
+`--no-sound` turns it off.
+
+Not there yet: other cars, damage, lights at night, the game's handling;
 the fog distance is a guess (docs/formats.md, "Fog").
 
 ### The menus (`hp2fe`)
@@ -352,7 +378,9 @@ the car stands on is checked by `make trackcheck` too: every point of a
 25-unit grid over the track gives the same height from `hp2_coll` as from
 the collision polygons `hp2_scenery.py` reads. `test_assets` drives a car
 on a floor with a wall built in the test: it speeds up, stops at the wall,
-turns the right way and reverses.
+turns the right way and reverses. It runs a race round a square: two laps
+of 20 s, none for wiggling over the line, wrong way when reversing, one run
+on a point-to-point route; and plays an engine bank built in the test.
 
 `hp2fe` has been run only offscreen (`--shot`, SDL's software renderer) in a
 machine with no display or controller: the screenshots match the layouts, but

@@ -215,6 +215,21 @@ static void read_extras(hp2_scene *s, const uint8_t *buf, size_t len)
             if (r && pt && r + 40 <= re) {
                 int first = rd16(r + 2), count = rd16(r + 6);
                 const uint8_t *a = pt + 20 * first, *b = pt + 20 * (first + 1);
+                if (count >= 2 && pt + 20 * (first + count) <= pe) {
+                    int k;
+                    s->route = (float *)malloc((size_t)count * 3 * sizeof(float));
+                    if (s->route) {
+                        s->route_n = count;
+                        for (k = 0; k < count; k++) {
+                            const uint8_t *q = pt + 20 * (first + k);
+                            s->route[3 * k] = rdf(q);
+                            s->route[3 * k + 1] = rdf(q + 4);
+                            s->route[3 * k + 2] = rdf(q + 16);
+                        }
+                    }
+                    s->route_loop = r[1] == 1;
+                    s->route_len = rdf(r + 12);
+                }
                 if (count >= 2 && b + 20 <= pe) {
                     s->has_start = 1;
                     s->start[0] = rdf(a);
@@ -415,6 +430,7 @@ void hp2_scene_free(hp2_scene *s)
     free(s->sec);
     for (j = 0; j < s->sky.ng; j++) free(s->sky.g[j].v);
     free(s->sky.g);
+    free(s->route);
     memset(s, 0, sizeof *s);
 }
 

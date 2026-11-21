@@ -53,6 +53,11 @@ typedef struct {
     /* the main route's first two points, for a start position */
     int           has_start;
     float         start[3], ahead[3];
+    /* the main route (0x34148 record 0): points x, y, progress */
+    int           route_n;
+    float        *route;            /* route_n x 3 floats */
+    int           route_loop;       /* 1 = a circuit */
+    float         route_len;        /* its length: a lap, or start to finish */
     /* the main fog (FOG<MAIN>), if found */
     int           has_fog;
     uint8_t       fog_rgba[4];

@@ -31,6 +31,16 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
         if (r > ride) ride = r;
     }
     d->ride = ride;
+    d->gears = rec->gears > 0 ? rec->gears : 0;
+    for (k = 0; k < d->gears; k++) d->ratio[k] = rec->ratio[k];
+    if (!d->gears) { d->gears = 1; d->ratio[0] = 1; }
+    d->reverse = rec->reverse < 0 ? -rec->reverse : rec->reverse > 0 ? rec->reverse : 3.5f;
+    d->final_drive = rec->final_drive > 0 ? rec->final_drive : 3.5f;
+    d->wheel_radius = rec->wheel[HP2_WHEEL_RL].radius > 0.1f ? rec->wheel[HP2_WHEEL_RL].radius : 0.32f;
+    d->idle_rpm = rec->idle_rpm > 300 ? rec->idle_rpm : 900;
+    d->redline_rpm = rec->redline_rpm > d->idle_rpm + 1000 ? rec->redline_rpm : 7000;
+    d->rpm = d->idle_rpm;
+    d->gear = 1;
     d->on_ground = 1;
     d->hit = 1000;
 }
@@ -43,6 +53,41 @@ static float ground_at(const hp2_coll *c, float x, float y, float zref, float fa
     float z;
     if (hp2_coll_ground(c, x, y, zref, 1.5f, &z, NULL, NULL)) return z;
     return fallback;
+}
+
+/* An automatic gearbox: up near the redline, down when the gear below
+ * has room; the engine speed follows the wheels, or the throttle when the
+ * clutch slips at a standstill. */
+static void gearbox(hp2_drive *d, const hp2_drive_in *in, float h)
+{
+    float wheel = fabsf(d->speed) / (2 * 3.14159265f * d->wheel_radius) * 60.0f, target, ratio;
+    if (d->shift > 0) d->shift -= h;
+    if (d->speed < -0.5f) d->gear = -1;
+    else if (d->gear < 1 && (d->speed > 0.5f || in->throttle > 0)) d->gear = 1;
+    if (d->gear >= 1 && d->shift <= 0) {
+        float up = wheel * d->ratio[d->gear - 1] * d->final_drive;
+        if (up > 0.94f * d->redline_rpm && d->gear < d->gears) {
+            d->gear++;
+            d->shift = 0.25f;
+        } else if (d->gear > 1 && up < 0.5f * d->redline_rpm
+                   && wheel * d->ratio[d->gear - 2] * d->final_drive < 0.8f * d->redline_rpm) {
+            d->gear--;
+            d->shift = 0.2f;
+        }
+    }
+    ratio = d->gear < 0 ? d->reverse : d->gear >= 1 ? d->ratio[d->gear - 1] : 0;
+    target = wheel * ratio * d->final_drive;
+    /* the clutch slips at low speed: the engine runs up with the throttle */
+    if ((d->gear == 1 || d->gear == -1) && in->throttle + in->brake > 0) {
+        float slip = d->idle_rpm + ((d->gear == 1 ? in->throttle : in->brake))
+                     * (0.55f * d->redline_rpm - d->idle_rpm);
+        if (slip > target) target = slip;
+    }
+    if (target < d->idle_rpm) target = d->idle_rpm;
+    if (target > d->redline_rpm * 1.02f) target = d->redline_rpm * 1.02f;
+    if (d->shift > 0.1f) target = d->rpm;                    /* the clutch is out */
+    d->rpm += (target - d->rpm) * fminf(1, 12 * h);
+    d->load += ((d->gear == -1 ? in->brake : in->throttle) * (d->shift > 0 ? 0.3f : 1.0f) - d->load) * fminf(1, 10 * h);
 }
 
 static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
@@ -62,7 +107,8 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
     if (d->on_ground) {
         /* engine, brakes, reverse */
         float top = d->max_speed;
-        if (in->throttle > 0 && vf > -0.5f) a += 9.0f * in->throttle * clampf(1 - vf / top, 0, 1);
+        if (in->throttle > 0 && vf > -0.5f)
+            a += 9.0f * in->throttle * clampf(1 - vf / top, 0, 1) * (d->shift > 0 ? 0.3f : 1.0f);
         if (in->brake > 0) {
             if (vf > 0.5f) a -= 14.0f * in->brake;
             else if (vf > -12) a -= 5.0f * in->brake;
@@ -163,7 +209,8 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
         d->vel[2] = climb > 0 ? climb : 0;
     }
     d->speed = d->vel[0] * fx + d->vel[1] * fy;
-    d->spin += d->speed / 0.33f * h;
+    d->spin += d->speed / d->wheel_radius * h;
+    gearbox(d, in, h);
 
     /* lean with the ground under the four wheels */
     {

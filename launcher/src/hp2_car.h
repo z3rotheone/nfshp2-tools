@@ -41,6 +41,7 @@ typedef struct {
     float     reverse, ratio[6];
     float     idle_rpm, peak_rpm, redline_rpm;
     float     top_speed;        /* mph */
+    char      engine[33];       /* engine sound: "NewEBxr" -> SOUND\NEWEBXR.MSH/.MSB; "" for traffic */
 } hp2_carrec;
 
 #define HP2_CARDB_MAX 64

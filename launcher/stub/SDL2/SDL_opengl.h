@@ -14,6 +14,7 @@ typedef unsigned int   GLuint;
 typedef int            GLsizei;
 typedef float          GLfloat;
 typedef float          GLclampf;
+typedef double         GLdouble;
 
 #define GL_ALPHA_SCALE             0x0D1C
 #define GL_ALPHA_TEST              0x0BC0
@@ -95,5 +96,10 @@ void glTranslatef(GLfloat x, GLfloat y, GLfloat z);
 void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z);
 void glScalef(GLfloat x, GLfloat y, GLfloat z);
 void glPolygonOffset(GLfloat factor, GLfloat units);
+#define GL_QUADS                   0x0007
+#define GL_CLAMP                   0x2900
+void glOrtho(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble near_val, GLdouble far_val);
+void glLoadIdentity(void);
+void glVertex2f(GLfloat x, GLfloat y);
 
 #endif

@@ -13,7 +13,7 @@ executable. Nothing here contains any game data — you supply your own disc.
 | **Archive** | `ZDIR.BIN` / `ZZDATA.BIN` fully parsed and extracted — 405 entries, 372 real files |
 | **Compression** | The `COMP` LZ scheme, confirmed against the game's own decompressor |
 | **Textures** | 3,284 of 3,287 textures export to PNG, including PS2 swizzling and mipmaps |
-| **Sound** | 382 named sound effects to WAV |
+| **Sound** | 382 named sound effects to WAV; the `.MSH`/`.MSB` sample banks (engines, menus, ambience) read |
 | **Music** | 23 stereo tracks to WAV, and your own audio back in |
 | **Executable** | 377 functions attributed to source files, 258 sites carrying file and line |
 | **Name hash** | solved — djb2 with a `-1` seed, verified against every texture name checked |
@@ -263,8 +263,10 @@ make hp2track        # needs SDL2 and OpenGL
 ```
 
 Draws one track's scenery with its textures, sky and fog, and a car you can
-drive on the track's collision mesh (the handling is a stand-in, not the
-game's yet); C switches to a free camera. See
+race on the track's collision mesh: the countdown, laps, the game's own race
+display (rev counter, speed, gear, lap times) and the car's engine sound.
+The handling is a stand-in, not the game's yet; C switches to a free
+camera. See
 [`launcher/README.md`](launcher/README.md).
 
 ### Ghidra

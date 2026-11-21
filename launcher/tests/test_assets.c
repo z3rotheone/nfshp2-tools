@@ -15,6 +15,7 @@
  *                                        for check_tree.py
  *   test_assets --scenedump SCENERY      the placed scenery, per section,
  *                                        for check_scene.py
+ *   test_assets --enginedump MSH MSB      an engine bank's samples
  *   test_assets --vagdump BANK SONG FRAMES
  *                                        a hash of the first FRAMES stereo
  *                                        frames of a song, for check_vag.py
@@ -23,6 +24,8 @@
 #include "../src/hp2_car.h"
 #include "../src/hp2_coll.h"
 #include "../src/hp2_drive.h"
+#include "../src/hp2_engine.h"
+#include "../src/hp2_race.h"
 #include "../src/hp2_geom.h"
 #include "../src/hp2_scene.h"
 #include "../src/hp2_jukebox.h"
@@ -1631,6 +1634,123 @@ static void test_drive(void)
     hp2_coll_free(&c);
 }
 
+
+/* ---- races and engine sound ---------------------------------------------- */
+
+static void test_race(void)
+{
+    /* a 400 m square circuit, anticlockwise */
+    static const float sq[] = { 0, 0, 0, 100, 0, 100, 100, 100, 200, 0, 100, 300 };
+    static const float line[] = { 0, 0, 0, 500, 0, 500 };
+    hp2_race r;
+    float d[2], x, y, t;
+    int laps = 0, k;
+    char buf[16];
+    printf("races (synthetic)\n");
+    hp2_race_init(&r, sq, 4, 1, 400, 2);
+    CHECK(NEAR(hp2_race_progress(&r, 50, -3, d), 50) && NEAR(d[0], 1), "progress on the first side");
+    CHECK(NEAR(hp2_race_progress(&r, -2, 50, d), 350) && NEAR(d[1], -1), "progress on the closing side");
+    hp2_race_step(&r, 1.0f, 0, 0, 0, 0);
+    hp2_race_step(&r, 1.0f, 0, 0, 0, 0);
+    CHECK(r.state == HP2_RACE_COUNTDOWN, "counting down");
+    hp2_race_step(&r, 1.5f, 0, 0, 0, 0);
+    CHECK(r.state == HP2_RACE_RUNNING && r.lap == 1, "GO after 3 s");
+    /* round twice at 20 m/s, a step a quarter second (5 m) */
+    for (k = 0, t = 0; k < 170 && r.state == HP2_RACE_RUNNING; k++) {
+        float p = fmodf(5.0f * (k + 1), 400.0f);
+        if (p < 100) { x = p; y = 0; }
+        else if (p < 200) { x = 100; y = p - 100; }
+        else if (p < 300) { x = 300 - p; y = 100; }
+        else { x = 0; y = 400 - p; }
+        laps += hp2_race_step(&r, 0.25f, x, y, 0, 0);
+    }
+    CHECK(laps == 2 && r.state == HP2_RACE_FINISHED, "two laps, finished: %d %d", laps, r.state);
+    CHECK(NEAR(r.lap_time[0], 20) && NEAR(r.lap_time[1], 20) && NEAR(r.best, 20), "laps of 20 s: %g %g", r.lap_time[0], r.lap_time[1]);
+    /* back and forth over the line counts no lap */
+    hp2_race_init(&r, sq, 4, 1, 400, 3);
+    r.countdown = 0;
+    for (k = 0; k < 40; k++) laps = hp2_race_step(&r, 0.1f, k % 2 ? 3.0f : 0.0f, k % 4 < 2 ? 3.0f : 0.0f, 0, 0);
+    CHECK(r.lap == 1 && !laps, "no lap for wiggling at the line");
+    hp2_race_step(&r, 0.1f, 50, 0, 0, 0);
+    for (k = 0; k < 10; k++) hp2_race_step(&r, 0.1f, 50 - k, 0, -10, 0);
+    CHECK(r.wrong_way, "wrong way");
+    /* point to point: one run, finished at the end */
+    hp2_race_init(&r, line, 2, 0, 500, 3);
+    r.countdown = 0;
+    CHECK(r.laps == 1, "point to point: one run");
+    hp2_race_step(&r, 0.1f, 0, 0, 0, 0);
+    for (t = 0; t < 30 && r.state != HP2_RACE_FINISHED; t += 0.5f) hp2_race_step(&r, 0.5f, t * 20, 0, 20, 0);
+    CHECK(r.state == HP2_RACE_FINISHED && r.clock > 24 && r.clock < 26, "finished at %g s", r.clock);
+    hp2_race_time(83.456f, buf, sizeof buf);
+    CHECK(!strcmp(buf, "1:23.46"), "time %s", buf);
+}
+
+/* An engine bank of three samples: coasting idle, under load low, horn. */
+static void test_engine(void)
+{
+    static uint8_t msh[12 + 3 * 52], msb[3 * 64];
+    static const char *names[3] = { "TSTCEid", "TSTLELo", "TSTHorn" };
+    hp2_engine e;
+    int16_t out[2 * 100];
+    int i, k, loud = 0;
+    printf("engine sound (synthetic)\n");
+    memset(msh, 0, sizeof msh);
+    memset(msb, 0, sizeof msb);
+    set32(msh, sizeof msh);
+    set32(msh + 4, 16);
+    set32(msh + 8, 3);
+    for (i = 0; i < 3; i++) {
+        uint8_t *r = msh + 12 + 52 * i, *b = msb + 64 * i;
+        memcpy(r, names[i], strlen(names[i]));
+        r[33] = 1;
+        set16(r + 34, 22050);
+        set32(r + 40, (uint32_t)(64 * i));
+        /* a silent block, then a loop of three: 6 at its start, 3 at its end */
+        b[16 + 1] = 6;
+        b[48 + 1] = 3;
+        for (k = 16; k < 64; k++)
+            if (k % 16 >= 2) b[k] = 0x7F;        /* loud nibbles: 7 and -1 alternate */
+        b[16] = b[32] = b[48] = 0x00;            /* shift 0, no filter */
+    }
+    CHECK(hp2_engine_load(&e, msh, sizeof msh, msb, sizeof msb, 1000, 7000) == 0 && e.count == 3, "bank loads");
+    CHECK(e.horn == 2 && e.pick[0][0][0] == 0 && e.pick[1][0][0] == 1 && e.pick[0][1][0] == -1, "samples by name");
+    CHECK(e.count == 3 && e.s[0].n == 3 * 28, "the loop: %d samples", e.s[0].n);
+    CHECK(NEAR(e.at[0][0], 1000) && NEAR(e.at[1][0], 2100), "idle at idle, low at 30%% of the redline");
+    hp2_engine_mix(&e, 1000, 0, 1, out, 100, 44100);
+    hp2_engine_mix(&e, 1000, 0, 1, out, 100, 44100);
+    for (i = 0; i < 200; i++) loud |= out[i] != 0;
+    CHECK(loud, "makes a sound");
+    hp2_engine_mix(&e, 1000, 0, 0, out, 100, 44100);
+    for (i = 0, loud = 0; i < 200; i++) loud |= out[i] != 0;
+    CHECK(!loud, "silent at volume 0");
+    hp2_engine_free(&e);
+    msh[8] = 99;
+    CHECK(hp2_engine_load(&e, msh, sizeof msh, msb, sizeof msb, 1000, 7000) < 0, "a bad count fails");
+}
+
+/* An engine bank's samples and which slot each fills (--enginedump). */
+static int enginedump(const char *msh, const char *msb)
+{
+    size_t a = 0, b = 0;
+    uint8_t *h = hp2_read_file(msh, &a), *m = hp2_read_file(msb, &b);
+    hp2_engine e;
+    int i, slots = 0, x, l, k;
+    if (!h || !m || hp2_engine_load(&e, h, a, m, b, 1000, 7000) < 0) {
+        fprintf(stderr, "not an engine bank: %s %s\n", msh, msb);
+        free(h); free(m);
+        return 1;
+    }
+    for (x = 0; x < 2; x++)
+        for (l = 0; l < 2; l++)
+            for (k = 0; k < 3; k++) slots += e.pick[x][l][k] >= 0;
+    printf("%d samples, %d of 12 engine slots filled, horn %s:", e.count, slots, e.horn >= 0 ? "yes" : "no");
+    for (i = 0; i < e.count; i++) printf(" %s(%.2fs)", e.s[i].name, (double)e.s[i].n / e.s[i].rate);
+    printf("\n");
+    hp2_engine_free(&e);
+    free(h); free(m);
+    return slots == 12 ? 0 : 1;
+}
+
 /* The placed scenery, per section, for tests/check_scene.py. */
 static int scenedump(const char *path)
 {
@@ -1767,6 +1887,7 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "--texdump")) return texdump(argc - 2, argv + 2);
     if (argc == 3 && !strcmp(argv[1], "--treedump")) return treedump(argv[2]);
     if (argc == 3 && !strcmp(argv[1], "--scenedump")) return scenedump(argv[2]);
+    if (argc == 4 && !strcmp(argv[1], "--enginedump")) return enginedump(argv[2], argv[3]);
     if (argc == 5 && !strcmp(argv[1], "--vagdump")) return vagdump(argv[2], atoi(argv[3]), atoi(argv[4]));
     for (i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--frontb")) fb = argv[i + 1];
@@ -1787,6 +1908,8 @@ int main(int argc, char **argv)
     test_tree();
     test_geom();
     test_drive();
+    test_race();
+    test_engine();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

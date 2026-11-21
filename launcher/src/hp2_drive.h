@@ -4,7 +4,8 @@
  *
  * This is NOT the game's handling. The game's physics are not decoded yet;
  * this is a stand-in so a car can be driven around a track while they are.
- * It uses the car database's wheelbase, wheel hubs and top speed, and the
+ * It uses the car database's wheelbase, wheel hubs, top speed and gearing
+ * (an automatic gearbox gives the engine speed for the sound), and the
  * collision mesh (hp2_coll) for the ground and the walls. Fixed steps of
  * 1/120 s. World axes: z up; heading 0 faces +x and turns anticlockwise.
  * No SDL, plain C99.
@@ -42,6 +43,13 @@ typedef struct {
     /* from the car */
     float wheelbase, track, half_len, half_wid, max_speed, ride;
     float hub_x_front, hub_x_rear;
+    /* the gearbox: automatic, from the car's own ratios */
+    int   gear;                 /* -1 reverse, 0 neutral, 1.. */
+    int   gears;
+    float ratio[6], reverse, final_drive, wheel_radius;
+    float idle_rpm, redline_rpm, rpm;
+    float shift;                /* seconds left in a gear change */
+    float load;                 /* 0..1, how hard the engine pulls (for its sound) */
 } hp2_drive;
 
 /* ride: how far the model's origin sits above the ground (the tyres' lowest

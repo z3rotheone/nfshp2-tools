@@ -24,13 +24,13 @@
 CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -O2
 SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c src/hp2_fe.c \
-           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_tree.c src/hp2_geom.c src/hp2_scene.c src/hp2_car.c src/hp2_coll.c src/hp2_drive.c src/hp2_femenu.c src/hp2_jukebox.c \
+           src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_tree.c src/hp2_geom.c src/hp2_scene.c src/hp2_car.c src/hp2_coll.c src/hp2_drive.c src/hp2_race.c src/hp2_engine.c src/hp2_femenu.c src/hp2_jukebox.c \
            src/hp2_vag.c src/hp2_jbplay.c
 SDLSRC   = src/hp2_input.c src/main.c
 FESRC    = src/hp2_fedraw.c src/hp2_input.c src/fe_main.c
 BIN      = hp2launcher
 FEBIN    = hp2fe
-TRACKSRC = src/hp2_geom.c src/hp2_scene.c src/hp2_car.c src/hp2_coll.c src/hp2_drive.c src/hp2_tex.c src/hp2_zdir.c src/track_main.c
+TRACKSRC = src/hp2_geom.c src/hp2_scene.c src/hp2_car.c src/hp2_coll.c src/hp2_drive.c src/hp2_race.c src/hp2_engine.c src/hp2_vag.c src/hp2_fe.c src/hp2_font.c src/hp2_hud.c src/hp2_tex.c src/hp2_zdir.c src/track_main.c
 TRACKBIN = hp2track
 
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null)
@@ -62,7 +62,7 @@ $(FEBIN): $(SRC) $(FESRC)
 	fi
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Isrc -o $@ $(SRC) $(FESRC) $(SDL_LIBS) -lm
 
-$(TRACKBIN): $(TRACKSRC) src/hp2_geom.h src/hp2_scene.h src/hp2_car.h src/hp2_coll.h src/hp2_drive.h
+$(TRACKBIN): $(TRACKSRC) src/hp2_geom.h src/hp2_scene.h src/hp2_car.h src/hp2_coll.h src/hp2_drive.h src/hp2_race.h src/hp2_engine.h src/hp2_hud.h
 	@if [ -z "$(strip $(SDL_LIBS))" ]; then \
 	  echo "SDL2 not found. Install it (see the top of this Makefile)."; \
 	  exit 1; \
@@ -130,6 +130,7 @@ stubcheck:
 	$(CC) $(CFLAGS) -Isrc -Istub/SDL2 -c -o /dev/null src/hp2_fedraw.c
 	$(CC) $(CFLAGS) -Isrc -Istub/SDL2 -c -o /dev/null src/fe_main.c
 	$(CC) $(CFLAGS) -Isrc -Istub/SDL2 -c -o /dev/null src/track_main.c
+	$(CC) $(CFLAGS) -Isrc -Istub/SDL2 -c -o /dev/null src/hp2_hud.c
 	@echo "stub compile-check passed"
 
 clean:

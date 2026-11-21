@@ -91,6 +91,7 @@ int hp2_cardb_parse(const uint8_t *globalb, size_t len, hp2_carrec *out, int max
         c->peak_rpm = rdf(r + 0x2B4);
         c->redline_rpm = rdf(r + 0x2B8);
         c->top_speed = rdf(r + 0x320);
+        text(c->engine, r + 0x330);
         got++;
     }
     return got;
