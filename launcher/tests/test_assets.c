@@ -454,13 +454,6 @@ static int find_text(const hp2_fe_item *it, int n, const char *s)
     return c;
 }
 
-static int count_texture(const hp2_fe_item *it, int n, uint32_t tex)
-{
-    int i, c = 0;
-    for (i = 0; i < n; i++) if (it[i].w.kind == HP2_FE_IMAGE && it[i].w.texture == tex) c++;
-    return c;
-}
-
 static int count_named(const hp2_fe_item *it, int n, const char *name)
 {
     int i, c = 0;
@@ -494,7 +487,6 @@ static void page_walk(hp2_femenu *m, hp2_fe_item *it, int rows)
 /* ---- event trees ---- */
 
 static hp2_tree real_trees[2];
-static int have_real_trees;
 
 static size_t put32(uint8_t *b, size_t o, uint32_t v) { b[o] = (uint8_t)v; b[o + 1] = (uint8_t)(v >> 8); b[o + 2] = (uint8_t)(v >> 16); b[o + 3] = (uint8_t)(v >> 24); return o + 4; }
 
@@ -768,11 +760,10 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     static hp2_fe_item it[160];
     hp2_settings cfg;
     hp2_femenu m;
-    int n;
+    int n, k;
     printf("main menu flow\n");
     hp2_settings_defaults(&cfg);
     CHECK(hp2_femenu_init(&m, L, lang, &cfg) == 0 && hp2_femenu_start(&m, HP2_FEM_TITLE) && m.screen == HP2_FEM_TITLE, "starts on the title");
-    m.trees = have_real_trees ? real_trees : NULL;
     n = hp2_femenu_items(&m, it, 160);
     CHECK(find_text(it, n, "PRESS START") == 1 && count_named(it, n, "TITLE_FULLSCREEN") == 0 && count_named(it, n, "TITLE_LETTERBOX") == 0,
           "PRESS START, not the placeholder splash");
@@ -836,9 +827,10 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     CHECK(count_named(it, n, "MI_1_MASK") == 1 && count_named(it, n, "BOTTOM_MASK") == 2, "bands for 2 rows");
     hp2_femenu_input(&m, HP2_IN_ACCEPT);
     n = hp2_femenu_items(&m, it, 160);
-    CHECK(m.screen == HP2_FEM_TREE && m.tree_kind == 0 && count_texture(it, n, hp2_fe_hash("SPEED_EVENT_PANEL_UNLOCKED")) == 1
-          && count_texture(it, n, hp2_fe_hash("SPEED_TREE_BG")) == 1 && count_texture(it, n, hp2_fe_hash("PURSUIT_TREE_BG")) == 0,
-          "Ultimate Racer: the card badge and its own map");
+    CHECK(m.screen == HP2_FEM_TREE && m.tree_kind == 0 && find_text(it, n, "National Forest Challenge") == 1 && find_text(it, n, "Ultimate Racer") == 1,
+          "Ultimate Racer: its event list");
+    hp2_femenu_input(&m, HP2_IN_UP);
+    CHECK(m.tree_ev == 30, "Ultimate Racer has 31 events");
     hp2_femenu_input(&m, HP2_IN_BACK);
     CHECK(m.screen == HP2_FEM_WORLD_RACING && m.sel == 1, "back from the tree: World Racing");
     hp2_femenu_input(&m, HP2_IN_UP);
@@ -1059,23 +1051,31 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back: Main Menu again");
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "1") == 1 && find_text(it, n, "Lotus Elise Delivery") == 1 && find_text(it, n, "5") == 1
+              && find_text(it, n, "Pursuit Crown Victoria Challenge") == 1 && find_text(it, n, "6") == 0 && count_red(it, n) == 0,
+              "Ultimate Fugitive: a list, events 1 to 5 on view");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        CHECK(m.tree_ev == 1 && m.tree_scroll == 0, "down: event 2");
+        for (k = 0; k < 5; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.tree_ev == 6 && m.tree_scroll == 2 && find_text(it, n, "7") == 1 && find_text(it, n, "1") == 0 && find_text(it, n, "3") == 1,
+              "down past the fifth row scrolls (events 3 to 7)");
         hp2_femenu_input(&m, HP2_IN_RIGHT);
-        n = hp2_femenu_items(&m, it, 200);
-        CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 1 && find_text(it, n, "Opel Speedster Delivery") == 1
-              && find_text(it, n, "Event 2") == 1 && find_text(it, n, "Unlocked") == 1, "Ultimate Fugitive: event 2 on the tree");
-        CHECK(count_texture(it, n, hp2_fe_hash("PURSUIT_EVENT_PANEL_UNLOCKED")) == 1 && count_texture(it, n, hp2_fe_hash("PURSUIT_TREE_BG")) == 1,
-              "Ultimate Fugitive: the star badge and the map");
-        if (have_real_trees) {
-            int k;
-            CHECK(count_red(it, n) > 0, "event 2: its connectors (%d)", count_red(it, n));
-            for (k = 0; k < 9; k++) hp2_femenu_input(&m, HP2_IN_RIGHT);
-            n = hp2_femenu_items(&m, it, 200);
-            CHECK(m.tree_ev == 10 && count_texture(it, n, hp2_fe_hash("PURSUIT_EVENT_PANEL_UNLOCKED")) >= 2 && find_text(it, n, "12") == 1,
-                  "event 11: event 12 beside it (column 11, three to the right)");
-            for (k = 0; k < 9; k++) hp2_femenu_input(&m, HP2_IN_LEFT);
-        } else {
-            CHECK(count_red(it, n) == 0, "no layout: no connectors");
-        }
+        CHECK(m.tree_ev == 11 && m.tree_scroll == 7, "right: a page down");
+        for (k = 0; k < 5; k++) hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.tree_ev == 31 && m.tree_scroll == 27, "pages stop at event 32");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        CHECK(m.tree_ev == 0 && m.tree_scroll == 0, "down from the last wraps to event 1");
+        hp2_femenu_input(&m, HP2_IN_UP);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.tree_ev == 31 && find_text(it, n, "Hot Pursuit 2 Championship Duel") == 1, "up from event 1: event 32 (%d)", m.tree_ev);
+        hp2_femenu_input(&m, HP2_IN_LEFT);
+        CHECK(m.tree_ev == 26, "left: a page up");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_HOT_PURSUIT, "back: Hot Pursuit");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 0 && m.tree_scroll == 0, "opened again: on event 1");
         hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back from the tree: Main Menu");
@@ -1199,7 +1199,6 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
               && hp2_tree_pos(&real_trees[0], 6, &x, &y) && x == 9 * 130.0f, "event 6: column 8 (Hot Pursuit), 9 (Championship)");
         CHECK(hp2_tree_segments(&real_trees[0], seg, 200) == 78 && hp2_tree_segments(&real_trees[1], seg, 200) == 78,
               "connectors: 78 + 78 segments, got %d + %d", hp2_tree_segments(&real_trees[0], seg, 200), hp2_tree_segments(&real_trees[1], seg, 200));
-        have_real_trees = real_trees[0].has_grid;
         free(X);
     }
     if (bank) {

@@ -674,9 +674,10 @@ static int title_input(hp2_femenu *m, hp2_fem_input in)
 
 /* ---- event trees -------------------------------------------------------- */
 
-/* The two trees (the 0x80034A00 chunks of FRONTB): Championship (the port's
- * Ultimate Racer, World Racing) has 31 events, Hot Pursuit (the port's
- * Ultimate Fugitive) 32. Event k's title is string title + k and its blurb
+/* The two event lists (the game's trees, the 0x80034A00 chunks of FRONTB,
+ * shown in the port as plain lists in event order): Championship (the
+ * port's Ultimate Racer, World Racing) has 31 events, Hot Pursuit (the
+ * port's Ultimate Fugitive) 32. Event k's title is string title + k and its blurb
  * blurb + k. */
 static const struct { int events; uint32_t title, blurb; } TREES[2] = { { 31, 70000u, 70064u }, { 32, 70031u, 70095u } };
 
@@ -684,16 +685,19 @@ static int tree_input(hp2_femenu *m, hp2_fem_input in)
 {
     int n = TREES[m->tree_kind].events;
     switch (in) {
-    case HP2_IN_LEFT:
-    case HP2_IN_UP:    m->tree_ev = (m->tree_ev + n - 1) % n; return HP2_FEM_REDRAW;
-    case HP2_IN_RIGHT:
-    case HP2_IN_DOWN:  m->tree_ev = (m->tree_ev + 1) % n; return HP2_FEM_REDRAW;
+    case HP2_IN_UP:    m->tree_ev = (m->tree_ev + n - 1) % n; break;
+    case HP2_IN_DOWN:  m->tree_ev = (m->tree_ev + 1) % n; break;
+    case HP2_IN_LEFT:  m->tree_ev = m->tree_ev >= HP2_FEM_EVENT_ROWS ? m->tree_ev - HP2_FEM_EVENT_ROWS : 0; break;      /* a page up */
+    case HP2_IN_RIGHT: m->tree_ev = m->tree_ev + HP2_FEM_EVENT_ROWS < n ? m->tree_ev + HP2_FEM_EVENT_ROWS : n - 1; break;   /* a page down */
     case HP2_IN_BACK:
         m->screen = (hp2_fem_screen)m->tree_from;
         m->sel = m->chal_sel;
         return HP2_FEM_REDRAW;
     default: return 0;
     }
+    if (m->tree_ev < m->tree_scroll) m->tree_scroll = m->tree_ev;
+    if (m->tree_ev >= m->tree_scroll + HP2_FEM_EVENT_ROWS) m->tree_scroll = m->tree_ev - HP2_FEM_EVENT_ROWS + 1;
+    return HP2_FEM_REDRAW;
 }
 
 /* Customize: up/down settings, left/right values, accept goes on to car select. */
@@ -777,6 +781,7 @@ static int list_input(hp2_femenu *m, hp2_fem_input in)
             if (!m->tree) return 0;
             m->tree_kind = e[m->sel - 1].go == GO_TREE_HP;
             m->tree_ev = 0;
+            m->tree_scroll = 0;
             m->tree_from = m->screen; m->chal_sel = m->sel;
             m->screen = HP2_FEM_TREE;
             return HP2_FEM_REDRAW;
@@ -1349,81 +1354,25 @@ static int track_items(hp2_femenu *m, list *l)
  * port shows Main Menu's backdrop (grid, blueprints, borders) with the NFS
  * logo in the middle, and the title's own PRESS START. */
 /* A flat rectangle (the solid stand-in texture, tinted) from any image widget. */
-static hp2_fe_item *rect(list *l, const hp2_fe_widget *tmpl, float x, float y, float w, float h,
-                         int r, int g, int b, int a, int layer)
-{
-    hp2_fe_item *it = push(l, tmpl, NULL);
-    int k;
-    if (!it) return NULL;
-    it->w.x = x; it->w.y = y; it->w.sx = w / 16.0f; it->w.sy = h / 16.0f;
-    it->w.texture = SOLID_TEXTURE; it->w.visible = 1; it->w.layer = (uint8_t)layer;
-    for (k = 0; k < 4; k++) {
-        it->w.vcol[k][0] = (uint8_t)(r * 128 / 255); it->w.vcol[k][1] = (uint8_t)(g * 128 / 255);
-        it->w.vcol[k][2] = (uint8_t)(b * 128 / 255); it->w.vcol[k][3] = (uint8_t)a;
-    }
-    return it;
-}
+/* The event list (TREE_VIEW's place): the events in order, 1 at the top,
+ * as rows in the game's banded style (the Challenge screen's rows, 55
+ * apart from y 71), five on view, scrolling. */
+#define EVL_ROWS  HP2_FEM_EVENT_ROWS
+#define EVL_Y     71.0f
+#define EVL_PITCH 55.0f
+#define EVL_NUM_X 196.0f       /* right edge of the event number */
+#define EVL_TXT_X 212.0f
 
-/* The tree view: the map panel, the map's scale, where the event on view
- * sits (its badge's centre), the connector width, and each badge's top
- * left against its centre and its size ([0] World Racing's card, [1] Hot
- * Pursuit's star). Tree units are canvas units (hp2_tree.h). */
-#define TREE_PANEL_X 141.0f
-#define TREE_PANEL_Y 71.0f
-#define TREE_PANEL_W 499.0f
-#define TREE_PANEL_H 259.0f
-#define TREE_BG_SCALE 1.25f
-#define TREE_CX 320.0f
-#define TREE_CY 282.0f
-#define TREE_LINE 6.0f
-static const float BADGE_OFF[2][2] = { { -108.0f, -150.0f }, { -136.0f, -130.0f } };
-static const float BADGE_SIZE[2][2] = { { 216.0f, 312.0f }, { 272.0f, 272.0f } };
-
-static int panel_hits(float x, float y, float w, float h)
-{
-    return x < TREE_PANEL_X + TREE_PANEL_W && x + w > TREE_PANEL_X && y < TREE_PANEL_Y + TREE_PANEL_H && y + h > TREE_PANEL_Y;
-}
-
-static void panel_clip(hp2_fe_item *it)
-{
-    it->clip = 1;
-    it->clip_rect[0] = TREE_PANEL_X; it->clip_rect[1] = TREE_PANEL_Y;
-    it->clip_rect[2] = TREE_PANEL_W; it->clip_rect[3] = TREE_PANEL_H;
-}
-
-static void set_vcol(hp2_fe_item *it, int r, int g, int b, int a)
-{
-    int k;
-    for (k = 0; k < 4; k++) {
-        it->w.vcol[k][0] = (uint8_t)r; it->w.vcol[k][1] = (uint8_t)g;
-        it->w.vcol[k][2] = (uint8_t)b; it->w.vcol[k][3] = (uint8_t)a;
-    }
-}
-
-/* The event tree with one event on view, placed as on a PCSX2 screenshot of
- * the game (the layout is stored scrolled: its title sits at the bottom and
- * its details at the top): the header of Challenge, a map panel, the event's
- * star at the centre with its number, "Event n / Status / Reward" at its
- * right and the event's title in a bar below. Every event is open. The map
- * (PURSUIT_TREE_BG / SPEED_TREE_BG) sits in the panel and the badge (a star
- * for Hot Pursuit, a card for World Racing, green tab = unlocked) behind the
- * number. With the trees' layout (hp2_tree, from the executable) the
- * neighbouring events and the red connectors show round it at the game's
- * spacing (130 x 350), clipped to the panel, and the map scrolls with the
- * event's place in the tree. The ghosted car logo is not in the port yet. */
 static int tree_items(hp2_femenu *m, list *l)
 {
-    const hp2_fe_screen *s = m->tree, *c = m->chal;
-    const hp2_fe_widget *tmpl = named(s, "FLAG");
-    static char num[24], evn[40], title[96], status[32], reward[64], tl[40], nnum[HP2_TREE_MAX_EVENTS][12];
-    int i, ev = m->tree_ev;
+    const hp2_fe_screen *c = m->chal, *s = m->tree;
+    const hp2_fe_widget *row = c ? named(c, "MENUITEM_1") : NULL, *band = c ? named(c, "MI_1_MASK") : NULL;
+    const hp2_fe_widget *line = c ? first_line(c) : NULL;
+    static char num[EVL_ROWS][12], title[EVL_ROWS][96];
+    int i, k, n = TREES[m->tree_kind].events;
+    float sel_y = -1.0f;
     hp2_fe_item *it;
-    snprintf(num, sizeof num, "%d", ev + 1);
-    snprintf(tl, sizeof tl, "%s", lang_or(m, 70063u, "Event %d"));
-    { char *d = strstr(tl, "%d"); if (d) { snprintf(evn, sizeof evn, "%.*s%d%s", (int)(d - tl), tl, ev + 1, d + 2); } else snprintf(evn, sizeof evn, "Event %d", ev + 1); }
-    snprintf(title, sizeof title, "%s", lang_or(m, TREES[m->tree_kind].title + (uint32_t)ev, ""));
-    snprintf(status, sizeof status, "%s", lang_or(m, 62001u, "Unlocked"));
-    snprintf(reward, sizeof reward, "%s", lang_or(m, 67001u, "No reward"));
+    (void)s;
     if (c) {      /* the backdrop and header of Challenge */
         for (i = 0; i < c->count; i++) {
             const hp2_fe_widget *w = &c->widgets[i];
@@ -1436,97 +1385,35 @@ static int tree_items(hp2_femenu *m, list *l)
                      || (!strcmp(w->name, "GRID_SHADOW") && w->x == 0.0f))) { bi = push(l, w, NULL); if (bi) bi->w.layer = (uint8_t)(20 + (w->layer > 30 ? 30 : w->layer)); }
         }
     }
-    if (tmpl) {
-        const hp2_tree *tr = (m->trees && m->trees[m->tree_kind].has_grid) ? &m->trees[m->tree_kind] : NULL;
-        float wx0 = 0.0f, wy0 = 0.0f, fx = 0.5f, fy = 0.2f;
-        if (tr && hp2_tree_pos(tr, ev + 1, &wx0, &wy0)) {
-            fx = (float)tr->ev[ev].col / 19.0f;
-            fy = (float)tr->ev[ev].row / 9.0f;
-        }
-        /* the map (8-bit 512 x 448) at 1.25, scrolled with the event's place
-         * in the tree, clipped to the panel */
-        it = push(l, tmpl, NULL);
+    for (k = 0; k < EVL_ROWS && m->tree_scroll + k < n; k++) {
+        int ev = m->tree_scroll + k, on = ev == m->tree_ev;
+        float y = EVL_Y + EVL_PITCH * (float)k;
+        snprintf(num[k], sizeof num[k], "%d", ev + 1);
+        snprintf(title[k], sizeof title[k], "%s", lang_or(m, TREES[m->tree_kind].title + (uint32_t)ev, ""));
+        if (!row) continue;
+        it = push(l, row, num[k]);
         if (it) {
-            it->w.texture = hp2_fe_hash(m->tree_kind ? "PURSUIT_TREE_BG" : "SPEED_TREE_BG");
-            it->w.sx = it->w.sy = TREE_BG_SCALE;
-            it->w.x = TREE_PANEL_X - fx * (512.0f * TREE_BG_SCALE - TREE_PANEL_W);
-            it->w.y = TREE_PANEL_Y - fy * (448.0f * TREE_BG_SCALE - TREE_PANEL_H);
-            it->w.visible = 1; it->w.layer = 17;
-            set_vcol(it, 0x80, 0x80, 0x80, 0x80);
-            panel_clip(it);
+            it->w.x = EVL_NUM_X; it->w.y = y; it->w.align = HP2_FE_ALIGN_RIGHT; it->w.visible = 1;
+            if (on) memcpy(it->w.rgba, ORANGE, 4); else grey(it, 0x50);
         }
-        rect(l, tmpl, TREE_PANEL_X, TREE_PANEL_Y, TREE_PANEL_W, TREE_PANEL_H, 120, 130, 140, 0x30, 16);   /* the map panel */
-        if (tr) {      /* the connectors and the other events, in tree units round this one */
-            hp2_tree_seg seg[200];
-            int k, ns = hp2_tree_segments(tr, seg, 200);
-            for (k = 0; k < ns; k++) {
-                float x0 = TREE_CX + seg[k].x0 - wx0, y0 = TREE_CY + seg[k].y0 - wy0;
-                float x1 = TREE_CX + seg[k].x1 - wx0, y1 = TREE_CY + seg[k].y1 - wy0;
-                float rx = x0 - TREE_LINE / 2, ry = y0 - TREE_LINE / 2, rw = x1 - x0 + TREE_LINE, rh = y1 - y0 + TREE_LINE;
-                if (!panel_hits(rx, ry, rw, rh)) continue;
-                it = rect(l, tmpl, rx, ry, rw, rh, 200, 24, 24, 0x80, 15);
-                if (it) panel_clip(it);
-            }
-            for (k = 1; k <= tr->count; k++) {
-                float x, y, bx, by;
-                if (k == ev + 1 || !hp2_tree_pos(tr, k, &x, &y)) continue;
-                x = TREE_CX + x - wx0; y = TREE_CY + y - wy0;
-                bx = x + BADGE_OFF[m->tree_kind][0]; by = y + BADGE_OFF[m->tree_kind][1];
-                if (!panel_hits(bx, by, BADGE_SIZE[m->tree_kind][0], BADGE_SIZE[m->tree_kind][1])) continue;
-                it = push(l, tmpl, NULL);
-                if (it) {
-                    it->w.texture = hp2_fe_hash(m->tree_kind ? "PURSUIT_EVENT_PANEL_UNLOCKED" : "SPEED_EVENT_PANEL_UNLOCKED");
-                    it->w.x = bx; it->w.y = by; it->w.sx = it->w.sy = 1.0f; it->w.visible = 1; it->w.layer = 14;
-                    set_vcol(it, 0x80, 0x80, 0x80, 0x80);
-                    panel_clip(it);
-                }
-                snprintf(nnum[k - 1], sizeof nnum[k - 1], "%d", k);
-                it = push(l, named(s, "EVENT_NUMBER"), nnum[k - 1]);
-                if (it) {
-                    it->w.x = x; it->w.y = y - (TREE_CY - 216.0f); it->w.align = HP2_FE_ALIGN_CENTRE;
-                    it->w.visible = 1; it->w.layer = 13;
-                    panel_clip(it);
-                }
-            }
-        }
-        /* the event's badge: Hot Pursuit a 272 x 272 star, World Racing a
-         * 216 x 312 card; the tab is green (unlocked), chequered (won) or
-         * red (locked). Every event is open in the port. Placed as the
-         * layout places EVENT_PANEL against EVENT_NUMBER (175, 135 against
-         * 272, 199), moved with the number. */
-        it = push(l, tmpl, NULL);
+        it = push(l, row, title[k]);
         if (it) {
-            it->w.texture = hp2_fe_hash(m->tree_kind ? "PURSUIT_EVENT_PANEL_UNLOCKED" : "SPEED_EVENT_PANEL_UNLOCKED");
-            it->w.x = TREE_CX + BADGE_OFF[m->tree_kind][0]; it->w.y = TREE_CY + BADGE_OFF[m->tree_kind][1];
-            it->w.sx = it->w.sy = 1.0f; it->w.visible = 1; it->w.layer = 10;
-            set_vcol(it, 0x80, 0x80, 0x80, 0x80);
+            size_t len = strlen(title[k]);
+            float sc = len > 30 ? 0.8f * 30.0f / (float)len : 0.8f;    /* about 30 characters fit before the arrows */
+            it->w.x = EVL_TXT_X; it->w.y = y + 4.0f + (0.8f - sc) * 20.0f; it->w.sx = it->w.sy = sc; it->w.visible = 1;
+            if (on) { memcpy(it->w.rgba, ORANGE, 4); sel_y = y; } else grey(it, 0x50);
+            it->clip = 1; it->clip_rect[0] = 141.0f; it->clip_rect[1] = y - 10.0f; it->clip_rect[2] = 499.0f; it->clip_rect[3] = EVL_PITCH + 10.0f;
         }
-        rect(l, tmpl, 383.0f, 205.0f, 257.0f, 35.0f, 20, 20, 20, 0x50, 8);         /* Status */
-        rect(l, tmpl, 383.0f, 246.0f, 257.0f, 35.0f, 20, 20, 20, 0x50, 8);         /* Reward */
-        rect(l, tmpl, 383.0f, 201.0f, 257.0f, 2.0f, 240, 240, 240, 0x80, 7);       /* under "Event n" */
+        if (band && !on && (it = push(l, band, NULL)) != NULL) it->w.y = band->y + EVL_PITCH * (float)k;   /* the chosen row's band lifts */
+        if (line && k + 1 < EVL_ROWS && m->tree_scroll + k + 1 < n && (it = push(l, line, NULL)) != NULL)
+            it->w.y = line->y + EVL_PITCH * (float)k;
     }
-    it = push(l, named(s, "EVENT_NUMBER"), num);
-    if (it) { it->w.x = 320.0f; it->w.y = 216.0f; it->w.align = HP2_FE_ALIGN_CENTRE; it->w.visible = 1; it->w.layer = 1; }
-    it = push(l, named(s, "EVENT_TITLE"), evn);
-    if (it) { it->w.sx = it->w.sy = 0.9f; it->w.x = 383.0f; it->w.y = 176.0f; it->w.visible = 1; it->w.layer = 0; }
-    for (i = 0; i < s->count; i++) {
-        const hp2_fe_widget *w = &s->widgets[i];
-        if (w->kind != HP2_FE_TEXT || strcmp(w->name, "NONAME") || w->y < 40.0f || w->y > 80.0f) continue;
-        it = push(l, w, hp2_femenu_text(m, w));      /* the "Status:" and "Reward:" labels */
-        if (it) {
-            it->w.x = 385.0f; it->w.y = w->y < 60.0f ? 206.0f : 247.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0;
-        }
+    if (sel_y >= 0.0f && c) selection_lines(m, l, c, sel_y);
+    if (m->carsel) {      /* more above / below */
+        if (m->tree_scroll > 0 && (it = push(l, named(m->carsel, "UP_ARROW"), NULL)) != NULL) { it->w.x = 608.0f; it->w.y = 76.0f; it->w.visible = 1; }
+        if (m->tree_scroll + EVL_ROWS < n && (it = push(l, named(m->carsel, "DOWN_ARROW"), NULL)) != NULL) { it->w.x = 608.0f; it->w.y = 312.0f; it->w.visible = 1; }
     }
-    it = push(l, named(s, "OVERLAY_STATUSTITLE"), status);
-    if (it) { it->w.x = 385.0f; it->w.y = 222.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0; }
-    it = push(l, named(s, "OVERLAY_REWARDTITLE"), reward);
-    if (it) { it->w.x = 385.0f; it->w.y = 263.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0; }
-    if (tmpl) {
-        it = push(l, named(s, "SCROLL_TEXT_CLIP"), NULL);     /* the title bar below the map */
-        if (it) { it->w.x = 116.0f; it->w.y = 333.0f; it->w.sx = 1.03f; it->w.sy = 0.78f; it->w.visible = 1; it->w.layer = 9; }
-    }
-    it = push(l, named(s, "EVENT_TITLE"), title);
-    if (it) { it->w.x = 127.0f; it->w.y = 336.0f; it->w.sx = it->w.sy = 0.75f; it->w.visible = 1; it->w.layer = 0; }
+    if (c) help_bar(m, l, c);
     return l->n;
 }
 

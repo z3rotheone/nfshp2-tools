@@ -75,7 +75,6 @@
 #include "hp2_jukebox.h"
 #include "hp2_lang.h"
 #include "hp2_menu.h"
-#include "hp2_tree.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -103,6 +102,7 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 
 #define HP2_FEM_VISIBLE  7    /* settings rows shown at once */
 #define HP2_FEM_SONGS    5    /* jukebox songs shown at once */
+#define HP2_FEM_EVENT_ROWS 5  /* event list: events shown at once */
 
 typedef struct {
     const hp2_fe_layout *layout;
@@ -122,12 +122,10 @@ typedef struct {
     int                  skill;     /* 0 Beginner, 1 Advanced, 2 Expert */
     int                  setup_val[8]; /* RACE_SETUP: the value of each setting (SU_*) */
     int                  setup_sel; /* RACE_SETUP's row when car select was opened */
-    int                  tree_kind; /* event tree: 0 Ultimate Racer (Championship), 1 Ultimate Fugitive (Hot Pursuit) */
-    int                  tree_ev;   /* the event on view, 0-based */
-    int                  tree_from; /* the screen the tree was opened from */
-    const hp2_tree      *trees;     /* [0] Championship, [1] Hot Pursuit, or NULL;
-                                       with their grid the tree view draws the
-                                       neighbouring events and connectors */
+    int                  tree_kind; /* event list: 0 Ultimate Racer (Championship), 1 Ultimate Fugitive (Hot Pursuit) */
+    int                  tree_ev;   /* event list: the chosen event, 0-based */
+    int                  tree_from; /* the screen the event list was opened from */
+    int                  tree_scroll;   /* event list: first event on view, 0-based */
     int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
     int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
     int                  handling;  /* 0 Classic, 1 Extreme */
