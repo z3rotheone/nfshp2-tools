@@ -55,6 +55,10 @@ int hp2_coll_ground(const hp2_coll *c, float x, float y, float zref, float step,
  * n (x, y). */
 int hp2_coll_push(const hp2_coll *c, float *x, float *y, float z, float r, float n[2]);
 
+/* 1 if the straight line from (ax, ay) to (bx, by) at height z crosses a
+ * wall (for opponents looking for a way past). */
+int hp2_coll_blocked(const hp2_coll *c, float ax, float ay, float bx, float by, float z);
+
 #ifdef __cplusplus
 }
 #endif

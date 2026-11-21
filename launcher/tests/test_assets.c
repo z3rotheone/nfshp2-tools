@@ -26,6 +26,7 @@
 #include "../src/hp2_drive.h"
 #include "../src/hp2_engine.h"
 #include "../src/hp2_race.h"
+#include "../src/hp2_ai.h"
 #include "../src/hp2_geom.h"
 #include "../src/hp2_scene.h"
 #include "../src/hp2_jukebox.h"
@@ -1303,6 +1304,30 @@ static void test_tyres_real(const hp2_carrec *recs, int n)
     }
     slip = fabsf(-d.vel[0] * sinf(d.heading) + d.vel[1] * cosf(d.heading));
     CHECK(d.speed > 15 && slip < 10 && d.yawrate > 0, "F50 at full lock left: %.0f m/s, drifting %.1f m/s, not spun", d.speed, slip);
+    /* an opponent round a 2 km square: two laps, never stuck */
+    {
+        static const float sq[] = { 0, 0, 0, 500, 0, 500, 500, 500, 1000, 0, 500, 1500 };
+        hp2_race r;
+        hp2_ai ai;
+        hp2_ai_line l;
+        int k, stuck = 0;
+        hp2_race_init(&r, sq, 4, 1, 2000, 2);
+        r.countdown = 0;
+        CHECK(hp2_ai_line_build(&l, &r, &c) == 0 && l.len > 1700 && l.len < 2300, "line round the square: %.0f m", l.len);
+        memset(&ai, 0, sizeof ai);
+        ai.skill = 0.95f;
+        ai.at = -1;
+        hp2_drive_init(&d, p911, 0, 0, 0, 0);
+        hp2_race_step(&r, 0.01f, 0, 0, 0, 0);
+        for (k = 0, t = 0; t < 200 && r.state != HP2_RACE_FINISHED; t += 0.02f, k++) {
+            hp2_ai_drive(&ai, &r, &l, &d, 0.02f, &in);
+            if (ai.reverse > 1.19f) stuck++;
+            hp2_drive_step(&d, &c, &in, 0.02f);
+            hp2_race_step(&r, 0.02f, d.pos[0], d.pos[1], d.vel[0], d.vel[1]);
+        }
+        CHECK(r.state == HP2_RACE_FINISHED && r.clock < 180 && !stuck, "911 opponent: two laps in %.1f s, stuck %d times", r.clock, stuck);
+        hp2_ai_line_free(&l);
+    }
     hp2_coll_free(&c);
     free(fl);
 }
@@ -1683,6 +1708,30 @@ static void test_drive(void)
     CHECK(hp2_coll_push(&c, &x, &y, 0, 1, n2) && NEAR(x, 47) && NEAR(n2[0], -1), "pushed off the wall: %g", x);
     x = 40;
     CHECK(!hp2_coll_push(&c, &x, &y, 0, 1, n2) && NEAR(x, 40), "clear of it");
+    CHECK(hp2_coll_blocked(&c, 10, 32, 60, 32, 0) && !hp2_coll_blocked(&c, 10, 32, 40, 20, 0), "a line through the wall is blocked");
+    CHECK(!hp2_coll_blocked(&c, 10, 32, 60, 32, 100), "not above it");
+
+    /* two cars side by side, overlapping: pushed apart */
+    {
+        hp2_carrec cr;
+        hp2_drive a2, b2;
+        memset(&cr, 0, sizeof cr);
+        for (i = 0; i < 4; i++) {
+            cr.wheel[i].x = i < 2 ? 1.3f : -1.3f;
+            cr.wheel[i].y = i == 0 || i == 3 ? 0.75f : -0.75f;
+            cr.wheel[i].radius = 0.32f;
+        }
+        cr.length = 4.4f;
+        cr.width = 1.8f;
+        cr.mass = 1.5f;
+        hp2_drive_init(&a2, &cr, 10, 10, 0, 0);
+        hp2_drive_init(&b2, &cr, 10, 11.2f, 0, 0);
+        b2.vel[1] = -3;
+        CHECK(hp2_drive_collide(&a2, &b2) && b2.pos[1] - a2.pos[1] > 1.25f && b2.vel[1] - a2.vel[1] > 0.5f && NEAR(a2.vel[1] + b2.vel[1], -3),
+              "cars that touch are pushed apart (%.2f m) and bounce off, sharing the momentum (%.2f %.2f m/s)", b2.pos[1] - a2.pos[1], a2.vel[1], b2.vel[1]);
+        b2.pos[1] = 20;
+        CHECK(!hp2_drive_collide(&a2, &b2), "apart: no bump");
+    }
 
     /* the database: one record, found by name in any case */
     memset(db, 0, sizeof db);
@@ -1781,6 +1830,51 @@ static void test_race(void)
     CHECK(r.state == HP2_RACE_FINISHED && r.clock > 24 && r.clock < 26, "finished at %g s", r.clock);
     hp2_race_time(83.456f, buf, sizeof buf);
     CHECK(!strcmp(buf, "1:23.46"), "time %s", buf);
+
+    /* the route as a curve through its points: on the square it bulges
+     * 12.5 m out between corners (Catmull-Rom) */
+    hp2_race_init(&r, sq, 4, 1, 400, 1);
+    {
+        float p[2], dd[2];
+        hp2_race_point(&r, 0, p, dd);
+        CHECK(NEAR(p[0], 0) && NEAR(p[1], 0), "route point at 0: the first point");
+        hp2_race_point(&r, 50, p, dd);
+        CHECK(NEAR(p[0], 50) && NEAR(p[1], -12.5f) && NEAR(dd[0], 1), "half way along a side: %.1f %.1f", p[0], p[1]);
+        hp2_race_point(&r, 450, p, NULL);
+        CHECK(NEAR(p[0], 50) && NEAR(p[1], -12.5f), "a circuit wraps");
+    }
+    /* places: finished cars first by finishing time, then by distance */
+    {
+        hp2_race c4[4];
+        const hp2_race *cp[4];
+        int ord[4];
+        for (k = 0; k < 4; k++) {
+            memset(&c4[k], 0, sizeof c4[k]);
+            c4[k].state = HP2_RACE_RUNNING;
+            cp[k] = &c4[k];
+        }
+        c4[0].travelled = 300;
+        c4[1].travelled = 900;
+        c4[2].state = HP2_RACE_FINISHED;
+        c4[2].finish_time = 80;
+        c4[3].state = HP2_RACE_FINISHED;
+        c4[3].finish_time = 75;
+        hp2_race_order(cp, 4, ord);
+        CHECK(ord[0] == 3 && ord[1] == 2 && ord[2] == 1 && ord[3] == 0, "places %d %d %d %d", ord[0], ord[1], ord[2], ord[3]);
+    }
+    /* the opponents' line with no collision: the route, every 4 m */
+    {
+        hp2_ai_line l;
+        float p[2], dd[2], half;
+        CHECK(hp2_ai_line_build(&l, &r, NULL) == 0 && l.loop && l.n > 90 && l.n < 120, "line from the route alone: %d points", l.n);
+        if (l.n) {
+            hp2_ai_line_point(&l, 2 * HP2_AI_STEP, p, dd, &half);
+            CHECK(NEAR(p[0], l.pt[8]) && NEAR(p[1], l.pt[9]) && half > 1, "line point");
+            CHECK(fabsf(hp2_ai_line_find(&l, p[0], p[1], 0, -1) - 2 * HP2_AI_STEP) < 0.01f, "found again");
+            CHECK(fabsf(hp2_ai_line_find(&l, p[0], p[1], 0, l.len - 10) - 2 * HP2_AI_STEP) < 0.01f, "found across the line");
+        }
+        hp2_ai_line_free(&l);
+    }
 }
 
 /* An engine bank of three samples: coasting idle, under load low, horn. */

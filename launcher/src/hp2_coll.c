@@ -233,3 +233,44 @@ int hp2_coll_push(const hp2_coll *c, float *x, float *y, float z, float r, float
         }
     return moved;
 }
+
+static int crosses(float ax, float ay, float bx, float by, float cx, float cy, float dx, float dy)
+{
+    float d1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax), d2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+    float d3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx), d4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+    return d1 * d2 < 0 && d3 * d4 < 0;
+}
+
+int hp2_coll_blocked(const hp2_coll *c, float ax, float ay, float bx, float by, float z)
+{
+    float len = sqrtf((bx - ax) * (bx - ax) + (by - ay) * (by - ay)), t;
+    int lastx = 1 << 30, lasty = 1 << 30;
+    for (t = 0; t <= len + 16; t += 16) {
+        float f = len > 0 ? (t > len ? 1 : t / len) : 0;
+        int cx = cell_coord(ax + (bx - ax) * f), cy = cell_coord(ay + (by - ay) * f), dx, dy, i;
+        if (cx == lastx && cy == lasty) continue;
+        lastx = cx;
+        lasty = cy;
+        for (dx = -1; dx <= 1; dx++)
+            for (dy = -1; dy <= 1; dy++) {
+                int s = find_cell(c, cx + dx, cy + dy);
+                if (s < 0) continue;
+                for (i = 0; i < c->cell_count[s]; i++) {
+                    int k = c->cell_start[s] + i, a = 0, b = 1, j, m;
+                    const hp2_cpoly *q;
+                    float best = -1;
+                    if (k >= c->nindex || c->index[k] >= c->npoly) continue;
+                    q = &c->poly[c->index[k]];
+                    if (!q->wall) continue;
+                    if (q->hi[2] - q->lo[2] < 250 && (z + 0.5f > q->hi[2] || z + 2.0f < q->lo[2])) continue;
+                    for (j = 0; j < q->nv; j++)
+                        for (m = j + 1; m < q->nv; m++) {
+                            float e = (q->x[j] - q->x[m]) * (q->x[j] - q->x[m]) + (q->y[j] - q->y[m]) * (q->y[j] - q->y[m]);
+                            if (e > best) { best = e; a = j; b = m; }
+                        }
+                    if (crosses(ax, ay, bx, by, q->x[a], q->y[a], q->x[b], q->y[b])) return 1;
+                }
+            }
+    }
+    return 0;
+}

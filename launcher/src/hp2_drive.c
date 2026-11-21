@@ -516,3 +516,39 @@ void hp2_drive_step(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in, flo
         d->acc -= STEP;
     }
 }
+
+int hp2_drive_collide(hp2_drive *a, hp2_drive *b)
+{
+    float dx = b->pos[0] - a->pos[0], dy = b->pos[1] - a->pos[1];
+    float reach = a->half_len + b->half_len;
+    int i, j, hit = 0;
+    if (dx * dx + dy * dy > reach * reach || fabsf(a->pos[2] - b->pos[2]) > 3) return 0;
+    for (i = 0; i < 2; i++)
+        for (j = 0; j < 2; j++) {
+            float oa = (i ? -1 : 1) * (a->half_len - a->half_wid), ob = (j ? -1 : 1) * (b->half_len - b->half_wid);
+            float ax = a->pos[0] + cosf(a->heading) * oa, ay = a->pos[1] + sinf(a->heading) * oa;
+            float bx = b->pos[0] + cosf(b->heading) * ob, by = b->pos[1] + sinf(b->heading) * ob;
+            float nx = bx - ax, ny = by - ay, dist = sqrtf(nx * nx + ny * ny), r = a->half_wid + b->half_wid, over, wa, wb, rel;
+            if (dist >= r) continue;
+            if (dist < 1e-4f) { nx = 1; ny = 0; dist = 1e-4f; }
+            nx /= dist;
+            ny /= dist;
+            over = r - dist;
+            wa = b->mass / (a->mass + b->mass);
+            wb = a->mass / (a->mass + b->mass);
+            a->pos[0] -= nx * over * wa;
+            a->pos[1] -= ny * over * wa;
+            b->pos[0] += nx * over * wb;
+            b->pos[1] += ny * over * wb;
+            rel = (b->vel[0] - a->vel[0]) * nx + (b->vel[1] - a->vel[1]) * ny;
+            if (rel < 0) {
+                float imp = -1.3f * rel;                    /* a little bounce */
+                a->vel[0] -= nx * imp * wa;
+                a->vel[1] -= ny * imp * wa;
+                b->vel[0] += nx * imp * wb;
+                b->vel[1] += ny * imp * wb;
+            }
+            hit = 1;
+        }
+    return hit;
+}

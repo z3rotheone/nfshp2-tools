@@ -84,6 +84,11 @@ typedef struct {
     float comp[4];              /* each spring's compression now */
 } hp2_drive;
 
+/* Two cars bumping: each is two circles (front and rear half); where they
+ * overlap they are pushed apart by their masses and lose the speed they
+ * had towards each other (with a little bounce). 1 if they touched. */
+int hp2_drive_collide(hp2_drive *a, hp2_drive *b);
+
 /* Engine torque (kN m) at an engine speed: the car's curve, flat below
  * idle, nothing past the redline. */
 float hp2_drive_torque(const hp2_drive *d, float rpm);

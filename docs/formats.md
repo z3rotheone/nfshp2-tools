@@ -943,8 +943,16 @@ the main route's progress at that point. It can be shorter than the
 shortcut itself, so race position works on any path.
 
 The main route is closed in 5 files and open in 3 (entries 200, 215, 223:
-probably the point-to-point tracks). Plotted over the collision mesh,
-every route point in entry 196 sits on the drivable surface.
+probably the point-to-point tracks). It is not a line to drive: its points
+are 100–200 m apart and the curve through them cuts across bends, across
+the ground between the two roads of a fork and through walls. In entries
+196, 211 and 221, 22 of 73, 20 of 121 and 22 of 119 route points lie where
+the collision mesh has no ground at all (in entry 196, points 8 to 11 are
+40–50 m from the nearest collision polygon, between the two roads that
+fork at point 7). The game's AI must follow something else (the `34121`
+"RAGNAR" records are a candidate, not read). `launcher/hp2track` finds a
+line for its stand-in opponents by searching the collision ground
+(`launcher/src/hp2_ai.c`).
 
 ### Police: `0x80034500`
 

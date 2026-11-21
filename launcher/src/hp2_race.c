@@ -3,6 +3,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void hp2_race_init(hp2_race *r, const float *route, int n, int loop, float len, int laps)
@@ -59,7 +60,8 @@ int hp2_race_step(hp2_race *r, float dt, float x, float y, float vx, float vy)
     if (r->state == HP2_RACE_COUNTDOWN) {
         r->countdown -= dt;
         r->progress = p;
-        r->travelled = 0;
+        /* a grid slot behind the line counts as not yet there */
+        r->travelled = r->loop && p > r->len / 2 ? p - r->len : p;
         if (r->countdown <= 0) {
             r->state = HP2_RACE_RUNNING;
             r->countdown = 0;
@@ -86,13 +88,17 @@ int hp2_race_step(hp2_race *r, float dt, float x, float y, float vx, float vy)
             r->lap_start = r->clock;
             r->lap++;
             done = 1;
-            if (r->lap > r->laps) r->state = HP2_RACE_FINISHED;
+            if (r->lap > r->laps) {
+                r->state = HP2_RACE_FINISHED;
+                r->finish_time = r->clock;
+            }
         }
     } else if (r->travelled >= r->len - 10 || p >= r->len - 10) {
         r->lap_time[0] = r->clock;
         r->best = r->clock;
         r->lap = 2;
         r->state = HP2_RACE_FINISHED;
+        r->finish_time = r->clock;
         done = 1;
     }
     /* wrong way: moving against the route for over half a second */
@@ -101,6 +107,76 @@ int hp2_race_step(hp2_race *r, float dt, float x, float y, float vx, float vy)
     else r->wrong_time = 0;
     r->wrong_way = r->wrong_time > 0.5f;
     return done;
+}
+
+/* Point k of the route, wrapped on a circuit, held to the ends otherwise. */
+static const float *pt(const hp2_race *r, int k)
+{
+    if (r->loop) k = ((k % r->n) + r->n) % r->n;
+    else if (k < 0) k = 0;
+    else if (k >= r->n) k = r->n - 1;
+    return r->route + 3 * k;
+}
+
+/* The route is a smooth curve through its points (its progress is that
+ * curve's length, docs/formats.md 11): here a Catmull-Rom spline. A
+ * straight line between two points 100 m apart cuts the inside of a bend,
+ * through the walls along it. */
+void hp2_race_point(const hp2_race *r, float p, float xy[2], float dir[2])
+{
+    int i, last = r->loop ? r->n : r->n - 1;
+    if (r->loop) {
+        p = fmodf(p, r->len);
+        if (p < 0) p += r->len;
+    } else {
+        if (p < 0) p = 0;
+        if (p > r->route[3 * (r->n - 1) + 2]) p = r->route[3 * (r->n - 1) + 2];
+    }
+    for (i = 0; i < last; i++) {
+        const float *p0 = pt(r, i - 1), *p1 = pt(r, i), *p2 = pt(r, i + 1), *p3 = pt(r, i + 2);
+        float pb = (i + 1 == r->n) ? r->len : p2[2], t, t2, t3, dx, dy, l;
+        int k;
+        if (p > pb && i + 1 < last) continue;
+        t = pb > p1[2] ? (p - p1[2]) / (pb - p1[2]) : 0;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        t2 = t * t;
+        t3 = t2 * t;
+        for (k = 0; k < 2; k++)
+            xy[k] = 0.5f * (2 * p1[k] + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2
+                            + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
+        dx = 0.5f * ((-p0[0] + p2[0]) + 2 * (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t + 3 * (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t2);
+        dy = 0.5f * ((-p0[1] + p2[1]) + 2 * (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t + 3 * (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t2);
+        l = sqrtf(dx * dx + dy * dy);
+        if (dir) {
+            dir[0] = l > 0 ? dx / l : 1;
+            dir[1] = l > 0 ? dy / l : 0;
+        }
+        return;
+    }
+    xy[0] = r->route[0];
+    xy[1] = r->route[1];
+    if (dir) { dir[0] = 1; dir[1] = 0; }
+}
+
+static const hp2_race *const *sort_cars;
+static int by_place(const void *a, const void *b)
+{
+    const hp2_race *x = sort_cars[*(const int *)a], *y = sort_cars[*(const int *)b];
+    int fx = x->state == HP2_RACE_FINISHED, fy = y->state == HP2_RACE_FINISHED;
+    if (fx != fy) return fx ? -1 : 1;
+    if (fx && x->finish_time != y->finish_time) return x->finish_time < y->finish_time ? -1 : 1;
+    if (x->travelled != y->travelled) return x->travelled > y->travelled ? -1 : 1;
+    return *(const int *)a - *(const int *)b;
+}
+
+int hp2_race_order(const hp2_race *const *cars, int n, int *order)
+{
+    int i;
+    for (i = 0; i < n; i++) order[i] = i;
+    sort_cars = cars;
+    qsort(order, (size_t)n, sizeof *order, by_place);
+    return n;
 }
 
 void hp2_race_time(float t, char *buf, int size)

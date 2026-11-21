@@ -131,6 +131,8 @@ actions currently held. Escape or Ctrl+C to quit.
            --globalb 302_4c937012.bin --cartex 012_0287bf4f.bin --geometry 067_89c70f1a.bin
 ./hp2track --disc ... --track 24 --laps 5                         # a 5-lap race (default 3)
 ./hp2track --disc ... --track 24 --shot t24.bmp --sim 4           # one frame after 4 s of throttle
+./hp2track --disc ... --track 24 --opponents 5                    # five opponents (default 3, 0 = none)
+./hp2track --disc ... --track 24 --opponent MCLAREN --opponent DIABLO   # these two
 ```
 
 The first steps towards the race: one track's scenery, placed as the game
@@ -183,6 +185,23 @@ countdown pictures; the engine revs if you press the throttle), then GO and
 the clock runs. Laps are counted along the track's main route: crossing the
 line adds one, driving back over it does not, and shortcuts work. On a
 point-to-point track it is one run to the finish. R starts again.
+
+**Opponents.** Three by default (`--opponents N`, up to five, or name them
+with `--opponent NAME`; without a disc, `--opponent NAME=GEOMETRY.BIN`),
+fast cars other than yours, each in its own paint, on a grid of two
+abreast 8 m apart, you at the back. They drive with the same handling as
+you, from the same pedals and steering, so each goes and grips as its own
+data says. **Their driver is a stand-in**: the game's AI (its racing
+lines, catch-up, its use of shortcuts) is not decoded. Each follows a
+driving line worked out when the track loads: the main route's points are
+100 m or more apart and cut across corners, the ground between forks and
+the walls, so the line is searched for over the collision ground instead
+(2 m cells within 150 m of the route, joined where no wall stands between,
+the cheapest way from the route every 150 m to the next, kept near the
+route and away from the edges). Along it they keep to their own lanes,
+brake for bends to what their tyres can take, ease off when sliding and
+back out when stuck. Cars bump each other. The race display shows your
+place (1st/4), and at the end where you finished.
 
 **The race display** is the game's own, from the race screen in
 `GLOBAL\INGAMEB.BUN` (positions, fonts, colours) with the gauge faces from

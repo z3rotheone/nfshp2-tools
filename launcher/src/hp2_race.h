@@ -41,6 +41,7 @@ typedef struct {
     int          wrong_way;     /* 1 while driving against the route */
     float        wrong_time;
     float        dir[2];        /* the route's direction at the car */
+    float        finish_time;   /* clock at the finish, 0 = not yet */
 } hp2_race;
 
 /* route: n points of (x, y, progress); loop: a circuit; len: a lap, or the
@@ -48,9 +49,17 @@ typedef struct {
 void hp2_race_init(hp2_race *r, const float *route, int n, int loop, float len, int laps);
 /* Progress of a point along the route, and the route's direction there. */
 float hp2_race_progress(const hp2_race *r, float x, float y, float dir[2]);
+/* Places sorted by who is furthest on (finished first by finishing time):
+ * order[0] is the leader. Returns n. */
+int hp2_race_order(const hp2_race *const *cars, int n, int *order);
+
 /* Advances the race by dt seconds with the car at (x, y), moving (vx, vy).
  * Returns 1 the step a lap (or the race) is completed. */
 int hp2_race_step(hp2_race *r, float dt, float x, float y, float vx, float vy);
+
+/* The point of the route at a progress (wrapped on a circuit, held to the
+ * ends otherwise), and the route's direction there. */
+void hp2_race_point(const hp2_race *r, float progress, float xy[2], float dir[2]);
 
 /* "1:23.45" (minutes, seconds, hundredths) into buf. */
 void hp2_race_time(float t, char *buf, int size);

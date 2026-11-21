@@ -263,10 +263,11 @@ make hp2track        # needs SDL2 and OpenGL
 ```
 
 Draws one track's scenery with its textures, sky and fog, and a car you can
-race on the track's collision mesh: the countdown, laps, the game's own race
-display (rev counter, speed, gear, lap times) and the car's engine sound.
-The handling is a stand-in, not the game's yet; C switches to a free
-camera. See
+race on the track's collision mesh against opponents: the countdown, laps,
+your place, the game's own race display (rev counter, speed, gear, lap
+times) and the car's engine sound. The car's tyres, springs and drivetrain
+are the game's; the opponents' driver is a stand-in, not the game's AI;
+C switches to a free camera. See
 [`launcher/README.md`](launcher/README.md).
 
 ### Ghidra

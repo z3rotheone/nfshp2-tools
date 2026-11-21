@@ -41,6 +41,7 @@
  * --cam X,Y,Z,YAW,PITCH (degrees) from there. --sim SECONDS[,STEER] drives
  * that long at full throttle first (steer -1..1), for testing.
  */
+#include "hp2_ai.h"
 #include "hp2_car.h"
 #include "hp2_coll.h"
 #include "hp2_drive.h"
@@ -95,6 +96,15 @@ typedef struct {
     int    tex;             /* index into the texture table */
 } glgroup;
 
+#define HP2_MAX_CARS 6
+
+typedef struct {
+    int      ok, skin;
+    hp2_car  car;
+    glgroup *carg, *tyreg, *brakeg[2];
+    int      shadow_tex;
+} carview;
+
 typedef struct {
     hp2_scene  sc;
     gltex     *tex;
@@ -102,14 +112,14 @@ typedef struct {
     glgroup  **grp;         /* per section, ng entries; sky after the sections */
     glgroup   *skyg;
     int        missing_tex;
-    /* the car */
+    /* the cars: 0 is the player's, then the opponents */
     int        has_car;
-    hp2_car    car;
-    glgroup   *carg, *tyreg, *brakeg[2];
-    int        shadow_tex;
+    carview    cv[HP2_MAX_CARS];
+    int        ncv;
     hp2_coll   coll;
     int        has_coll;
     int        arcade;          /* --arcade: the first stand-in grip */
+    hp2_ai_line line;           /* the opponents' driving line */
 } world;
 
 typedef struct {
@@ -299,29 +309,29 @@ static int build_world(world *w, int mipmaps, const hp2_texset *ts)
 
 /* One list per batch of a car mesh, textures resolved as the game fills
  * the car's slots. */
-static glgroup *build_mesh(world *w, const hp2_mesh *m, const hp2_texset *ts, int skin)
+static glgroup *build_mesh(world *w, const carview *cv, const hp2_mesh *m, const hp2_texset *ts, int skin)
 {
     glgroup *g = (glgroup *)calloc((size_t)(m->nb ? m->nb : 1), sizeof *g);
     int i;
     if (!g) return NULL;
     for (i = 0; i < m->nb; i++) {
-        g[i].tex = find_or_add_tex(w, hp2_car_texture(&w->car, ts, m->b[i].tex, skin));
+        g[i].tex = find_or_add_tex(w, hp2_car_texture(&cv->car, ts, m->b[i].tex, skin));
         if (g[i].tex < 0) { free(g); return NULL; }
         g[i].list = compile_verts(m->v + m->b[i].first, m->b[i].count);
     }
     return g;
 }
 
-static int build_car(world *w, const hp2_texset *ts, int skin)
+static int build_car(world *w, carview *cv, const hp2_texset *ts)
 {
     char name[64];
-    w->carg = build_mesh(w, &w->car.body, ts, skin);
-    w->tyreg = build_mesh(w, &w->car.tyre, ts, skin);
-    w->brakeg[0] = build_mesh(w, &w->car.brake[0], ts, skin);
-    w->brakeg[1] = build_mesh(w, &w->car.brake[1], ts, skin);
-    snprintf(name, sizeof name, "%s_SHADOWIG", w->car.rec.model);
-    w->shadow_tex = find_or_add_tex(w, hp2_geom_hash(name));
-    return w->carg && w->tyreg && w->brakeg[0] && w->brakeg[1] && w->shadow_tex >= 0 ? 0 : -1;
+    cv->carg = build_mesh(w, cv, &cv->car.body, ts, cv->skin);
+    cv->tyreg = build_mesh(w, cv, &cv->car.tyre, ts, cv->skin);
+    cv->brakeg[0] = build_mesh(w, cv, &cv->car.brake[0], ts, cv->skin);
+    cv->brakeg[1] = build_mesh(w, cv, &cv->car.brake[1], ts, cv->skin);
+    snprintf(name, sizeof name, "%s_SHADOWIG", cv->car.rec.model);
+    cv->shadow_tex = find_or_add_tex(w, hp2_geom_hash(name));
+    return cv->carg && cv->tyreg && cv->brakeg[0] && cv->brakeg[1] && cv->shadow_tex >= 0 ? 0 : -1;
 }
 
 /* ---- drawing --------------------------------------------------------------- */
@@ -416,9 +426,9 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
 /* The car at its place: body, then a tyre and a brake disc on each hub
  * (mirrored for the left side, the tyre scaled to the wheel's own size,
  * the front ones turned by the steering). */
-static void draw_car(const world *w, const hp2_drive *d, int pass)
+static void draw_car(const world *w, const carview *cv, const hp2_drive *d, int pass)
 {
-    const hp2_car *c = &w->car;
+    const hp2_car *c = &cv->car;
     int k;
     glPushMatrix();
     glTranslatef(d->pos[0], d->pos[1], d->pos[2] + d->ride);
@@ -430,7 +440,7 @@ static void draw_car(const world *w, const hp2_drive *d, int pass)
     glTranslatef(0, 0, d->heave);
     glRotatef(-d->body_pitch * 180 / PI, 0, 1, 0);
     glRotatef(d->body_roll * 180 / PI, 1, 0, 0);
-    draw_groups(w, w->carg, c->body.nb, pass);
+    draw_groups(w, cv->carg, c->body.nb, pass);
     glPopMatrix();
     for (k = 0; k < 4; k++) {
         const hp2_wheel *wh = &c->rec.wheel[k];
@@ -443,20 +453,20 @@ static void draw_car(const world *w, const hp2_drive *d, int pass)
         if (front) glRotatef(-d->steer_angle * 180 / PI, 0, 0, 1);
         glPushMatrix();
         glScalef(1, sy, 1);
-        draw_groups(w, w->brakeg[front ? 0 : 1], c->brake[front ? 0 : 1].nb, pass);
+        draw_groups(w, cv->brakeg[front ? 0 : 1], c->brake[front ? 0 : 1].nb, pass);
         glPopMatrix();
         glRotatef(fmodf(d->spin, 2 * PI) * 180 / PI, 0, 1, 0);
         glScalef(sr, sy * sw, sr);
-        draw_groups(w, w->tyreg, c->tyre.nb, pass);
+        draw_groups(w, cv->tyreg, c->tyre.nb, pass);
         glPopMatrix();
     }
     glPopMatrix();
 }
 
 /* The car's shadow, a quad on the ground under it. */
-static void draw_shadow(const world *w, const hp2_drive *d)
+static void draw_shadow(const world *w, const carview *cv, const hp2_drive *d)
 {
-    const gltex *t = &w->tex[w->shadow_tex];
+    const gltex *t = &w->tex[cv->shadow_tex];
     float fx = cosf(d->heading), fy = sinf(d->heading), l = d->half_len + 0.2f, h = d->half_wid + 0.2f;
     float cx[4] = { l, l, -l, -l }, cy[4] = { h, -h, -h, h }, u[4] = { 0, 1, 1, 0 }, v[4] = { 0, 0, 1, 1 };
     int k;
@@ -475,7 +485,7 @@ static void draw_shadow(const world *w, const hp2_drive *d)
     glDisable(GL_POLYGON_OFFSET_FILL);
 }
 
-static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_drive *car)
+static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_drive *const *cars)
 {
     float view[16], proj[16], clip[16], n = 0.5f, fa = 30000.0f, aspect = (float)W / (H ? H : 1);
     float t = n * tanf(55.0f * PI / 360.0f), r = t * aspect;
@@ -543,10 +553,16 @@ static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_driv
     /* opaque and cut-out first, then the blended ones over them; the car
      * in between, so the scenery's blended pieces (shadows, glass) go over it */
     for (pass = 0; pass < 2; pass++) {
-        if (pass == 1 && car) {
-            draw_shadow(w, car);
-            draw_car(w, car, 0);
-            draw_car(w, car, 1);
+        if (pass == 1 && cars) {
+            int k;
+            for (k = 0; k < w->ncv; k++) {
+                const float b[6] = { cars[k]->pos[0] - 3, cars[k]->pos[1] - 3, cars[k]->pos[2] - 1,
+                                     cars[k]->pos[0] + 3, cars[k]->pos[1] + 3, cars[k]->pos[2] + 3 };
+                if (!w->cv[k].ok || !box_visible(clip, b)) continue;
+                draw_shadow(w, &w->cv[k], cars[k]);
+                draw_car(w, &w->cv[k], cars[k], 0);
+                draw_car(w, &w->cv[k], cars[k], 1);
+            }
         }
         for (i = 0; i < sc->nsec; i++) {
             if (!sc->sec[i].ng || !box_visible(clip, sc->sec[i].box)) continue;
@@ -626,8 +642,28 @@ typedef struct {
     const hp2_fe_screen *race, *pre;
 } hudstate;
 
-static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *r, int W, int H)
+static const char *ordinal(int n)
 {
+    if (n % 100 >= 11 && n % 100 <= 13) return "th";
+    return n % 10 == 1 ? "st" : n % 10 == 2 ? "nd" : n % 10 == 3 ? "rd" : "th";
+}
+
+/* The player's place among the n cars (1-based). */
+static int player_place(const hp2_race *races, int n)
+{
+    const hp2_race *p[HP2_MAX_CARS];
+    int order[HP2_MAX_CARS], i;
+    for (i = 0; i < n; i++) p[i] = &races[i];
+    hp2_race_order(p, n, order);
+    for (i = 0; i < n; i++)
+        if (order[i] == 0) return i + 1;
+    return 1;
+}
+
+static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, int ncars, int W, int H)
+{
+    const hp2_race *r = &races[0];
+    int place = ncars > 1 ? player_place(races, ncars) : 0;
     static const float pivot[2] = { 12, 56 };   /* the needle's hub in its texture */
     hp2_hud *h = &hs->hud;
     const hp2_fe_widget *x;
@@ -674,6 +710,14 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *r, int W,
         if (r->best > 0) hp2_race_time(r->best, t2, sizeof t2);
         else snprintf(t2, sizeof t2, "-:--.--");
         if ((x = hp2_hud_widget(hs->race, "LAP_TIME"))) hp2_hud_text(h, x, t2);
+        /* the place, top left: big figure, its "st"/"nd", "/n" */
+        if (place) {
+            snprintf(buf, sizeof buf, "%d", place);
+            if ((x = hp2_hud_widget(hs->race, "BIGRACE_POSITION"))) hp2_hud_text(h, x, buf);
+            if ((x = hp2_hud_widget(hs->race, "BIGRACE_EXTENSION"))) hp2_hud_text(h, x, ordinal(place));
+            snprintf(buf, sizeof buf, "/%d", ncars);
+            if ((x = hp2_hud_widget(hs->race, "BIGRACE_TOTAL"))) hp2_hud_text(h, x, buf);
+        }
         if (r->wrong_way && r->state == HP2_RACE_RUNNING && (x = hp2_hud_widget(hs->race, "WRONG_WAY_IMAGE")))
             hp2_hud_image(h, x, 0, 0, NULL, 1);
         if (r->state == HP2_RACE_COUNTDOWN && hs->pre) {
@@ -688,7 +732,9 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *r, int W,
         if (r->state == HP2_RACE_FINISHED) {
             float total = 0;
             for (i = 0; i < r->laps; i++) total += r->lap_time[i];
-            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, "Race Over");
+            if (place) snprintf(buf, sizeof buf, "You finished %d%s", place, ordinal(place));
+            else snprintf(buf, sizeof buf, "Race Over");
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, buf);
             hp2_race_time(total, t1, sizeof t1);
             snprintf(buf, sizeof buf, "Time %s", t1);
             if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, buf);
@@ -700,13 +746,25 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *r, int W,
     hp2_hud_end();
 }
 
-static void start_car(const world *w, hp2_drive *d)
+/* A car on the starting grid: two abreast, 8 m between rows; slot 0 is
+ * the front left. Without opponents the player starts on the line. */
+static void start_car(const world *w, int k, hp2_drive *d, const hp2_race *route)
 {
     const hp2_scene *sc = &w->sc;
     float x = sc->start[0], y = sc->start[1], z = sc->start[2], hd = 0;
     if (sc->has_start) hd = atan2f(sc->ahead[1] - sc->start[1], sc->ahead[0] - sc->start[0]);
+    if (w->ncv > 1 && route && route->n) {
+        /* the player at the back of the grid, the opponents ahead */
+        int slot = k == 0 ? w->ncv - 1 : k - 1, row = slot / 2, rows = (w->ncv + 1) / 2;
+        float p = (route->loop ? 0 : 6) + 8.0f * (rows - 1 - row) - (route->loop ? 4 : 0), xy[2], dir[2];
+        float side = (slot % 2 ? -1.8f : 1.8f);
+        hp2_race_point(route, p, xy, dir);
+        x = xy[0] - dir[1] * side;
+        y = xy[1] + dir[0] * side;
+        hd = atan2f(dir[1], dir[0]);
+    }
     if (w->has_coll) hp2_coll_ground(&w->coll, x, y, z + 5, 5, &z, NULL, NULL);
-    hp2_drive_init(d, &w->car.rec, x, y, z, hd);
+    hp2_drive_init(d, &w->cv[k].car.rec, x, y, z, hd);
     d->arcade = w->arcade;
 }
 
@@ -715,6 +773,35 @@ static float axis(SDL_GameController *p, SDL_GameControllerAxis a)
     float v = p ? SDL_GameControllerGetAxis(p, a) / 32767.0f : 0;
     if (v > -0.15f && v < 0.15f) return 0;
     return v;
+}
+
+/* One step of the race for every car: the player's pedals (in), the
+ * opponents' from their drivers; everyone held at the line during the
+ * countdown (engines revving); then the bumps between cars and each car's
+ * laps. */
+static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *ai, const hp2_drive_in *player, float dt)
+{
+    int i, j;
+    for (i = 0; i < w->ncv; i++) {
+        hp2_drive_in in;
+        if (i == 0) in = *player;
+        else hp2_ai_drive(&ai[i], &races[i], &w->line, &drv[i], dt, &in);
+        if (races[i].state == HP2_RACE_FINISHED && i > 0) {
+            memset(&in, 0, sizeof in);              /* opponents coast to a stop after the line */
+            in.brake = drv[i].speed > 1 ? 0.4f : 0;
+        }
+        if (races[0].state == HP2_RACE_COUNTDOWN) {
+            /* held at the line: the engine revs with the throttle */
+            float want = drv[i].idle_rpm + in.throttle * (0.7f * drv[i].redline_rpm - drv[i].idle_rpm);
+            drv[i].rpm += (want - drv[i].rpm) * fminf(1, 8 * dt);
+            drv[i].load += (in.throttle - drv[i].load) * fminf(1, 10 * dt);
+        } else {
+            hp2_drive_step(&drv[i], &w->coll, &in, dt);
+        }
+    }
+    for (i = 0; i < w->ncv; i++)
+        for (j = i + 1; j < w->ncv; j++) hp2_drive_collide(&drv[i], &drv[j]);
+    for (i = 0; i < w->ncv; i++) hp2_race_step(&races[i], dt, drv[i].pos[0], drv[i].pos[1], drv[i].vel[0], drv[i].vel[1]);
 }
 
 int main(int argc, char **argv)
@@ -727,12 +814,17 @@ int main(int argc, char **argv)
     hp2_fontset fonts = { 0 };
     hp2_fe_layout layout;
     hudstate hs;
-    hp2_race race;
+
     hp2_engine eng;
     int has_eng = 0;
     SDL_AudioDeviceID audio = 0;
     hp2_zdir zdir;
-    hp2_drive car;
+    hp2_drive drv[HP2_MAX_CARS];
+    const hp2_drive *dptr[HP2_MAX_CARS];
+    hp2_race races[HP2_MAX_CARS];
+    hp2_ai ai[HP2_MAX_CARS];
+    const char *oppname[HP2_MAX_CARS], *oppfile[HP2_MAX_CARS];
+    int nopp = -1, nopp_named = 0;
     hp2_carrec recs[HP2_CARDB_MAX];
     files f;
     hp2_texset ts;
@@ -765,6 +857,15 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
+        else if (!strcmp(argv[i], "--opponents") && i + 1 < argc) nopp = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--opponent") && i + 1 < argc && nopp_named < HP2_MAX_CARS - 1) {
+            /* NAME, or NAME=GEOMETRY.BIN with extracted files */
+            char *eq;
+            oppname[nopp_named] = argv[++i];
+            oppfile[nopp_named] = NULL;
+            if ((eq = strchr(argv[i], '='))) { *eq = 0; oppfile[nopp_named] = eq + 1; }
+            nopp_named++;
+        }
         else if (!strcmp(argv[i], "--ingame") && i + 1 < argc) igf = argv[++i];
         else if (!strcmp(argv[i], "--hudtex") && i + 1 < argc) htf = argv[++i];
         else if (!strcmp(argv[i], "--msh") && i + 1 < argc) mshf = argv[++i];
@@ -775,7 +876,7 @@ int main(int argc, char **argv)
                             "       [--car NAME] [--skin N] [--no-car]\n"
                             "       [--globalb FILE --cartex FILE --geometry FILE]   (the car, with --scenery)\n"
                             "       [--ingame INGAMEB.BUN --hudtex HUDTEX.BIN --msh F --msb F]   (display, engine)\n"
-                            "       [--laps N] [--no-sound] [--arcade]\n"
+                            "       [--laps N] [--no-sound] [--arcade] [--opponents N] [--opponent NAME[=GEOMETRY]]...\n"
                             "       [--size WxH] [--no-fog] [--shot OUT.bmp] [--cam X,Y,Z,YAW,PITCH] [--sim S[,STEER]]\n"
                             "tracks: 11-16 21-26 31-36 41-46 61-66\n", argv[0]);
             return 2;
@@ -829,13 +930,51 @@ int main(int argc, char **argv)
         if (!f.msh && have_zdir) load_engine(&zdir, rec, &f);
         if (f.msh && f.msb && hp2_engine_load(&eng, f.msh, f.msh_len, f.msb, f.msb_len, rec->idle_rpm, rec->redline_rpm) == 0)
             has_eng = 1;
-        if (f.geom && hp2_car_build(&w.car, f.geom, f.geom_len, rec) == 0) {
+        if (f.geom && hp2_car_build(&w.cv[0].car, f.geom, f.geom_len, rec) == 0) {
             w.has_car = 1;
+            w.cv[0].ok = 1;
+            w.cv[0].skin = skin;
+            w.ncv = 1;
             if (f.cartex) hp2_tex_scan(&ts, f.cartex, f.cartex_len);
             hp2_tex_scan(&ts, f.globalb, f.globalb_len);
-            printf("car %s (%s): %d body triangles\n", rec->name, rec->model, w.car.body.nv / 3);
+            printf("car %s (%s): %d body triangles\n", rec->name, rec->model, w.cv[0].car.body.nv / 3);
         } else {
             fprintf(stderr, "could not load %s's model (%s)\n", rec->name, rec->path);
+        }
+        /* the opponents: named ones, or the first of a list of fast cars
+         * that are not the player's (three with a disc, none without) */
+        if (w.has_car) {
+            static const char *field[] = { "F50", "MCLAREN", "DIABLO", "CARRERAGT", "VANQUISH", "MURCIELAGO", "CLK_GTR",
+                                           "VIPERGTS", "911TURBO", NULL };
+            int want = nopp >= 0 ? nopp : nopp_named ? nopp_named : have_zdir ? 3 : 0, j, fi = 0;
+            if (want > HP2_MAX_CARS - 1) want = HP2_MAX_CARS - 1;
+            for (j = 0; j < want; j++) {
+                const char *name = j < nopp_named ? oppname[j] : NULL;
+                const hp2_carrec *orec = NULL;
+                uint8_t *g = NULL;
+                size_t gl_len = 0;
+                carview *ov = &w.cv[w.ncv];
+                while (!name && field[fi]) {
+                    if (strcmp(field[fi], rec->name)) name = field[fi];
+                    fi++;
+                }
+                if (!name) break;
+                orec = hp2_cardb_find(recs, n, name);
+                if (!orec) { fprintf(stderr, "no car '%s' for an opponent\n", name); continue; }
+                if (j < nopp_named && oppfile[j]) g = maybe_decompress(hp2_read_file(oppfile[j], &gl_len), &gl_len);
+                else if (have_zdir) g = load_geometry(&zdir, orec, &gl_len);
+                if (!g || hp2_car_build(&ov->car, g, gl_len, orec) != 0) {
+                    fprintf(stderr, "could not load %s's model for an opponent\n", name);
+                    free(g);
+                    continue;
+                }
+                free(g);
+                ov->ok = 1;
+                ov->skin = 1 + (w.ncv * 2 + (!strcmp(orec->model, rec->model) ? 1 : 0)) % 5;
+                if (!strcmp(orec->model, rec->model) && ov->skin == skin) ov->skin = skin % 5 + 1;
+                printf("opponent %d: %s\n", w.ncv, orec->name);
+                w.ncv++;
+            }
         }
     } else if (want_car && !w.has_coll) {
         fprintf(stderr, "no collision mesh in the scenery: no car\n");
@@ -855,10 +994,19 @@ int main(int argc, char **argv)
     if (f.hudtex) hp2_tex_scan(&ts, f.hudtex, f.hudtex_len);
     if (f.globalb) hp2_font_scan(&fonts, f.globalb, f.globalb_len);
     hp2_hud_init(&hs.hud, &ts, &fonts);
-    hp2_race_init(&race, w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
+    for (i = 0; i < HP2_MAX_CARS; i++) {
+        hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
+        memset(&ai[i], 0, sizeof ai[i]);
+        ai[i].lane = (i % 2 ? 1.5f : -1.5f) * (1 + (i / 2) * 0.3f);
+        ai[i].skill = 0.95f - 0.03f * i;
+        ai[i].at = -1;
+        dptr[i] = &drv[i];
+    }
+    if (w.ncv > 1 && hp2_ai_line_build(&w.line, &races[0], w.has_coll ? &w.coll : NULL) == 0)
+        printf("opponents' line: %.0f m\n", w.line.len);
     if (w.has_car)
-        printf("race: %d lap%s of %.0f m (%s); %s\n", race.laps, race.laps > 1 ? "s" : "", race.len,
-               race.loop ? "circuit" : "point to point", has_eng ? "engine sound loaded" : "no engine sound");
+        printf("race: %d lap%s of %.0f m (%s); %s\n", races[0].laps, races[0].laps > 1 ? "s" : "", races[0].len,
+               races[0].loop ? "circuit" : "point to point", has_eng ? "engine sound loaded" : "no engine sound");
 
     if (SDL_Init(SDL_INIT_VIDEO | (shot ? 0 : SDL_INIT_GAMECONTROLLER)) != 0) {
         fprintf(stderr, "SDL: %s\n", SDL_GetError());
@@ -875,17 +1023,19 @@ int main(int argc, char **argv)
         const char *ver = (const char *)glGetString(GL_VERSION);
         int major = 1, minor = 0;
         if (ver) sscanf(ver, "%d.%d", &major, &minor);
-        if (build_world(&w, major > 1 || minor >= 4, &ts) != 0 || (w.has_car && build_car(&w, &ts, skin) != 0)) {
+        if (build_world(&w, major > 1 || minor >= 4, &ts) != 0) {
             fprintf(stderr, "out of memory\n");
             return 1;
         }
+        for (i = 0; i < w.ncv; i++)
+            if (build_car(&w, &w.cv[i], &ts) != 0) { fprintf(stderr, "out of memory\n"); return 1; }
         upload_textures(&w, &ts, major > 1 || minor >= 4);
         printf("OpenGL %s; %d textures used, %d not found\n", ver ? ver : "?", w.ntex, w.missing_tex);
     }
     hp2_scene_drop_vertices(&w.sc);   /* the display lists hold the geometry now */
     start_camera(&w.sc, &c);
     if (w.has_car) {
-        start_car(&w, &car);
+        for (i = 0; i < w.ncv; i++) start_car(&w, i, &drv[i], &races[0]);
         if (sim) {
             hp2_drive_in in;
             float secs = 0, steer = 0, t;
@@ -893,16 +1043,16 @@ int main(int argc, char **argv)
             memset(&in, 0, sizeof in);
             in.throttle = 1;
             in.steer = steer;
-            race.countdown = 0;
-            for (t = 0; t < secs; t += 0.05f) {
-                hp2_drive_step(&car, &w.coll, &in, 0.05f);
-                hp2_race_step(&race, 0.05f, car.pos[0], car.pos[1], car.vel[0], car.vel[1]);
-            }
+            for (i = 0; i < w.ncv; i++) races[i].countdown = 0;
+            for (t = 0; t < secs; t += 0.05f) race_tick(&w, drv, races, ai, &in, 0.05f);
+            for (i = 1; i < w.ncv; i++)
+                printf("opponent %d: %.1f mph, progress %.0f, travelled %.0f\n", i, drv[i].speed / 0.44704f, races[i].progress,
+                       races[i].travelled);
             printf("after %.1f s: %.1f mph, gear %d at %.0f rpm, at %.1f %.1f %.1f, heading %.1f, progress %.0f\n", secs,
-                   car.speed / 0.44704f, car.gear, car.rpm, car.pos[0], car.pos[1], car.pos[2], car.heading * 180 / PI,
-                   race.progress);
+                   drv[0].speed / 0.44704f, drv[0].gear, drv[0].rpm, drv[0].pos[0], drv[0].pos[1], drv[0].pos[2], drv[0].heading * 180 / PI,
+                   races[0].progress);
         }
-        chase_camera(&car, &c, 1);
+        chase_camera(&drv[0], &c, 1);
     }
     if (cam) {
         driving = 0;
@@ -915,8 +1065,8 @@ int main(int argc, char **argv)
     if (shot) {
         int dw, dh;
         SDL_GL_GetDrawableSize(win, &dw, &dh);
-        draw(&w, &c, dw, dh, fog, w.has_car ? &car : NULL);
-        if (w.has_car && !cam) draw_hud(&hs, &car, &race, dw, dh);
+        draw(&w, &c, dw, dh, fog, w.has_car ? dptr : NULL);
+        if (w.has_car && !cam) draw_hud(&hs, &drv[0], races, w.ncv, dw, dh);
         glFinish();
         if (save_shot(shot, dw, dh) != 0) { fprintf(stderr, "could not save %s\n", shot); return 1; }
         printf("wrote %s (%dx%d)\n", shot, dw, dh);
@@ -958,16 +1108,20 @@ int main(int argc, char **argv)
                 case SDLK_f: fog = !fog; break;
                 case SDLK_r:
                     if (driving) {
-                        start_car(&w, &car);
-                        chase_camera(&car, &c, 1);
-                        hp2_race_init(&race, w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
+                        for (i = 0; i < w.ncv; i++) {
+                            hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
+                            start_car(&w, i, &drv[i], &races[0]);
+                            ai[i].stuck = ai[i].reverse = 0;
+                            ai[i].at = -1;
+                        }
+                        chase_camera(&drv[0], &c, 1);
                     }
                     else start_camera(&w.sc, &c);
                     break;
                 case SDLK_c:
                     if (w.has_car) {
                         driving = !driving;
-                        if (driving) chase_camera(&car, &c, 1);
+                        if (driving) chase_camera(&drv[0], &c, 1);
                     }
                     break;
                 case SDLK_m: grab = !grab; SDL_SetRelativeMouseMode(grab ? SDL_TRUE : SDL_FALSE); break;
@@ -1013,32 +1167,24 @@ int main(int argc, char **argv)
             in.steer = (float)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]))
                        + axis(pad, SDL_CONTROLLER_AXIS_LEFTX);
             in.handbrake = k[SDL_SCANCODE_SPACE] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A));
-            if (race.state == HP2_RACE_COUNTDOWN) {
-                /* held at the line: the engine revs with the throttle */
-                float want = car.idle_rpm + in.throttle * (0.7f * car.redline_rpm - car.idle_rpm);
-                car.rpm += (want - car.rpm) * fminf(1, 8 * dt);
-                car.load += (in.throttle - car.load) * fminf(1, 10 * dt);
-            } else {
-                hp2_drive_step(&car, &w.coll, &in, dt);
-            }
-            hp2_race_step(&race, dt, car.pos[0], car.pos[1], car.vel[0], car.vel[1]);
-            chase_camera(&car, &c, 1 - expf(-8 * dt));
+            race_tick(&w, drv, races, ai, &in, dt);
+            chase_camera(&drv[0], &c, 1 - expf(-8 * dt));
             if (now / 250 != (Uint32)titled) {
                 char title[96];
                 titled = (int)(now / 250);
-                snprintf(title, sizeof title, "Hot Pursuit 2 - %s - %.0f mph", car.speed > -1 ? w.car.rec.name : "reverse",
-                         fabsf(car.speed) / 0.44704f);
+                snprintf(title, sizeof title, "Hot Pursuit 2 - %s - %.0f mph", drv[0].speed > -1 ? w.cv[0].car.rec.name : "reverse",
+                         fabsf(drv[0].speed) / 0.44704f);
                 SDL_SetWindowTitle(win, title);
             }
             SDL_GL_GetDrawableSize(win, &dw, &dh);
-            draw(&w, &c, dw, dh, fog, &car);
-            draw_hud(&hs, &car, &race, dw, dh);
+            draw(&w, &c, dw, dh, fog, dptr);
+            draw_hud(&hs, &drv[0], races, w.ncv, dw, dh);
             SDL_GL_SwapWindow(win);
             if (audio) {
                 static int16_t mixbuf[2 * 1024];
                 /* keep about 60 ms queued: enough to never run dry, little enough to answer the throttle */
                 while (SDL_GetQueuedAudioSize(audio) < 44100 * 4 * 6 / 100) {
-                    hp2_engine_mix(&eng, car.rpm, car.load, 0.6f, mixbuf, 512, 44100);
+                    hp2_engine_mix(&eng, drv[0].rpm, drv[0].load, 0.6f, mixbuf, 512, 44100);
                     SDL_QueueAudio(audio, mixbuf, 512 * 4);
                 }
             }
@@ -1064,11 +1210,12 @@ int main(int argc, char **argv)
              * (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL] ? 0.2f : 1.0f);
         for (i = 0; i < 3; i++) c.pos[i] += mv[i] * sp * dt;
         SDL_GL_GetDrawableSize(win, &dw, &dh);
-        draw(&w, &c, dw, dh, fog, w.has_car ? &car : NULL);
+        draw(&w, &c, dw, dh, fog, w.has_car ? dptr : NULL);
         SDL_GL_SwapWindow(win);
     }
     if (audio) SDL_CloseAudioDevice(audio);
     if (has_eng) hp2_engine_free(&eng);
+    hp2_ai_line_free(&w.line);
     if (pad) SDL_GameControllerClose(pad);
     SDL_GL_DeleteContext(gl);
     SDL_DestroyWindow(win);
