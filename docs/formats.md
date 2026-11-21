@@ -166,10 +166,20 @@ than `width × height` (or half that, for 4 bpp) means mipmaps are present.
 
 ### Swizzling — the part that catches people out
 
-Only textures that fill whole GS memory pages are stored swizzled:
+Only textures that fill a **power-of-two grid** of whole GS memory pages are
+stored swizzled. A page is 128 x 64 pixels at 8 bpp and 128 x 128 at 4 bpp, so:
 
-- 8 bpp: width a multiple of 128 **and** height a multiple of 64
-- 4 bpp: width **and** height both multiples of 128
+- 8 bpp: width and height both powers of two, width >= 128, height >= 64
+- 4 bpp: width and height both powers of two, both >= 128
+
+A grid of 3, 6 or 7 pages is stored linear even though it fills whole pages:
+GRID (4-bit 512 x 384), LOGOTRACK33 / LOGOTRACK61_FR and their R versions
+(4-bit 384 x 128), PURSUIT_TREE_BG / SPEED_TREE_BG / DISPLAYSETUP_BG (8-bit
+512 x 448), GRID_BLUEPRINT1/2 and GRID_FADE (8-bit 512 x 384) and the
+MOVIE_256_384_* test cards (8-bit 128 x 192, 256 x 384). All checked by eye
+against both readings (the swizzled reading of each is visibly scrambled;
+GRID_BLUEPRINT1 shows a clean wireframe 360 only read linear). The earlier
+rule (multiples of 128 / 64) had these wrong.
 
 Everything else — and that is most textures — is stored as plain rows of
 pixels. For 4 bpp linear data the **low nibble of each byte is the left pixel**.
@@ -1431,6 +1441,11 @@ super bonus "Championship Duel").
   lines between events cannot be drawn.
 * No reward field has been found; the blurb text names unlocked events and
   rewards ("unlock Events 2 and 3, as well as the Lotus Elise").
-* Texture names in the packs are cut at 23 characters
-  (`PURSUIT_EVENT_PANEL_UNL`); the star ring the TREE_VIEW screen uses is
-  not found by that name or by the widget's own hash 962684706 in FRONTB.
+* Texture names in the packs are cut at 23 characters; the hashes give the
+  full names: `PURSUIT_EVENT_PANEL_LOCKED` (6ec8d95c), `_UNLOCKED`
+  (5b00bd5f), `_WON` (494510fe), 272 x 272, the star badge of Hot Pursuit;
+  `SPEED_EVENT_PANEL_LOCKED` (3c1b3471), `_UNLOCKED` (c65631b4), `_WON`
+  (fa863c33), 216 x 312, the card of World Racing. The coloured tab is green
+  (unlocked), chequered (won) or red (locked). The TREE_VIEW widget
+  EVENT_PANEL (texture 39616722) is a stand-in the screen code replaces.
+  Backdrops: `PURSUIT_TREE_BG` and `SPEED_TREE_BG` (8-bit 512 x 448, maps).

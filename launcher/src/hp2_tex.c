@@ -77,6 +77,15 @@ static size_t pos4(int x, int y, int w, int *odd)
     return (size_t)((wy * (w / 2) + wx) * 4 + ((n & 7) >> 1));
 }
 
+/* Stored swizzled only when the texture fills a power-of-two grid of whole
+ * GS pages (128 x page_h: 64 rows at 8-bit, 128 at 4-bit). Grids of 3, 6 or
+ * 7 pages are plain rows: GRID (4-bit 512 x 384), LOGOTRACK33 (4-bit
+ * 384 x 128), PURSUIT_TREE_BG (8-bit 512 x 448). Same rule as hp2_tpk.py. */
+static int swizzled(int w, int h, int page_h)
+{
+    return w >= 128 && h >= page_h && (w & (w - 1)) == 0 && (h & (h - 1)) == 0;
+}
+
 /* Number of mip levels if size is exactly w x h plus halved levels, else 0. */
 static int mip_levels(int w, int h, uint32_t size, int div)
 {
@@ -221,7 +230,7 @@ int hp2_tex_decode(const hp2_tex *t, uint8_t *rgba)
             else if (m >= 16 && m < 24) s = i - 8;
             pal_entry(t->pal + 4 * s, pal[i]);
         }
-        if (t->w % 128 == 0 && t->h % 64 == 0) {
+        if (swizzled(t->w, t->h, 64)) {
             for (y = 0; y < t->h; y++)
                 for (x = 0; x < t->w; x++)
                     memcpy(rgba + 4 * ((size_t)y * t->w + x), pal[t->pix[pos8(x, y, t->w)]], 4);
@@ -232,8 +241,7 @@ int hp2_tex_decode(const hp2_tex *t, uint8_t *rgba)
         return 0;
     }
     for (i = 0; i < 16; i++) pal_entry(t->pal + 4 * i, pal[i]);
-    /* 3 page rows (GRID, 512 x 384) is stored linear */
-    if (t->w % 128 == 0 && t->h % 128 == 0 && (t->h == 128 || t->h % 256 == 0)) {
+    if (swizzled(t->w, t->h, 128)) {
         for (y = 0; y < t->h; y++)
             for (x = 0; x < t->w; x++) {
                 int odd;

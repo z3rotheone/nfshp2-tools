@@ -147,6 +147,10 @@ its value sets are a best guess from the game's strings) and then car select (th
 screen without Race Type (Players, Skill Level, Setup). Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
 Pig (the game's Ultimate Racer, Challenge and You're The Cop); World Racing
 opens Ultimate Racer and Just Race (the game's Championship and Challenge).
+Ultimate Fugitive and Ultimate Racer open the event tree (TREE_VIEW): one event
+at a time on its map (PURSUIT_TREE_BG / SPEED_TREE_BG) with its badge (a star
+for Hot Pursuit, a card for World Racing; every event is open, so the tab is
+green), number, title, Status and Reward; left/right step through the events.
 The game's help lines go with the original rows; picking a mode does nothing
 yet. Back walks up the same path; back on the title quits. On OPTIONS, *Display* opens the
 Video page, *Controller* the Controls page and *Audio* the Audio page (the

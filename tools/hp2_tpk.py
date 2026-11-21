@@ -298,14 +298,18 @@ def pack_alpha32(img):
 
 
 def is_swizzled(w, h, bpp):
-    """Textures that fill whole GS memory pages are stored pre-swizzled; every
-    smaller or odd-sized texture is stored as plain rows of pixels."""
-    if bpp == 8:
-        return w % 128 == 0 and h % 64 == 0
-    if bpp == 4:
-        # 3 page rows (GRID, 512 x 384) is stored linear; 1, 2, 4... are swizzled
-        return w % 128 == 0 and h % 128 == 0 and (h == 128 or h % 256 == 0)
-    return False
+    """Textures that fill a power-of-two grid of whole GS memory pages are
+    stored pre-swizzled; every other texture is stored as plain rows of pixels.
+    A page is 128 x 64 pixels at 8-bit and 128 x 128 at 4-bit. Grids of 3, 6
+    or 7 pages are linear: GRID (4-bit 512 x 384), LOGOTRACK33 (4-bit
+    384 x 128), PURSUIT_TREE_BG (8-bit 512 x 448), GRID_BLUEPRINT1 (8-bit
+    512 x 384), MOVIE_256_384_US (8-bit 128 x 192); checked by eye."""
+    ph = {8: 64, 4: 128}.get(bpp)
+    if ph is None:
+        return False
+    def pow2(n):
+        return n > 0 and n & (n - 1) == 0
+    return w >= 128 and h >= ph and pow2(w) and pow2(h)
 
 
 def decode(d, base, r):

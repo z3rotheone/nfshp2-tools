@@ -452,6 +452,13 @@ static int find_text(const hp2_fe_item *it, int n, const char *s)
     return c;
 }
 
+static int count_texture(const hp2_fe_item *it, int n, uint32_t tex)
+{
+    int i, c = 0;
+    for (i = 0; i < n; i++) if (it[i].w.kind == HP2_FE_IMAGE && it[i].w.texture == tex) c++;
+    return c;
+}
+
 static int count_named(const hp2_fe_item *it, int n, const char *name)
 {
     int i, c = 0;
@@ -733,6 +740,13 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
           "World Racing: Ultimate Racer and Just Race");
     CHECK(!strcmp(m.help, "Real cars, real fast in 30 events."), "Ultimate Racer on top, with Championship's help line");
     CHECK(count_named(it, n, "MI_1_MASK") == 1 && count_named(it, n, "BOTTOM_MASK") == 2, "bands for 2 rows");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(m.screen == HP2_FEM_TREE && m.tree_kind == 0 && count_texture(it, n, hp2_fe_hash("SPEED_EVENT_PANEL_UNLOCKED")) == 1
+          && count_texture(it, n, hp2_fe_hash("SPEED_TREE_BG")) == 1 && count_texture(it, n, hp2_fe_hash("PURSUIT_TREE_BG")) == 0,
+          "Ultimate Racer: the card badge and its own map");
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(m.screen == HP2_FEM_WORLD_RACING && m.sel == 1, "back from the tree: World Racing");
     hp2_femenu_input(&m, HP2_IN_UP);
     CHECK(m.sel == 2 && !strcmp(m.help, "One-player and two-player challenges."), "up wraps to Just Race");
     hp2_femenu_input(&m, HP2_IN_BACK);
@@ -955,6 +969,8 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         n = hp2_femenu_items(&m, it, 200);
         CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 1 && find_text(it, n, "Opel Speedster Delivery") == 1
               && find_text(it, n, "Event 2") == 1 && find_text(it, n, "Unlocked") == 1, "Ultimate Fugitive: event 2 on the tree");
+        CHECK(count_texture(it, n, hp2_fe_hash("PURSUIT_EVENT_PANEL_UNLOCKED")) == 1 && count_texture(it, n, hp2_fe_hash("PURSUIT_TREE_BG")) == 1,
+              "Ultimate Fugitive: the star badge and the map");
         hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back from the tree: Main Menu");
@@ -977,6 +993,27 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
     CHECK(m.screen == HP2_FEM_MAIN && m.sel == 4, "Main Menu remembers its row");
     hp2_femenu_input(&m, HP2_IN_BACK);
     CHECK(hp2_femenu_input(&m, HP2_IN_BACK) & HP2_FEM_QUIT, "back from the title quits");
+}
+
+/* Mean step between vertically adjacent pixels (RGB, 0..255) of a decoded
+ * texture, or -1. A scrambled (wrongly swizzled) reading is far rougher. */
+static double tex_vdiff(const hp2_tex *t)
+{
+    uint8_t *px;
+    double sum = 0.0;
+    long n = 0;
+    int x, y, c;
+    if (!t || !t->bpp) return -1.0;
+    px = (uint8_t *)malloc((size_t)t->w * t->h * 4);
+    if (!px || hp2_tex_decode(t, px) != 0) { free(px); return -1.0; }
+    for (y = 0; y + 1 < t->h; y++)
+        for (x = 0; x < t->w; x++)
+            for (c = 0; c < 3; c++) {
+                int a = px[4 * ((size_t)y * t->w + x) + c], b = px[4 * ((size_t)(y + 1) * t->w + x) + c];
+                sum += a > b ? a - b : b - a; n++;
+            }
+    free(px);
+    return n ? sum / n : -1.0;
 }
 
 static void test_real(const char *fb, const char *gb, const char *lf, const char *disc, const char *bank)
@@ -1008,6 +1045,24 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
     CHECK(f && f->count == 130, "FONT_STATS from GLOBALB.BUN");
 
     CHECK(hp2_tex_scan(&tex, F, lfb) == 365 && hp2_tex_scan(&tex, G, lgb) == 116, "365 + 116 textures");
+    {   /* names cut at 23 characters in the pack: the hash is of the full name */
+        static const char *full[] = { "PURSUIT_EVENT_PANEL_LOCKED", "PURSUIT_EVENT_PANEL_UNLOCKED", "PURSUIT_EVENT_PANEL_WON",
+                                      "SPEED_EVENT_PANEL_LOCKED", "SPEED_EVENT_PANEL_UNLOCKED", "SPEED_EVENT_PANEL_WON" };
+        int k, ok = 1;
+        for (k = 0; k < 6; k++) {
+            t = hp2_tex_find(&tex, hp2_fe_hash(full[k]));
+            if (!t || t->bpp != 8 || t->w != (k < 3 ? 272 : 216) || t->h != (k < 3 ? 272 : 312)) ok = 0;
+        }
+        CHECK(ok, "event badges by their full names (272 x 272 stars, 216 x 312 cards)");
+    }
+    {   /* 3, 6 or 7 page grids are stored linear: the right reading is smooth */
+        static const char *lin[] = { "PURSUIT_TREE_BG", "SPEED_TREE_BG", "GRID_BLUEPRINT2", "GRID_BLUEPRINT1", "LOGOTRACK33", "GRID" };
+        int k;
+        for (k = 0; k < 6; k++) {
+            double sm = tex_vdiff(hp2_tex_find(&tex, hp2_fe_hash(lin[k])));
+            CHECK(sm >= 0.0 && sm < 10.0, "%s reads linear (vertical step %.2f)", lin[k], sm);
+        }
+    }
     for (i = 0; i < fonts.count; i++) {
         t = hp2_tex_find(&tex, fonts.font[i].hash);
         CHECK(t && t->bpp, "font %08x has its texture", (unsigned)fonts.font[i].hash);

@@ -1364,13 +1364,27 @@ static hp2_fe_item *rect(list *l, const hp2_fe_widget *tmpl, float x, float y, f
     return it;
 }
 
+/* How far down the tree map is scrolled (canvas units). */
+#define TREE_BG_SCROLL 60.0f
+
+static void set_vcol(hp2_fe_item *it, int r, int g, int b, int a)
+{
+    int k;
+    for (k = 0; k < 4; k++) {
+        it->w.vcol[k][0] = (uint8_t)r; it->w.vcol[k][1] = (uint8_t)g;
+        it->w.vcol[k][2] = (uint8_t)b; it->w.vcol[k][3] = (uint8_t)a;
+    }
+}
+
 /* The event tree with one event on view, placed as on a PCSX2 screenshot of
  * the game (the layout is stored scrolled: its title sits at the bottom and
  * its details at the top): the header of Challenge, a map panel, the event's
  * star at the centre with its number, "Event n / Status / Reward" at its
- * right and the event's title in a bar below. Every event is open. The
- * game's map picture, the red lines to the next events and the ghosted car
- * logo are not in the port yet. */
+ * right and the event's title in a bar below. Every event is open. The map
+ * (PURSUIT_TREE_BG / SPEED_TREE_BG) sits in the panel and the badge (a star
+ * for Hot Pursuit, a card for World Racing, green tab = unlocked) behind the
+ * number. The red lines to the next events, the map's scroll to the event
+ * and the ghosted car logo are not in the port yet. */
 static int tree_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->tree, *c = m->chal;
@@ -1397,7 +1411,34 @@ static int tree_items(hp2_femenu *m, list *l)
         }
     }
     if (tmpl) {
+        /* the map behind the tree (8-bit 512 x 448), clipped to the panel */
+        it = push(l, tmpl, NULL);
+        if (it) {
+            it->w.texture = hp2_fe_hash(m->tree_kind ? "PURSUIT_TREE_BG" : "SPEED_TREE_BG");
+            it->w.x = 141.0f; it->w.y = 71.0f - TREE_BG_SCROLL; it->w.sx = it->w.sy = 499.0f / 512.0f;
+            it->w.visible = 1; it->w.layer = 16;
+            set_vcol(it, 0x80, 0x80, 0x80, 0x80);
+            it->clip = 1; it->clip_rect[0] = 141.0f; it->clip_rect[1] = 71.0f;
+            it->clip_rect[2] = 499.0f; it->clip_rect[3] = 259.0f;
+        }
         rect(l, tmpl, 141.0f, 71.0f, 499.0f, 259.0f, 120, 130, 140, 0x30, 15);      /* the map panel */
+        /* the event's badge: Hot Pursuit a 272 x 272 star, World Racing a
+         * 216 x 312 card; the tab is green (unlocked), chequered (won) or
+         * red (locked). Every event is open in the port. Placed as the
+         * layout places EVENT_PANEL against EVENT_NUMBER (175, 135 against
+         * 272, 199), moved with the number. */
+        it = push(l, tmpl, NULL);
+        if (it) {
+            if (m->tree_kind) {
+                it->w.texture = hp2_fe_hash("PURSUIT_EVENT_PANEL_UNLOCKED");
+                it->w.x = 175.0f + (320.0f - 311.0f); it->w.y = 135.0f + (216.0f - 199.0f);
+            } else {
+                it->w.texture = hp2_fe_hash("SPEED_EVENT_PANEL_UNLOCKED");
+                it->w.x = 320.0f - 108.0f; it->w.y = 135.0f + (216.0f - 199.0f) - 20.0f;
+            }
+            it->w.sx = it->w.sy = 1.0f; it->w.visible = 1; it->w.layer = 10;
+            set_vcol(it, 0x80, 0x80, 0x80, 0x80);
+        }
         rect(l, tmpl, 383.0f, 205.0f, 257.0f, 35.0f, 20, 20, 20, 0x50, 8);         /* Status */
         rect(l, tmpl, 383.0f, 246.0f, 257.0f, 35.0f, 20, 20, 20, 0x50, 8);         /* Reward */
         rect(l, tmpl, 383.0f, 201.0f, 257.0f, 2.0f, 240, 240, 240, 0x80, 7);       /* under "Event n" */
