@@ -23,7 +23,15 @@
  *   --shot OUT.bmp     render one frame offscreen, save it, exit
  *   --songbox N        with --shot: show song N's box (as when it starts)
  *   --keys LIST        inputs to apply first, e.g. down,down,accept,right
- *                      (up down left right accept back help)
+ *                      (up down left right accept back help); a race they
+ *                      start is printed, not run
+ *   --hp2track PATH    the track program races run in (default: hp2track
+ *                      beside hp2fe)
+ *
+ * Races: accept on SELECT LAPS (Quick Race, Single Race) or on an event's
+ * details starts hp2track with that race (course, II for the other way
+ * round, laps, your car and colour, the opponents); the menus come back
+ * when its window closes.
  *
  * Keys: arrows, Enter/Space = accept, Esc/Backspace = back, N = next song.
  * A controller's d-pad or left stick, A (south) = accept, B (east) = back,
@@ -48,6 +56,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <spawn.h>
+#include <sys/wait.h>
+extern char **environ;
+#endif
 
 #define MAX_ITEMS 160
 
@@ -96,6 +111,64 @@ static int load_files(files *f, const char *disc, const char *language, char **l
         return -1;
     }
     return 0;
+}
+
+/* hp2track's path: --hp2track, else beside this program. */
+static void track_path(char *out, size_t cap, const char *given, const char *argv0)
+{
+    const char *slash = NULL, *p;
+    if (given) { snprintf(out, cap, "%s", given); return; }
+    for (p = argv0; *p; p++)
+        if (*p == '/' || *p == '\\') slash = p;
+#ifdef _WIN32
+    if (slash) snprintf(out, cap, "%.*shp2track.exe", (int)(slash - argv0 + 1), argv0);
+    else snprintf(out, cap, "hp2track.exe");
+#else
+    if (slash) snprintf(out, cap, "%.*shp2track", (int)(slash - argv0 + 1), argv0);
+    else snprintf(out, cap, "./hp2track");
+#endif
+}
+
+/* The race the menus asked for, as hp2track's command line: program, --disc
+ * DIR, the race. Returns the argument count (args NULL-terminated). */
+#define RACE_ARGS 48
+static int race_command(const hp2_femenu *m, const char *prog, const char *disc, int W, int H,
+                        char buf[][32], const char **args)
+{
+    int n = 0, k, r = hp2_femenu_race_args(&m->go, buf, RACE_ARGS - 6);
+    args[n++] = prog;
+    args[n++] = "--disc";
+    args[n++] = disc;
+    for (k = 0; k < r; k++) args[n++] = buf[k];
+    snprintf(buf[r], 32, "--size");
+    snprintf(buf[r + 1], 32, "%dx%d", W, H);
+    args[n++] = buf[r];
+    args[n++] = buf[r + 1];
+    args[n] = NULL;
+    return n;
+}
+
+static void print_command(const char *const *args)
+{
+    int k;
+    printf("race:");
+    for (k = 0; args[k]; k++) printf(" %s", args[k]);
+    printf("\n");
+    fflush(stdout);
+}
+
+/* Runs hp2track and waits for it. 0 when it ran. */
+static int run_race(const char *const *args)
+{
+#ifdef _WIN32
+    return _spawnv(_P_WAIT, args[0], args) == -1 ? -1 : 0;
+#else
+    pid_t pid;
+    int st;
+    if (posix_spawn(&pid, args[0], NULL, NULL, (char *const *)args, environ) != 0) return -1;
+    while (waitpid(pid, &st, 0) < 0) {}
+    return 0;
+#endif
 }
 
 static int parse_input(const char *s, hp2_fem_input *in)
@@ -201,6 +274,8 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, SDL_Renderer *r, in
 int main(int argc, char **argv)
 {
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
+    const char *trackprog = NULL, *race_args[RACE_ARGS + 1];
+    char prog[1024], race_buf[RACE_ARGS][32];
     static hp2_jukebox jb;
     static hp2_tree trees[2];
     char *loose[3] = { NULL, NULL, NULL };
@@ -237,14 +312,16 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--keys") && i + 1 < argc) keys = argv[++i];
+        else if (!strcmp(argv[i], "--hp2track") && i + 1 < argc) trackprog = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
                             "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--config PATH] [--size WxH]\n"
                             "       [--fit fit|stretch|expand]\n"
-                            "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back,help]\n", argv[0]);
+                            "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back,help] [--hp2track PATH]\n", argv[0]);
             return 2;
         }
     }
+    track_path(prog, sizeof prog, trackprog, argv[0]);
     if (!disc && !loose[0]) {
         fprintf(stderr, "give --disc DIR (your disc's NFSHP2 folder) or --files; --help for more\n");
         return 2;
@@ -282,7 +359,14 @@ int main(int argc, char **argv)
         snprintf(buf, sizeof buf, "%s", keys);
         for (t = strtok(buf, ","); t; t = strtok(NULL, ",")) {
             hp2_fem_input in;
-            if (parse_input(t, &in)) dirty |= hp2_femenu_input(&menu, in) & HP2_FEM_CHANGED;
+            if (parse_input(t, &in)) {
+                int res = hp2_femenu_input(&menu, in);
+                dirty |= res & HP2_FEM_CHANGED;
+                if (res & HP2_FEM_RACE) {   /* scripted: say what would run */
+                    race_command(&menu, "hp2track", disc ? disc : "DIR", W, H, race_buf, race_args);
+                    print_command(race_args);
+                }
+            }
             else fprintf(stderr, "unknown input '%s'\n", t);
         }
     }
@@ -427,6 +511,25 @@ int main(int argc, char **argv)
                 if (before == HP2_FEM_JUKEBOX && menu.screen != before && hp2_jbplay_stopped(&player))
                     hp2_jbplay_resume(&player);    /* the menus have music again */
                 if (res & HP2_FEM_QUIT) quit = 1;
+                if (res & HP2_FEM_RACE) {
+                    /* the race: hp2track in its own window, the menus
+                     * hidden and their music paused until it closes */
+                    int ww, wh;
+                    SDL_GetWindowSize(win, &ww, &wh);
+                    race_command(&menu, prog, disc ? disc : "", ww, wh, race_buf, race_args);
+                    print_command(race_args);
+                    if (!disc) {
+                        fprintf(stderr, "a race needs your disc: start hp2fe with --disc\n");
+                    } else {
+                        if (audio) SDL_PauseAudioDevice(audio, 1);
+                        SDL_HideWindow(win);
+                        if (run_race(race_args) != 0) fprintf(stderr, "could not run %s (give --hp2track PATH)\n", prog);
+                        SDL_ShowWindow(win);
+                        SDL_RaiseWindow(win);
+                        if (audio) SDL_PauseAudioDevice(audio, 0);
+                        SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+                    }
+                }
                 if (dirty && (before == HP2_FEM_SETTINGS || before == HP2_FEM_JUKEBOX) && menu.screen != before) {
                     if (!hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);
                     dirty = 0;

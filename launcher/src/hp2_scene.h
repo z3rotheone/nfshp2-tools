@@ -80,6 +80,12 @@ void hp2_scene_drop_vertices(hp2_scene *s);
  * A new buffer (free() it), or NULL if the data is not valid COMP. */
 uint8_t *hp2_comp_decode(const uint8_t *in, size_t len, size_t *out_len);
 
+/* Turns the main route round (a course's "II" version, run the other way):
+ * the points in the other order, from the same start on a circuit, from
+ * the old finish on a point-to-point; progress counted the new way, the
+ * start position and the point ahead of it to match. */
+void hp2_scene_reverse_route(hp2_scene *s);
+
 #ifdef __cplusplus
 }
 #endif

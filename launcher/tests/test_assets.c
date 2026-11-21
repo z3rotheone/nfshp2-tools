@@ -1017,6 +1017,20 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         m.laps = 1;
         hp2_femenu_input(&m, HP2_IN_LEFT);
         CHECK(m.laps == 1, "at least one lap");
+        m.laps = 2;
+        {
+            char ab[48][32];
+            int na, k2, same = 0;
+            CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == (HP2_FEM_RACE | HP2_FEM_REDRAW) && !m.lap_popup && m.go.track == 11
+                  && m.go.laps == 2 && !m.go.reverse && m.go.nopp == HP2_FEM_MAX_OPP && !m.go.event,
+                  "accept on SELECT LAPS: a race on track 11, 2 laps, a full grid (%d)", m.go.nopp);
+            for (k2 = 0; k2 < m.go.nopp; k2++) same += !strcmp(m.go.opp[k2], m.go.car);
+            CHECK(!same && m.go.skin == m.color + 1, "Quick Race: random opponents, none in %s", m.go.car);
+            na = hp2_femenu_race_args(&m.go, ab, 48);
+            CHECK(na == 8 + 2 * HP2_FEM_MAX_OPP && !strcmp(ab[0], "--track") && !strcmp(ab[1], "11") && !strcmp(ab[3], "2")
+                  && !strcmp(ab[8], "--opponent") && strchr(ab[9], 58), "hp2track arguments (%d): %s %s ... %s", na, ab[0], ab[1], ab[9]);
+            m.lap_popup = 1;
+        }
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(!m.lap_popup && m.screen == HP2_FEM_SELECT_TRACK, "back closes the popup");
         hp2_femenu_input(&m, HP2_IN_BACK);
@@ -1158,7 +1172,16 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
               && find_text(it, n, "Desert Heat") == 1 && find_text(it, n, "Opel Speedster") == 1 && find_text(it, n, "No reward") == 1
               && find_text(it, n, "3") == 1 && !strcmp(m.help, "Australia vs Germany Desert Knockout"),
               "accept on Handling: event 4's details (objective, track, car, no reward), its title in the bar");
-        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_EVENT_INFO, "accept: no race yet");
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_RACE && m.screen == HP2_FEM_EVENT_INFO && m.go.event == 4
+              && m.go.tree_kind == 1 && !strcmp(m.go.car, "OPEL"),
+              "accept: event 4's race in the Opel (track %d%s, %d laps, %d opponents)", m.go.track, m.go.reverse ? " II" : "", m.go.laps, m.go.nopp);
+        {
+            const hp2_tree_event *e4 = &m.trees[1].ev[3];
+            int k2, ok2 = m.go.track == e4->races[0].track && m.go.laps == e4->races[0].laps && m.go.reverse == e4->races[0].ii
+                          && m.go.nopp == e4->nopponents;
+            for (k2 = 0; ok2 && k2 < m.go.nopp; k2++) ok2 = m.go.opp_skill[k2] == e4->opponents[k2].skill;
+            CHECK(ok2, "its track, laps, direction and opponents are the event's own");
+        }
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_SELECT_CAR && m.car_popup == 2 && m.ev_mode, "back: Handling again");
         hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK);
@@ -1861,6 +1884,42 @@ static void test_race(void)
         c4[3].finish_time = 75;
         hp2_race_order(cp, 4, ord);
         CHECK(ord[0] == 3 && ord[1] == 2 && ord[2] == 1 && ord[3] == 0, "places %d %d %d %d", ord[0], ord[1], ord[2], ord[3]);
+    }
+    /* a course's II: the route the other way round */
+    {
+        hp2_scene sc;
+        float pts[12];
+        memset(&sc, 0, sizeof sc);
+        memcpy(pts, sq, sizeof pts);
+        sc.route = pts;
+        sc.route_n = 4;
+        sc.route_loop = 1;
+        sc.route_len = 400;
+        hp2_scene_reverse_route(&sc);
+        CHECK(NEAR(pts[0], 0) && NEAR(pts[1], 0) && NEAR(pts[3], 0) && NEAR(pts[4], 100) && NEAR(pts[5], 100)
+              && NEAR(pts[9], 100) && NEAR(pts[10], 0) && NEAR(pts[11], 300), "a circuit reversed: same line, the other way, progress counted anew");
+        {
+            float op[9] = { 0, 0, 0, 100, 0, 100, 100, 150, 250 };
+            sc.route = op;
+            sc.route_n = 3;
+            sc.route_loop = 0;
+            sc.route_len = 250;
+            hp2_scene_reverse_route(&sc);
+            CHECK(NEAR(op[0], 100) && NEAR(op[1], 150) && NEAR(op[2], 0) && NEAR(op[5], 150) && NEAR(op[8], 250) && NEAR(op[6], 0),
+                  "a point-to-point reversed: from the old finish");
+        }
+    }
+    /* progress stays on its own stretch of route where another passes close */
+    {
+        static const float hair[] = { 0, 0, 0, 1000, 0, 1000, 1000, 10, 2000, 0, 10, 3000 };
+        hp2_race rh;
+        hp2_race_init(&rh, hair, 4, 0, 3000, 1);
+        rh.countdown = 0;
+        hp2_race_step(&rh, 0.01f, 500, 1, 0, 0);
+        hp2_race_step(&rh, 0.01f, 500, 1, 0, 0);
+        hp2_race_step(&rh, 0.1f, 500, 6, 30, 0);
+        CHECK(rh.progress < 600, "nearer the stretch coming back, still on the way out (%.0f)", rh.progress);
+        CHECK(hp2_race_progress(&rh, 500, 6, NULL) > 2000, "(the nearest point alone is on the way back)");
     }
     /* the opponents' line with no collision: the route, every 4 m */
     {

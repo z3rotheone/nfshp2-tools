@@ -30,7 +30,9 @@
  * screenshot, Esc quits.
  *
  * A race: 3, 2, 1, GO, then --laps laps (default 3; one run on a
- * point-to-point track) on the track's main route, with the game's race
+ * point-to-point track) on the track's main route (--reverse: the other
+ * way round, the course's "II"), against opponents (--opponents N, or
+ * --opponent NAME[:SKILL[:SKIN]] each), with the game's race
  * display (rev counter, speed, gear, lap, lap time, best lap, wrong way)
  * and the car's engine sound. R starts the race again.
  *
@@ -96,7 +98,7 @@ typedef struct {
     int    tex;             /* index into the texture table */
 } glgroup;
 
-#define HP2_MAX_CARS 6
+#define HP2_MAX_CARS 8
 
 typedef struct {
     int      ok, skin;
@@ -824,7 +826,8 @@ int main(int argc, char **argv)
     hp2_race races[HP2_MAX_CARS];
     hp2_ai ai[HP2_MAX_CARS];
     const char *oppname[HP2_MAX_CARS], *oppfile[HP2_MAX_CARS];
-    int nopp = -1, nopp_named = 0;
+    int oskill[HP2_MAX_CARS];
+    int nopp = -1, nopp_named = 0, oppskill[HP2_MAX_CARS], oppskin[HP2_MAX_CARS], reverse = 0;
     hp2_carrec recs[HP2_CARDB_MAX];
     files f;
     hp2_texset ts;
@@ -839,6 +842,7 @@ int main(int argc, char **argv)
     memset(&f, 0, sizeof f);
     memset(&ts, 0, sizeof ts);
     memset(&w, 0, sizeof w);
+    for (i = 0; i < HP2_MAX_CARS; i++) oskill[i] = -1;
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--disc") && i + 1 < argc) disc = argv[++i];
         else if (!strcmp(argv[i], "--track") && i + 1 < argc) track = atoi(argv[++i]);
@@ -857,13 +861,21 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
+        else if (!strcmp(argv[i], "--reverse")) reverse = 1;
         else if (!strcmp(argv[i], "--opponents") && i + 1 < argc) nopp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--opponent") && i + 1 < argc && nopp_named < HP2_MAX_CARS - 1) {
-            /* NAME, or NAME=GEOMETRY.BIN with extracted files */
-            char *eq;
+            /* NAME[:SKILL[:SKIN]][=GEOMETRY.BIN]: skill 0-9 as the game's
+             * event tables give it, GEOMETRY with extracted files */
+            char *eq, *co;
             oppname[nopp_named] = argv[++i];
             oppfile[nopp_named] = NULL;
+            oppskill[nopp_named] = oppskin[nopp_named] = -1;
             if ((eq = strchr(argv[i], '='))) { *eq = 0; oppfile[nopp_named] = eq + 1; }
+            if ((co = strchr(argv[i], ':'))) {
+                *co++ = 0;
+                oppskill[nopp_named] = atoi(co);
+                if ((co = strchr(co, ':'))) oppskin[nopp_named] = atoi(co + 1);
+            }
             nopp_named++;
         }
         else if (!strcmp(argv[i], "--ingame") && i + 1 < argc) igf = argv[++i];
@@ -876,7 +888,8 @@ int main(int argc, char **argv)
                             "       [--car NAME] [--skin N] [--no-car]\n"
                             "       [--globalb FILE --cartex FILE --geometry FILE]   (the car, with --scenery)\n"
                             "       [--ingame INGAMEB.BUN --hudtex HUDTEX.BIN --msh F --msb F]   (display, engine)\n"
-                            "       [--laps N] [--no-sound] [--arcade] [--opponents N] [--opponent NAME[=GEOMETRY]]...\n"
+                            "       [--laps N] [--reverse] [--no-sound] [--arcade] [--opponents N]\n"
+                            "       [--opponent NAME[:SKILL[:SKIN]][=GEOMETRY]]...\n"
                             "       [--size WxH] [--no-fog] [--shot OUT.bmp] [--cam X,Y,Z,YAW,PITCH] [--sim S[,STEER]]\n"
                             "tracks: 11-16 21-26 31-36 41-46 61-66\n", argv[0]);
             return 2;
@@ -909,6 +922,7 @@ int main(int argc, char **argv)
         return 2;
     }
     if (hp2_scene_build(&w.sc, f.scen, f.scen_len, 0) != 0) { fprintf(stderr, "no track scenery in that file\n"); return 1; }
+    if (reverse) hp2_scene_reverse_route(&w.sc);   /* the course's II: the other way round */
     for (i = 0; i < f.ntex; i++)
         if (hp2_tex_scan(&ts, f.tex[i], f.tex_len[i]) < 0) { fprintf(stderr, "out of memory\n"); return 1; }
     hp2_tex_scan(&ts, f.scen, f.scen_len);         /* any pack inside the scenery itself */
@@ -972,6 +986,8 @@ int main(int argc, char **argv)
                 ov->ok = 1;
                 ov->skin = 1 + (w.ncv * 2 + (!strcmp(orec->model, rec->model) ? 1 : 0)) % 5;
                 if (!strcmp(orec->model, rec->model) && ov->skin == skin) ov->skin = skin % 5 + 1;
+                if (j < nopp_named && oppskin[j] >= 1) ov->skin = oppskin[j];
+                oskill[w.ncv] = j < nopp_named ? oppskill[j] : -1;
                 printf("opponent %d: %s\n", w.ncv, orec->name);
                 w.ncv++;
             }
@@ -998,7 +1014,8 @@ int main(int argc, char **argv)
         hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
         memset(&ai[i], 0, sizeof ai[i]);
         ai[i].lane = (i % 2 ? 1.5f : -1.5f) * (1 + (i / 2) * 0.3f);
-        ai[i].skill = 0.95f - 0.03f * i;
+        /* skill 0-9 (the event tables'): 0.78 .. 0.96 of the tyres' grip */
+        ai[i].skill = oskill[i] >= 0 ? 0.78f + 0.02f * (oskill[i] > 9 ? 9 : oskill[i]) : 0.95f - 0.03f * i;
         ai[i].at = -1;
         dptr[i] = &drv[i];
     }

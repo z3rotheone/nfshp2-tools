@@ -19,7 +19,12 @@ void hp2_race_init(hp2_race *r, const float *route, int n, int loop, float len, 
     r->lap = 1;
 }
 
-float hp2_race_progress(const hp2_race *r, float x, float y, float dir[2])
+/* The progress nearest (x, y); with near >= 0, a stretch of the route far
+ * (more than 400 m) along from that progress counts as further away the
+ * further it is, so a car is not moved to another part of the route that
+ * passes close by (a road alongside, a crossing) while shortcuts still
+ * count. */
+static float nearest(const hp2_race *r, float x, float y, float dir[2], float near)
 {
     float best = 1e30f, prog = 0, dx = 1, dy = 0;
     int i, segs = r->loop ? r->n : r->n - 1;
@@ -33,10 +38,15 @@ float hp2_race_progress(const hp2_race *r, float x, float y, float dir[2])
         px = a[0] + t * ex - x;
         py = a[1] + t * ey - y;
         d = px * px + py * py;
+        pa = a[2];
+        pb = (i + 1 == r->n) ? r->len : b[2];         /* the closing segment ends at a full lap */
+        if (near >= 0) {
+            float j = fabsf(pa + t * (pb - pa) - near);
+            if (r->loop && j > r->len / 2) j = r->len - j;
+            if (j > 400) d += (j - 400) * (j - 400);
+        }
         if (d < best) {
             best = d;
-            pa = a[2];
-            pb = (i + 1 == r->n) ? r->len : b[2];     /* the closing segment ends at a full lap */
             prog = pa + t * (pb - pa);
             l2 = sqrtf(l2);
             dx = ex / l2;
@@ -51,12 +61,17 @@ float hp2_race_progress(const hp2_race *r, float x, float y, float dir[2])
     return prog;
 }
 
+float hp2_race_progress(const hp2_race *r, float x, float y, float dir[2])
+{
+    return nearest(r, x, y, dir, -1);
+}
+
 int hp2_race_step(hp2_race *r, float dt, float x, float y, float vx, float vy)
 {
     float p, d, speed;
     int done = 0;
     if (!r->n) return 0;
-    p = hp2_race_progress(r, x, y, r->dir);
+    p = r->state == HP2_RACE_COUNTDOWN ? hp2_race_progress(r, x, y, r->dir) : nearest(r, x, y, r->dir, r->progress);
     if (r->state == HP2_RACE_COUNTDOWN) {
         r->countdown -= dt;
         r->progress = p;

@@ -30,7 +30,8 @@ typedef struct {
     int   *cell;
     int   *nb;                  /* 8 per node: the node a step away, or -1 */
     unsigned char *clear;       /* steps to the nearest edge of the road */
-    unsigned char *big;         /* 1 on a stretch of ground of 2000 nodes or more */
+    unsigned char *big;         /* 1 on a stretch of ground of 2000 nodes or more and
+                                   at least an eighth of the largest */
     float *off;                 /* distance from the main route */
 } grid;
 
@@ -192,13 +193,14 @@ static int grid_build(grid *g, const hp2_race *r, const hp2_coll *c)
         for (i = 0; i < g->n; i++)
             if (g->clear[i] == 255) g->clear[i] = 15;
         /* the stretches of ground joined together: the inside of a wall
-         * round a pillar or a sign is not somewhere to drive to */
+         * round a pillar or a sign, or a shelf of terrain walled off from
+         * the road, is not somewhere to drive to */
         g->big = calloc((size_t)g->n, 1);
         if (g->big) {
-            int *mark = calloc((size_t)g->n, sizeof(int)), comp = 0;
-            if (mark) {
+            int *mark = calloc((size_t)g->n, sizeof(int)), comp = 0, *size = NULL, most = 0;
+            if (mark && (size = calloc((size_t)g->n + 1, sizeof(int)))) {
                 for (i = 0; i < g->n; i++) {
-                    int d, k2;
+                    int d;
                     if (mark[i]) continue;
                     comp++;
                     qh = qt = 0;
@@ -214,11 +216,16 @@ static int grid_build(grid *g, const hp2_race *r, const hp2_coll *c)
                             }
                         }
                     }
-                    if (qt >= 2000)
-                        for (k2 = 0; k2 < qt; k2++) g->big[q[k2]] = 1;
+                    size[comp] = qt;
+                    if (qt > most) most = qt;
                 }
-                free(mark);
+                for (i = 0; i < g->n; i++) {
+                    int sz = size[mark[i]];
+                    g->big[i] = sz >= 2000 && sz >= most / 8;
+                }
             }
+            free(size);
+            free(mark);
         }
         free(q);
     }
@@ -239,7 +246,7 @@ static int grid_find(const grid *g, float x, float y, float z)
                     int j = g->map[LAYERS * (ny * g->w + nx) + L];
                     float d;
                     if (j < 0 || (g->big && !g->big[j])) continue;
-                    d = fabsf(g->z[j] - z) + (g->clear[j] ? 0 : 5) + (float)(dx * dx + dy * dy);
+                    d = fabsf(g->z[j] - z) + (g->clear[j] ? 0 : 50) + (float)(dx * dx + dy * dy);
                     if (d < bd) {
                         bd = d;
                         best = j;
@@ -329,7 +336,8 @@ static void add(poly *p, float x, float y, float z, float half)
 /* The way from node a to node b: A*, each step costing its length times
  * (1 + (distance from the main route past 30 m / 20 m)^2) (so it keeps to
  * the route's road, not a shortcut) and more near the road's edge (so it
- * keeps to the middle). Adds the nodes after a, up to
+ * keeps to the middle); never through a node at the edge (a gap narrower
+ * than three cells is no way for a car). Adds the nodes after a, up to
  * and including b, to out. */
 static int way(const grid *g, int a, int b, float *cost, int *prev, int *stamp, int tag, heap *h, poly *out)
 {
@@ -354,7 +362,7 @@ static int way(const grid *g, int a, int b, float *cost, int *prev, int *stamp, 
         for (d = 0; d < 8; d++) {
             int v = g->nb[8 * u + d];
             float f, c, vx, vy;
-            if (v < 0) continue;
+            if (v < 0 || (!g->clear[v] && v != b)) continue;     /* a car's width off the edge */
             f = g->off[v] > 30 ? (g->off[v] - 30) / 20 : 0;
             c = cost[u] + ((d & 1) ? 1.4142f : 1.0f) * CELL * (1 + f * f) * (1 + 4.0f / (1 + g->clear[v]));
             if (stamp[v] == tag && c >= cost[v]) continue;
@@ -434,12 +442,25 @@ static int along_ground(poly *out, const hp2_race *r, const hp2_coll *c)
         node_xy(&g, wp[0], &x, &y);
         add(out, x, y, g.z[wp[0]], (g.clear[wp[0]] + 0.5f) * CELL);
     }
-    for (i = 0; i + 1 < nwp; i++) {
-        if (way(&g, wp[i], wp[i + 1], cost, prev, stamp, i + 1, &h, out) < 0) {
-            /* no way through: the line jumps to the next point */
-            float x, y;
-            node_xy(&g, wp[i + 1], &x, &y);
-            add(out, x, y, g.z[wp[i + 1]], CELL);
+    {
+        int from = wp[0], tag = 0;
+        for (i = 1; i < nwp; i++) {
+            int to = wp[i], got = way(&g, from, to, cost, prev, stamp, ++tag, &h, out), L;
+            /* not joined: try the cell's other levels (the waypoint may sit
+             * on terrain over the road), then the next waypoint */
+            for (L = 0; got < 0 && L < LAYERS; L++) {
+                int j = g.map[LAYERS * g.cell[wp[i]] + L];
+                if (j < 0 || j == wp[i] || (g.big && !g.big[j])) continue;
+                if ((got = way(&g, from, j, cost, prev, stamp, ++tag, &h, out)) >= 0) to = j;
+            }
+            if (got < 0 && i + 1 < nwp) continue;
+            if (got < 0) {
+                /* no way through at all: the line jumps (to the start, on a circuit) */
+                float x, y;
+                node_xy(&g, to, &x, &y);
+                add(out, x, y, g.z[to], CELL);
+            }
+            from = to;
         }
     }
     if (r->loop && out->n > 1) out->n--;     /* the last is the first again */

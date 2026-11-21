@@ -121,6 +121,28 @@ controller it finds, prints which pad it detected and the bindings in that
 pad's own button names, then shows live steering, throttle, brake and the
 actions currently held. Escape or Ctrl+C to quit.
 
+### Races from the menus
+
+`hp2fe --disc DIR` starts races in `hp2track` (beside it, or `--hp2track
+PATH`): its window hides and the menu music pauses until the race window
+closes. Two ways in:
+
+* **An event** (Ultimate Fugitive or Ultimate Racer, then a car, then
+  Accept on the event's details): the event's own course (its "II" version
+  driven the other way round, `--reverse`), laps, and opponents with the
+  cars, paints and skill (0-9) the event tables give them; your car in the
+  colour you picked. A Tournament or Knockout lists several races: the
+  port runs the first, as a plain race (no knockouts, no points). Pursuit
+  and Delivery events race the same way: there are no cops yet.
+* **Quick Race or a Challenge** (car, course, Time of Day, laps): opponents
+  as Customize sets them (how many, Same or Random cars, Opponent AI as
+  skill 2, 5 or 8); Quick Race uses a full grid of seven random cars, a Free
+  Run none.
+
+`--keys` (scripted inputs) prints the race's command line instead, e.g.
+`race: hp2track --disc DIR --track 21 --laps 2 --car OPEL --skin 1
+--opponent OPEL:5 --opponent TS50:4 --opponent CL55AMG:3`.
+
 ### Driving around a track (`hp2track`)
 
 ```sh
@@ -133,6 +155,7 @@ actions currently held. Escape or Ctrl+C to quit.
 ./hp2track --disc ... --track 24 --shot t24.bmp --sim 4           # one frame after 4 s of throttle
 ./hp2track --disc ... --track 24 --opponents 5                    # five opponents (default 3, 0 = none)
 ./hp2track --disc ... --track 24 --opponent MCLAREN --opponent DIABLO   # these two
+./hp2track --disc ... --track 24 --reverse --opponent F50:9:3     # the other way round; skill 9, paint 3
 ```
 
 The first steps towards the race: one track's scenery, placed as the game
@@ -185,9 +208,14 @@ countdown pictures; the engine revs if you press the throttle), then GO and
 the clock runs. Laps are counted along the track's main route: crossing the
 line adds one, driving back over it does not, and shortcuts work. On a
 point-to-point track it is one run to the finish. R starts again.
+`--reverse` runs the course the other way round, as the game's "II"
+courses (an inference from their names and the menu's Alternate row: the
+route's points in the other order, from the same line on a circuit, from
+the old finish on a point-to-point).
 
-**Opponents.** Three by default (`--opponents N`, up to five, or name them
-with `--opponent NAME`; without a disc, `--opponent NAME=GEOMETRY.BIN`),
+**Opponents.** Three by default (`--opponents N`, up to seven, or name them
+with `--opponent NAME[:SKILL[:PAINT]]`, skill 0-9 as the game's event
+tables give it; without a disc, `--opponent NAME=GEOMETRY.BIN`),
 fast cars other than yours, each in its own paint, on a grid of two
 abreast 8 m apart, you at the back. They drive with the same handling as
 you, from the same pedals and steering, so each goes and grips as its own
@@ -253,8 +281,9 @@ a strip of thumbnails with the course's picture, logo, length ("4.590 mi (Circui
 "(Point-to-Point)") and difficulty; left/right pick a course, up/down pick its
 Time of Day from the column on the right (sunny, or the second lighting: overcast in
 the Parkland and Desert, sunset elsewhere); accept asks SELECT LAPS. Everything is
-unlocked and there are no points. Back walks up. The game also shows the car in 3D with a spotlit floor, and the
-race itself comes next: neither is in the port yet. The swatch colours are
+unlocked and there are no points. Back walks up. Accept on SELECT LAPS starts the
+race in `hp2track` (see "Races from the menus" below). The game also shows the car in 3D with a spotlit floor,
+which is not in the port. The swatch colours are
 those of the BMW M5 for every car; elevations and best times are not known, so
 they are left blank, and difficulty is Beginner / Advanced / Expert by the
 course's number within its location (a guess). Racing But With Pigs and Just Race (the game's Challenge) open the *Challenge*
@@ -274,8 +303,8 @@ Transmission and Handling; the event sets the track, so accepting Handling
 shows the event's details instead of track select: the objective in the game's
 words ("Finish 2nd or better", "Make your delivery in 5:00 or less"), the
 track(s), laps, opponents, the car chosen and the reward, on the game's event
-information panel with the event's title in the bar. There is no race yet:
-accept does nothing there, back returns to Handling. The tree's own layout is decoded (`src/hp2_tree.c`, docs/formats.md
+information panel with the event's title in the bar. Accept there starts the
+event's race in `hp2track`; back returns to Handling. The tree's own layout is decoded (`src/hp2_tree.c`, docs/formats.md
 "Event trees") but not drawn.
 The game's help lines go with the original rows; picking a mode does nothing
 yet. Back walks up the same path; back on the title quits. On OPTIONS, *Display* opens the

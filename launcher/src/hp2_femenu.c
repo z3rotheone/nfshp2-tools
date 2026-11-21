@@ -433,6 +433,47 @@ int hp2_femenu_track_number(const hp2_femenu *m)
  * dawn) in the three others. */
 static int overcast_course(int k) { return TRACKS[k].num < 30; }
 
+static void copy_name(char *d, const char *s)
+{
+    snprintf(d, 16, "%s", s);
+}
+
+/* Customize's settings (RACE_SETUP) */
+enum { SU_COPS, SU_OPPONENTS, SU_OPPTYPE, SU_AI, SU_CATCHUP, SU_TRAFFIC, SU_DAMAGE, SU_TRACKS, SU_KINDS };
+
+static uint32_t dice(hp2_femenu *m)
+{
+    m->seed = m->seed * 1664525u + 1013904223u;
+    return m->seed >> 8;
+}
+
+/* A quick or single race: the course, lighting, direction and laps picked,
+ * the car in its colour; opponents as Customize set them (count, Same or
+ * Random cars, Opponent AI), none for a Free Run. Quick Race skips
+ * Customize, so its defaults stand: a full grid of random cars. */
+static void single_race(hp2_femenu *m)
+{
+    hp2_fem_race *g = &m->go;
+    int n = 0, k;
+    static const int skill[3] = { 2, 5, 8 };
+    memset(g, 0, sizeof *g);
+    g->track = hp2_femenu_track_number(m);
+    g->reverse = m->alt;
+    g->laps = m->laps > 0 ? m->laps : 1;
+    copy_name(g->car, CARS[m->car % HP2_CARS].thumb);
+    g->skin = m->color + 1;
+    if (m->quick_mode || m->race_type != 1) n = m->setup_val[SU_OPPONENTS] >= 6 ? HP2_FEM_MAX_OPP : m->setup_val[SU_OPPONENTS] + 1;
+    for (k = 0; k < n; k++) {
+        int c = m->car % HP2_CARS;
+        if (!m->setup_val[SU_OPPTYPE] || m->quick_mode)
+            do c = (int)(dice(m) % HP2_CARS); while (c == m->car % HP2_CARS);
+        copy_name(g->opp[k], CARS[c].thumb);
+        g->opp_skill[k] = skill[m->setup_val[SU_AI] % 3];
+        g->opp_skin[k] = -1;
+    }
+    g->nopp = n;
+}
+
 static int track_input(hp2_femenu *m, hp2_fem_input in)
 {
     if (m->lap_popup) {
@@ -440,7 +481,8 @@ static int track_input(hp2_femenu *m, hp2_fem_input in)
         case HP2_IN_LEFT:  if (m->laps > 1) m->laps--; return HP2_FEM_REDRAW;
         case HP2_IN_RIGHT: if (m->laps < 10) m->laps++; return HP2_FEM_REDRAW;
         case HP2_IN_BACK:  m->lap_popup = 0; return HP2_FEM_REDRAW;
-        default: return 0;          /* accept: the race itself is not in the port yet */
+        case HP2_IN_ACCEPT: single_race(m); m->lap_popup = 0; return HP2_FEM_RACE | HP2_FEM_REDRAW;
+        default: return 0;
         }
     }
     switch (in) {
@@ -460,7 +502,6 @@ static int track_input(hp2_femenu *m, hp2_fem_input in)
 /* RACE_SETUP ("Customize"): the settings the Setup row opens, by mode. Each
  * has a label (30001..), a set of values (strings 30008..30020) and a help
  * line (30500..). The rows are rebuilt from the mode on every call. */
-enum { SU_COPS, SU_OPPONENTS, SU_OPPTYPE, SU_AI, SU_CATCHUP, SU_TRAFFIC, SU_DAMAGE, SU_TRACKS, SU_KINDS };
 static const struct { uint32_t label, help; int n; } SU_INFO[SU_KINDS] = {
     { 30001u, 0u, 2 }, { 30002u, 30500u, 7 }, { 30003u, 30501u, 2 }, { 30004u, 0u, 3 },
     { 30005u, 30502u, 2 }, { 30006u, 30503u, 4 }, { 30101u, 30504u, 2 }, { 30007u, 30505u, 2 },
@@ -565,7 +606,7 @@ static void list_help(hp2_femenu *m)
     if (!e || m->sel < 1 || m->sel > n) return;
     e += m->sel - 1;
     if (e->go == GO_QUICK && m->quick_mode) {
-        snprintf(m->help, sizeof m->help, "Quick Race: %s settings. Its race screens are not in the port yet.",
+        snprintf(m->help, sizeof m->help, "Quick Race: %s settings, a full grid of random cars.",
                  quick_name(m->quick_mode));
         return;
     }
@@ -784,10 +825,48 @@ static int tree_input(hp2_femenu *m, hp2_fem_input in)
     return HP2_FEM_REDRAW;
 }
 
-/* The event's details: back returns to Handling; accept would start the
- * race, which is not in the port yet. */
+static const char *cardb_name(int idx)
+{
+    idx &= 0x3FFF;              /* Championship 31's F50 has 0x4000 set */
+    return idx >= 0 && idx < CARDB_N ? CARDB[idx] : NULL;
+}
+
+/* The event's race: its first (a Tournament or Knockout lists several; the
+ * port runs the first), the car picked in its own colour, its opponents. */
+static int event_race(hp2_femenu *m)
+{
+    const hp2_tree *t = m->trees ? &m->trees[m->tree_kind] : NULL;
+    const hp2_tree_event *e;
+    hp2_fem_race *g = &m->go;
+    const char *car;
+    int k;
+    if (!t || !t->present || m->tree_ev >= t->count) return 0;
+    e = &t->ev[m->tree_ev];
+    if (e->nraces < 1 || m->car < 0 || m->car >= m->ev_ncars || !(car = cardb_name(m->ev_cars[m->car]))) return 0;
+    memset(g, 0, sizeof *g);
+    g->track = e->races[0].track;
+    g->reverse = e->races[0].ii;
+    g->laps = e->races[0].laps > 0 ? e->races[0].laps : 1;
+    copy_name(g->car, car);
+    g->skin = m->color + 1;
+    for (k = 0; k < e->nopponents && g->nopp < HP2_FEM_MAX_OPP; k++) {
+        const char *o = cardb_name(e->opponents[k].car);
+        if (!o) continue;
+        copy_name(g->opp[g->nopp], o);
+        g->opp_skill[g->nopp] = e->opponents[k].skill;
+        g->opp_skin[g->nopp] = e->opponents[k].colour >= 1 ? e->opponents[k].colour : -1;   /* 1-8 (never 0), as the paints */
+        g->nopp++;
+    }
+    g->event = e->number;
+    g->tree_kind = m->tree_kind;
+    g->race_type = e->race_type;
+    return 1;
+}
+
+/* The event's details: back returns to Handling; accept starts the race. */
 static int evinfo_input(hp2_femenu *m, hp2_fem_input in)
 {
+    if (in == HP2_IN_ACCEPT) return event_race(m) ? HP2_FEM_RACE : 0;
     if (in != HP2_IN_BACK) return 0;
     m->screen = HP2_FEM_SELECT_CAR;
     m->car_popup = 2;
@@ -1886,4 +1965,30 @@ int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
     if (m->screen == HP2_FEM_SELECT_TRACK) return track_items(m, &l);
     if (list_screen(m)) return list_items(m, &l);
     return m->screen == HP2_FEM_OPTIONS ? options_items(m, &l) : settings_items(m, &l);
+}
+
+int hp2_femenu_race_args(const hp2_fem_race *g, char buf[][32], int cap)
+{
+    int n = 0, k;
+#define ARG(...) do { if (n < cap) snprintf(buf[n++], 32, __VA_ARGS__); } while (0)
+    ARG("--track");
+    ARG("%d", g->track);
+    if (g->reverse) ARG("--reverse");
+    ARG("--laps");
+    ARG("%d", g->laps);
+    ARG("--car");
+    ARG("%s", g->car);
+    ARG("--skin");
+    ARG("%d", g->skin);
+    if (!g->nopp) {
+        ARG("--opponents");
+        ARG("0");
+    }
+    for (k = 0; k < g->nopp; k++) {
+        ARG("--opponent");
+        if (g->opp_skin[k] >= 1) ARG("%s:%d:%d", g->opp[k], g->opp_skill[k], g->opp_skin[k]);
+        else ARG("%s:%d", g->opp[k], g->opp_skill[k]);
+    }
+#undef ARG
+    return n;
 }

@@ -267,7 +267,8 @@ race on the track's collision mesh against opponents: the countdown, laps,
 your place, the game's own race display (rev counter, speed, gear, lap
 times) and the car's engine sound. The car's tyres, springs and drivetrain
 are the game's; the opponents' driver is a stand-in, not the game's AI;
-C switches to a free camera. See
+C switches to a free camera. `hp2fe --disc DIR` starts it from the menus:
+an event's own race (course, laps, opponents), or Quick Race. See
 [`launcher/README.md`](launcher/README.md).
 
 ### Ghidra

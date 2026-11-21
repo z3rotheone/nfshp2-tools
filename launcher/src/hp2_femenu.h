@@ -33,8 +33,11 @@
  *                    picture, logo, length and difficulty. Left/right pick a
  *                    course; up/down pick the Time of Day (sunny or the
  *                    course's other lighting); accept asks SELECT LAPS
- *                    (left/right, back closes). Every course is open: no
- *                    points. Back returns to the car.
+ *                    (left/right, back closes; accept starts the race:
+ *                    HP2_FEM_RACE). Every course is open: no points. Back
+ *                    returns to the car.
+ *   EVENT_INFO       an event's details after its car; accept starts the
+ *                    event's race (HP2_FEM_RACE), back returns to Handling.
  *   OPTIONS          the game's own screen with the rows the port keeps:
  *                    Audio, Controller, Display, Save/Load (player
  *                    progress; does nothing yet). Player Names, Credits
@@ -102,6 +105,28 @@ typedef enum { HP2_IN_UP, HP2_IN_DOWN, HP2_IN_LEFT, HP2_IN_RIGHT, HP2_IN_ACCEPT,
 #define HP2_FEM_QUIT     4    /* back out of the title screen (or of OPTIONS
                                  when it was the first screen): leave */
 
+#define HP2_FEM_RACE     8    /* start a race: its set-up is in m->go
+                                 (accept on SELECT LAPS, or on an event's
+                                 details) */
+
+/* A race to start (the port drives it with hp2track). Car names are the
+ * car database's (GLOBALB chunk 0x34600). */
+#define HP2_FEM_MAX_OPP 7
+typedef struct {
+    int  track;                      /* TRACKS\TRACKB<n>.LZC */
+    int  reverse;                    /* 1: the course's II, the other way round */
+    int  laps;
+    char car[16];
+    int  skin;                       /* 1.. */
+    int  nopp;
+    char opp[HP2_FEM_MAX_OPP][16];
+    int  opp_skill[HP2_FEM_MAX_OPP]; /* 0..9 */
+    int  opp_skin[HP2_FEM_MAX_OPP];  /* 1.., or -1: any */
+    int  event;                      /* the event number, 0 for a quick or single race */
+    int  tree_kind;                  /* with event: 0 Championship, 1 Hot Pursuit */
+    int  race_type;                  /* with event: HP2_RT_* */
+} hp2_fem_race;
+
 #define HP2_FEM_VISIBLE  7    /* settings rows shown at once */
 #define HP2_FEM_SONGS    5    /* jukebox songs shown at once */
 #define HP2_FEM_EVENT_ROWS 5  /* event list: events shown at once */
@@ -133,6 +158,7 @@ typedef struct {
                                        or NULL: accept on an event then does nothing */
     int                  ev_mode;   /* car select shows an event's own cars */
     int                  ev_ncars, ev_cars[HP2_TREE_MAX_CARS];   /* car database indices */
+    hp2_fem_race         go;        /* the race HP2_FEM_RACE asks for */
     int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
     int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
     int                  handling;  /* 0 Classic, 1 Extreme */
@@ -209,6 +235,12 @@ hp2_play hp2_femenu_play(const hp2_femenu *m, int song);
 #define HP2_SONGBOX_LINE  "NFS:HP2 Remixx"
 int hp2_femenu_songbox(const hp2_fe_screen *box, const hp2_jb_track *t, char *quoted, size_t qcap,
                        hp2_fe_item *items, int cap);
+
+/* The command-line arguments that start go's race in hp2track (after the
+ * program name and --disc DIR): --track, --reverse, --laps, --car, --skin,
+ * --opponents 0 or --opponent NAME:SKILL[:SKIN] each. Writes up to cap
+ * strings of 32 bytes into buf; returns how many. */
+int hp2_femenu_race_args(const hp2_fem_race *go, char buf[][32], int cap);
 
 /* The open settings page's section ("Video", "Controls", "Audio"), or "". */
 const char *hp2_femenu_page(const hp2_femenu *m);

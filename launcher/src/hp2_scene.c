@@ -484,3 +484,38 @@ bad:
     free(out);
     return NULL;
 }
+
+void hp2_scene_reverse_route(hp2_scene *s)
+{
+    int n = s->route_n, k;
+    float *r, last;
+    if (n < 2 || !(r = (float *)malloc(sizeof(float) * 3 * n))) return;
+    last = s->route[3 * (n - 1) + 2];
+    for (k = 0; k < n; k++) {
+        /* a circuit keeps point 0 (the line) first: 0, n-1, n-2, ... 1 */
+        int j = s->route_loop ? (n - k) % n : n - 1 - k;
+        r[3 * k] = s->route[3 * j];
+        r[3 * k + 1] = s->route[3 * j + 1];
+        r[3 * k + 2] = s->route_loop ? (k ? s->route_len - s->route[3 * j + 2] : 0) : last - s->route[3 * j + 2];
+    }
+    memcpy(s->route, r, sizeof(float) * 3 * n);
+    free(r);
+    if (s->has_start) {
+        float zs = s->start[2], za = s->ahead[2];
+        if (!s->route_loop) {           /* the old finish */
+            s->start[0] = s->route[0];
+            s->start[1] = s->route[1];
+            s->ahead[0] = s->route[3];
+            s->ahead[1] = s->route[4];
+            s->start[2] = ground(s, s->start[0], s->start[1]);
+            s->ahead[2] = ground(s, s->ahead[0], s->ahead[1]);
+            if (s->start[2] < -1e8f) s->start[2] = zs;
+            if (s->ahead[2] < -1e8f) s->ahead[2] = s->start[2];
+        } else {                        /* the same line, facing the other way */
+            s->ahead[0] = s->route[3];
+            s->ahead[1] = s->route[4];
+            s->ahead[2] = ground(s, s->ahead[0], s->ahead[1]);
+            if (s->ahead[2] < -1e8f) s->ahead[2] = za;
+        }
+    }
+}

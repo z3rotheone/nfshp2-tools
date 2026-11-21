@@ -1684,7 +1684,8 @@ the events as a plain list; the tree layout is decoded but not drawn).
 * **`34A04` = rewards**, 8 bytes: u8 kind (0 car, 1 track), u8 id (car
   database index or track number), u16 flag (track: 1 = its "II"; car: 1,
   9 once), u32 condition value as in `34A03` (1 = win, or a time).
-* **`34A06` = opponents**, 4 bytes: u8 car, u8 colour (255 = any), u8 skill
+* **`34A06` = opponents**, 4 bytes: u8 car, u8 colour (255 = any; else
+  1..8, never 0, so probably the paint number, `_SKIN<n>`), u8 skill
   (0..9), u8 0. `$NUM_OPPONENTS` is their count.
 * Every field was checked against the event blurbs (cars, track, laps,
   number of opponents, rewards, unlock places); `tools/hp2_eventtree.py`

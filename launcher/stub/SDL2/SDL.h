@@ -72,6 +72,8 @@ typedef enum {
     SDL_CONTROLLER_AXIS_TRIGGERRIGHT
 } SDL_GameControllerAxis;
 
+#define SDL_FIRSTEVENT              0
+#define SDL_LASTEVENT               0xFFFF
 #define SDL_QUIT                    0x100
 #define SDL_KEYDOWN                 0x300
 #define SDL_CONTROLLERDEVICEADDED   0x653
@@ -225,4 +227,9 @@ const Uint8 *SDL_GetKeyboardState(int *numkeys);
 SDL_bool SDL_GetRelativeMouseMode(void);
 int   SDL_SetRelativeMouseMode(SDL_bool enabled);
 void  SDL_SetWindowTitle(SDL_Window *w, const char *title);
+void  SDL_GetWindowSize(SDL_Window *w, int *wd, int *ht);
+void  SDL_HideWindow(SDL_Window *w);
+void  SDL_ShowWindow(SDL_Window *w);
+void  SDL_RaiseWindow(SDL_Window *w);
+void  SDL_FlushEvents(Uint32 lo, Uint32 hi);
 #endif /* HP2_SDL_STUB_H */
