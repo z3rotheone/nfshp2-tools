@@ -148,9 +148,15 @@ disc on each hub from the car database, the front wheels turned by the
 steering and all four rolling, and its in-game shadow. It sits on the
 track's collision mesh (`hp2_coll`: the ground under each wheel tilts it)
 and stops at walls, the invisible ones included. **The handling is a
-stand-in** (`hp2_drive`: acceleration, braking, grip, a handbrake that
-lets the back slide), not the game's; only the top speed and the wheel
-positions come from the car's record. 0-60 mph takes about 4 s.
+stand-in** (`hp2_drive`), not the game's, but each car goes as its own
+data says: its torque curve through its gear ratios and final drive, its
+tyre size, mass and air drag, combined the way the game's own acceleration
+table combines them (docs/formats.md 12, "The drivetrain fields"), with
+the gearbox changing up at 95% of the redline as that table does. On a
+flat road the Lamborghini police car does 0-60 mph in 2.6 s, the F50 in
+3.0, the 911 Turbo in 3.3, the M5 in 3.9 and the CL55 in 6.2; all reach
+their listed top speed or near it. Grip, braking, steering and the
+handbrake sliding the back are made up.
 
 Driving: W / Up accelerates, S / Down brakes and then reverses, A D / Left
 Right steer, Space is the handbrake; on a controller RT, LT, the left stick

@@ -42,6 +42,17 @@ typedef struct {
     float     idle_rpm, peak_rpm, redline_rpm;
     float     top_speed;        /* mph */
     char      engine[33];       /* engine sound: "NewEBxr" -> SOUND\NEWEBXR.MSH/.MSB; "" for traffic */
+    /* the drivetrain, as carinfo.cpp's acceleration table (0x188DF0 in the
+     * executable) reads it: wheel force = torque x ratio x final drive /
+     * tyre radius; with the mass in tonnes and the torque in kN m, that over
+     * the mass is m/s^2. docs/formats.md 12. */
+    float     mass;             /* 0x1E0, tonnes */
+    float     efficiency;       /* 0x270: 0.8 on every car; a drivetrain loss, probably */
+    float     final_front;      /* 0x278 */
+    float     final_rear;       /* 0x27C (= 0x278 but on the four-wheel-drive Lamborghinis) */
+    float     rear_share;       /* 0x280: torque to the rear axle; 0.6 on the four-wheel-drive cars */
+    float     drag;             /* 0x2BC: air drag, kN per (m/s)^2 */
+    float     torque[9];        /* 0x2C0: kN m, idle to redline in eight equal steps */
 } hp2_carrec;
 
 #define HP2_CARDB_MAX 64

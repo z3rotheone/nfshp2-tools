@@ -1235,6 +1235,21 @@ static void test_cardb_real(const uint8_t *G, size_t lgb)
     /* the real 996 Turbo: gears 3.82 .. 0.75, final drive 3.44 (docs/formats.md 12) */
     CHECK(c && c->gears == 6 && NEAR(c->ratio[0], 3.82f) && NEAR(c->ratio[5], 0.75f) && NEAR(c->final_drive, 3.44f)
           && NEAR(c->top_speed, 191) && NEAR(c->wheel[0].x, 1.259f) && NEAR(c->wheel[0].radius, 0.319f), "911TURBO's record");
+    /* the drivetrain fields (docs/formats.md 12) */
+    CHECK(c && NEAR(c->mass, 1.65f) && NEAR(c->efficiency, 0.8f) && NEAR(c->final_front, 3.44f) && NEAR(c->rear_share, 0.6f)
+          && fabsf(c->drag - 0.000487f) < 1e-6f && NEAR(c->torque[0], 0.57f) && NEAR(c->torque[8], 0.4f), "911TURBO's drivetrain");
+    if (c) {
+        hp2_drive dv;
+        float a1, a6;
+        hp2_drive_init(&dv, c, 0, 0, 0, 0);
+        a1 = hp2_drive_accel(&dv, 10, 1);
+        a6 = hp2_drive_accel(&dv, 85, 6);
+        /* first gear pulls harder than the tyres could take; at 190 mph in
+         * sixth the drag has caught up with the engine */
+        CHECK(a1 > 12 && a1 < 20 && fabsf(a6) < 0.6f, "911TURBO pulls %.1f m/s2 in 1st at 10 m/s, %.2f in 6th at 85", a1, a6);
+        CHECK(NEAR(hp2_drive_torque(&dv, 950), 0.57f) && NEAR(hp2_drive_torque(&dv, 7400), 0.4f) && hp2_drive_torque(&dv, 9000) == 0,
+              "torque curve from idle to redline");
+    }
     c = hp2_cardb_find(recs, n, "SPIDERHP");
     CHECK(c && !strcmp(c->model, "CHALLENGE"), "SPIDERHP uses the CHALLENGE model");
 }

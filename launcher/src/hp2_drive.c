@@ -35,8 +35,21 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
     for (k = 0; k < d->gears; k++) d->ratio[k] = rec->ratio[k];
     if (!d->gears) { d->gears = 1; d->ratio[0] = 1; }
     d->reverse = rec->reverse < 0 ? -rec->reverse : rec->reverse > 0 ? rec->reverse : 3.5f;
-    d->final_drive = rec->final_drive > 0 ? rec->final_drive : 3.5f;
-    d->wheel_radius = rec->wheel[HP2_WHEEL_RL].radius > 0.1f ? rec->wheel[HP2_WHEEL_RL].radius : 0.32f;
+    {
+        /* torque split between the axles, as the game's table blends them */
+        float a = rec->rear_share > 0 && rec->rear_share <= 1 ? rec->rear_share : 1;
+        float ff = rec->final_front > 0 ? rec->final_front : rec->final_drive;
+        float fr = rec->final_rear > 0 ? rec->final_rear : rec->final_drive;
+        float rf = rec->wheel[HP2_WHEEL_FL].radius, rr = rec->wheel[HP2_WHEEL_RR].radius;
+        d->final_drive = (1 - a) * ff + a * fr;
+        if (d->final_drive <= 0) d->final_drive = 3.5f;
+        d->wheel_radius = (1 - a) * rf + a * rr;
+        if (d->wheel_radius < 0.1f) d->wheel_radius = 0.32f;
+    }
+    d->mass = rec->mass > 0.3f ? rec->mass : 1.4f;
+    d->drag = rec->drag > 0 ? rec->drag : 0.0004f;
+    d->efficiency = rec->efficiency > 0.3f && rec->efficiency <= 1 ? rec->efficiency : 0.8f;
+    for (k = 0; k < 9; k++) d->torque[k] = rec->torque[k] > 0 ? rec->torque[k] : 0.4f;
     d->idle_rpm = rec->idle_rpm > 300 ? rec->idle_rpm : 900;
     d->redline_rpm = rec->redline_rpm > d->idle_rpm + 1000 ? rec->redline_rpm : 7000;
     d->rpm = d->idle_rpm;
@@ -46,6 +59,29 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
 }
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+float hp2_drive_torque(const hp2_drive *d, float rpm)
+{
+    float x;
+    int j;
+    if (rpm > d->redline_rpm * 1.02f) return 0;
+    if (rpm < d->idle_rpm) rpm = d->idle_rpm;
+    x = (rpm - d->idle_rpm) / (d->redline_rpm - d->idle_rpm) * 8;
+    if (x > 8) x = 8;
+    j = (int)x;
+    if (j > 7) j = 7;
+    return d->torque[j] + (d->torque[j + 1] - d->torque[j]) * (x - j);
+}
+
+/* 60 / 2 pi, as the executable has it */
+#define RPM_PER_RAD_S 9.549304f
+
+float hp2_drive_accel(const hp2_drive *d, float v, int gear)
+{
+    float ratio = gear < 0 ? d->reverse : gear >= 1 && gear <= d->gears ? d->ratio[gear - 1] : 0;
+    float rpm = fabsf(v) / d->wheel_radius * d->final_drive * ratio * RPM_PER_RAD_S;
+    return (d->efficiency * hp2_drive_torque(d, rpm) * ratio * d->final_drive / d->wheel_radius - d->drag * v * v) / d->mass;
+}
 
 /* Ground height under a point near the car, or the car's own height. */
 static float ground_at(const hp2_coll *c, float x, float y, float zref, float fallback)
@@ -66,7 +102,7 @@ static void gearbox(hp2_drive *d, const hp2_drive_in *in, float h)
     else if (d->gear < 1 && (d->speed > 0.5f || in->throttle > 0)) d->gear = 1;
     if (d->gear >= 1 && d->shift <= 0) {
         float up = wheel * d->ratio[d->gear - 1] * d->final_drive;
-        if (up > 0.94f * d->redline_rpm && d->gear < d->gears) {
+        if (up > 0.95f * d->redline_rpm && d->gear < d->gears) {     /* 0.95: the executable's table */
             d->gear++;
             d->shift = 0.25f;
         } else if (d->gear > 1 && up < 0.5f * d->redline_rpm
@@ -105,18 +141,27 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
     else d->steer_angle = fmaxf(target, d->steer_angle - 3.0f * h);
 
     if (d->on_ground) {
-        /* engine, brakes, reverse */
-        float top = d->max_speed;
-        if (in->throttle > 0 && vf > -0.5f)
-            a += 9.0f * in->throttle * clampf(1 - vf / top, 0, 1) * (d->shift > 0 ? 0.3f : 1.0f);
+        /* engine (the car's torque through its gearing), brakes, reverse;
+         * the drive is held to what the tyres could take (a guess: 1.1 g)
+         * and cut at the car's listed top speed */
+        if (in->throttle > 0 && vf > -0.5f) {
+            int g = d->gear >= 1 ? d->gear : 1;
+            float ratio = d->ratio[g - 1];
+            float rpm = fabsf(vf) / d->wheel_radius * d->final_drive * ratio * RPM_PER_RAD_S;
+            float drive = d->efficiency * hp2_drive_torque(d, rpm > d->rpm ? rpm : d->rpm) * ratio * d->final_drive
+                          / d->wheel_radius / d->mass;
+            if (drive > 1.1f * G) drive = 1.1f * G;
+            if (vf > d->max_speed) drive = 0;
+            a += drive * in->throttle * (d->shift > 0 ? 0.0f : 1.0f);
+        }
         if (in->brake > 0) {
             if (vf > 0.5f) a -= 14.0f * in->brake;
             else if (vf > -12) a -= 5.0f * in->brake;
         }
         if (in->throttle > 0 && vf < -0.5f) a += 14.0f * in->throttle;   /* braking while backing up */
         if (in->handbrake) a -= (vf > 0 ? 6.0f : vf < 0 ? -6.0f : 0);
-        /* rolling resistance and air */
-        a -= (vf > 0 ? 1 : vf < 0 ? -1 : 0) * (0.3f + 0.00035f * vf * vf);
+        /* rolling resistance (made up) and the car's air drag */
+        a -= (vf > 0 ? 1 : vf < 0 ? -1 : 0) * (0.15f + d->drag * vf * vf / d->mass);
         if (fabsf(vf) < 0.3f && in->throttle <= 0 && in->brake <= 0) { vf = 0; a = 0; }
         vf += a * h;
 

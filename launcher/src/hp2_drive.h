@@ -2,10 +2,15 @@
  * brakes, steers and slides on the track's collision mesh, stays on the
  * ground and stops at walls.
  *
- * This is NOT the game's handling. The game's physics are not decoded yet;
- * this is a stand-in so a car can be driven around a track while they are.
- * It uses the car database's wheelbase, wheel hubs, top speed and gearing
- * (an automatic gearbox gives the engine speed for the sound), and the
+ * This is NOT the game's handling. The game's physics (PhysicsCar: rigid
+ * body, engine, drivetrain, suspension, tyres, aerodynamics) are not
+ * decoded yet; this is a stand-in so a car can be driven around a track
+ * while they are. Going forward, though, it is each car's own: the engine's
+ * torque curve, gearing, tyre size, mass and air drag from the car
+ * database, combined the way the game's own acceleration table combines
+ * them (hp2_car.h), with an automatic gearbox that changes up at 95% of the
+ * redline as that table does. Grip, braking and steering are made up. It
+ * also uses the wheelbase and wheel hubs, and the
  * collision mesh (hp2_coll) for the ground and the walls. Fixed steps of
  * 1/120 s. World axes: z up; heading 0 faces +x and turns anticlockwise.
  * No SDL, plain C99.
@@ -50,7 +55,16 @@ typedef struct {
     float idle_rpm, redline_rpm, rpm;
     float shift;                /* seconds left in a gear change */
     float load;                 /* 0..1, how hard the engine pulls (for its sound) */
+    /* the engine and drivetrain (hp2_car.h) */
+    float torque[9], mass, drag, efficiency, final_drive_used;
 } hp2_drive;
+
+/* Engine torque (kN m) at an engine speed: the car's curve, flat below
+ * idle, nothing past the redline. */
+float hp2_drive_torque(const hp2_drive *d, float rpm);
+/* Driving force over mass (m/s^2) at full throttle in a gear at speed v
+ * (m/s), less air drag; what accelerates the car before grip limits it. */
+float hp2_drive_accel(const hp2_drive *d, float v, int gear);
 
 /* ride: how far the model's origin sits above the ground (the tyres' lowest
  * point is at z = hub z - radius). */

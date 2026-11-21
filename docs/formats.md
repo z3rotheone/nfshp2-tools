@@ -1171,6 +1171,48 @@ files are in the archive.
 - This answers "where do the wheels attach": not in `GEOMETRY.BIN`, here.
 - A car's `GEOMETRY.BIN` holds one tyre (`<CAR>_TIRE_FRONT_A/B/C`), built at the origin as a right-hand wheel (outer face toward −y), and the brake discs `_BRAKE_FRONT`/`_REAR`, also at the origin. The body, mirrors, plate and `_SCUFFS` (a damage overlay) are already in place. `tools/hp2_car.py` assembles a whole car: it puts the tyre and disc at each hub, mirrors them for the left side, and by default scales the tyre to the stored radius and width (the model's tyre is a little larger: 911, radius 0.345 vs 0.319). Rendered, the 911's wheels sit in the arches at the right height. Whether the game scales the tyre is not checked.
 
+### The drivetrain fields
+
+*Read from the executable: function `0x188DF0` (attributed to
+`carinfo.cpp`) builds a table of each gear's acceleration every 5 km/h from
+0 to 500 km/h (its constants: 1.3889 m/s steps up to 138.89 m/s,
+60/2π = 9.5493, and 0.95 for the upshift point). It computes*
+
+    rpm   = v / r × final × ratio × 9.5493
+    accel = torque(rpm) × final × ratio / r / mass
+
+*with* `final = (1 − s) × [0x278] + s × [0x27C]`, `r = (1 − s) × [0x12C] + s ×
+[0x16C]` *(front and rear tyre radius),* `s = [0x280]`*, the torque curve
+built from 9 points at `0x2C0` spread from idle `[0x2B0]` to redline
+`[0x2B8]`, and the mass `[0x1E0]`. With torque in kN·m and mass in tonnes
+that is m/s².*
+
+| Offset | 911 Turbo | Meaning |
+|---|---|---|
+| 0x1E0 | 1.65 | mass, tonnes (F50 1.42, Elise 0.71, bus 3.5) |
+| 0x270 | 0.8 | the same on every car: drivetrain efficiency, probably (not used by `0x188DF0`) |
+| 0x274 | 500 | the same on every car |
+| 0x278, 0x27C | 3.44, 3.44 | final drive to the front and rear axle; they differ only on the Diablo, Murciélago and Lamborghini police car |
+| 0x280 | 0.6 | share of the torque to the rear axle: 0.6 on the four-wheel-drive cars (911 Turbo, Diablo, Murciélago, Lamborghini police), 1 on the rest |
+| 0x284 | 0.045 | ? |
+| 0x288 | 6 | forward gears |
+| 0x28C | 4 | ? |
+| 0x290 | −3.82, 0, 3.82 … | reverse, neutral, then each gear |
+| 0x2BC | 0.000487 | air drag, kN per (m/s)² |
+| 0x2C0 | 0.57 … 0.4 | 9 torque points, kN·m, idle to redline |
+
+The drag reading is checked against the listed top speed (`0x320`): the
+speed where the drag meets the engine's pull in the best gear, times 0.8,
+comes within 10% of it for most cars; the cars listed at 155 mph (M5, Z8,
+XKR, CL55) would go faster, as the real ones would without their limiter.
+The car's physics proper is a rigid body with Engine, DriveTrain,
+Suspension, Tire and Aerodynamics parts (the executable's slot pools and
+`PhysicsCar::ResolveForces()`, `PhysicsSystem::IntegrateEuler()`); that
+code is not decoded yet. `0x1A0`–`0x1DC` hold two blocks of 8, front and
+rear (12, 1, 1, 1.86, 1.47, 0, 0, 0 on the 911: tyres, probably) and
+`0x1F0`–`0x26C` three inertia-like values and two suspension-like blocks
+(5.2, 75, 5.8, 5.4, 68, 0.12, −0.125, 0.05); not used yet.
+
 `launcher/src/hp2_car.c` reads the same records and assembles the car the
 same way (body, mirrors, rear plate; the tyre scaled to each wheel and
 mirrored for the left; the discs at the hubs, unscaled): for the 911 Turbo,

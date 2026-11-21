@@ -92,6 +92,13 @@ int hp2_cardb_parse(const uint8_t *globalb, size_t len, hp2_carrec *out, int max
         c->redline_rpm = rdf(r + 0x2B8);
         c->top_speed = rdf(r + 0x320);
         text(c->engine, r + 0x330);
+        c->mass = rdf(r + 0x1E0);
+        c->efficiency = rdf(r + 0x270);
+        c->final_front = rdf(r + 0x278);
+        c->final_rear = rdf(r + 0x27C);
+        c->rear_share = rdf(r + 0x280);
+        c->drag = rdf(r + 0x2BC);
+        for (k = 0; k < 9; k++) c->torque[k] = rdf(r + 0x2C0 + 4 * k);
         got++;
     }
     return got;
