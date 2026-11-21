@@ -40,6 +40,7 @@
 #include "hp2_lang.h"
 #include "hp2_settings.h"
 #include "hp2_tex.h"
+#include "hp2_tree.h"
 #include "hp2_zdir.h"
 
 #include <SDL.h>
@@ -201,6 +202,7 @@ int main(int argc, char **argv)
 {
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     static hp2_jukebox jb;
+    static hp2_tree trees[2];
     char *loose[3] = { NULL, NULL, NULL };
     int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1, shot_song = -1, start_options = 0;
     hp2_fe_layout glayout;
@@ -260,6 +262,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "FRONTB.BUN lacks the OPTIONS / DISPLAY_OPTIONS screens\n");
         return 1;
     }
+    if (hp2_tree_parse(f.frontb, f.frontb_len, trees) == 2) menu.trees = trees;   /* the career events */
     if (!start_options && !hp2_femenu_start(&menu, HP2_FEM_TITLE)) hp2_femenu_start(&menu, HP2_FEM_MAIN);
     menu.seed = (uint32_t)time(NULL) ^ (uint32_t)SDL_GetTicks() * 2654435761u;   /* Quick Race's dice */
     if (f.bank && hp2_jukebox_parse(&jb, f.bank, f.bank_len) == 0) hp2_femenu_set_jukebox(&menu, &jb);

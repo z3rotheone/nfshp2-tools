@@ -155,7 +155,10 @@ Ultimate Fugitive and Ultimate Racer open their events as a list in event
 order, 1 at the top (the game shows them as a branching tree; the port lists
 them instead): number and title in the game's row style, five on view;
 up/down move (wrapping), left/right page by five, back returns. Every event
-is open. The tree's own layout is decoded (`src/hp2_tree.c`, docs/formats.md
+is open. Accept on an event opens car select with that event's own cars only
+(the pursuit cars too, with their logos; the strip shows each car once), then
+Transmission and Handling; the event sets the track, and as there is no race
+yet, accepting Handling returns to the list. The tree's own layout is decoded (`src/hp2_tree.c`, docs/formats.md
 "Event trees") but not drawn.
 The game's help lines go with the original rows; picking a mode does nothing
 yet. Back walks up the same path; back on the title quits. On OPTIONS, *Display* opens the

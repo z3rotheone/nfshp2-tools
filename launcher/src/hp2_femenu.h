@@ -75,6 +75,7 @@
 #include "hp2_jukebox.h"
 #include "hp2_lang.h"
 #include "hp2_menu.h"
+#include "hp2_tree.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -126,6 +127,10 @@ typedef struct {
     int                  tree_ev;   /* event list: the chosen event, 0-based */
     int                  tree_from; /* the screen the event list was opened from */
     int                  tree_scroll;   /* event list: first event on view, 0-based */
+    const hp2_tree      *trees;     /* [0] Championship, [1] Hot Pursuit (hp2_tree_parse),
+                                       or NULL: accept on an event then does nothing */
+    int                  ev_mode;   /* car select shows an event's own cars */
+    int                  ev_ncars, ev_cars[HP2_TREE_MAX_CARS];   /* car database indices */
     int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
     int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
     int                  handling;  /* 0 Classic, 1 Extreme */
@@ -213,7 +218,8 @@ int hp2_femenu_options_rows(const hp2_femenu *m);
 #define HP2_CARS 23
 #define HP2_TRACKS 15
 int hp2_femenu_list_count(const hp2_femenu *m);
-/* The car table: car k's full name (NULL out of range) and its thumbnail. */
+/* Car select's cars: car k's full name (NULL out of range). The port's 23,
+ * or, opened from an event, that event's own (pursuit cars included). */
 const char *hp2_femenu_car_name(const hp2_femenu *m, int k);
 /* Course k's name, as the game's strings give it (NULL out of range), and
  * the track number it opens: TRACKS\\TRACKB<n>.LZC, n+3 for the other lighting. */

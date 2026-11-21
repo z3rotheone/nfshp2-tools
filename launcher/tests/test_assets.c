@@ -598,6 +598,13 @@ static void test_tree(void)
     CHECK(hp2_tree_parse(NULL, 0, t) == 0 && hp2_tree_grid(t, NULL, 0) == 0, "no data");
 }
 
+static int count_tex(const hp2_fe_item *it, int n, uint32_t tex)
+{
+    int i, c = 0;
+    for (i = 0; i < n; i++) if (it[i].w.kind == HP2_FE_IMAGE && it[i].w.texture == tex) c++;
+    return c;
+}
+
 static int count_red(const hp2_fe_item *it, int n)
 {
     int i, c = 0;
@@ -1108,6 +1115,42 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         CHECK(m.screen == HP2_FEM_HOT_PURSUIT, "back: Hot Pursuit");
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
         CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 0 && m.tree_scroll == 0, "opened again: on event 1");
+        m.trees = NULL;
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_TREE, "no event data: accept does nothing");
+        m.trees = real_trees;
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SELECT_CAR && m.ev_mode && m.ev_ncars == 1,
+              "accept on event 1: car select with its one car");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(!strcmp(hp2_femenu_car_name(&m, 0), "Lotus Elise") && hp2_femenu_car_name(&m, 1) == NULL
+              && count_tex(it, n, hp2_fe_hash("CARLOGO_ELISE")) == 1 && count_named(it, n, "THUMBNAIL_ELISE") == 1
+              && count_named(it, n, "CARSUNLOCKED") == 0, "the Lotus Elise alone: its logo, one thumbnail, no unlock count");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.car == 0, "one car: right stays on it");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 0 && !m.ev_mode, "back: the event list, on event 1");
+        for (k = 0; k < 3; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.ev_ncars == 3 && !strcmp(hp2_femenu_car_name(&m, 0), "Opel Speedster") && count_named(it, n, "THUMBNAIL_TS50") == 1
+              && count_named(it, n, "THUMBNAIL_CL55AMG") == 1 && count_named(it, n, "THUMBNAIL_OPEL") == 1,
+              "event 4: Opel, TS50 and CL55 AMG, each once in the strip");
+        hp2_femenu_input(&m, HP2_IN_RIGHT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.car == 1 && !strcmp(hp2_femenu_car_name(&m, 1), "Ford TS50") && count_tex(it, n, hp2_fe_hash("CARLOGO_TS50")) == 1, "right: the TS50");
+        hp2_femenu_input(&m, HP2_IN_RIGHT); hp2_femenu_input(&m, HP2_IN_RIGHT);
+        CHECK(m.car == 0, "wraps after the third");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT); hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.car_popup == 2, "accept: Transmission, then Handling");
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 3 && !m.ev_mode && !m.car_popup, "accept on Handling: back to the event list (no race yet)");
+        hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(!strcmp(hp2_femenu_car_name(&m, 0), "Pursuit Crown Victoria"), "event 5: the Pursuit Crown Victoria");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        for (k = 0; k < 12; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
+        hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        CHECK(m.tree_ev == 16 && !strcmp(hp2_femenu_car_name(&m, 0), "Ferrari 360 Modena"), "event 17: the 360 Modena Challenge, named by the port");
+        hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_MAIN && m.sel == 1, "back from the tree: Main Menu");

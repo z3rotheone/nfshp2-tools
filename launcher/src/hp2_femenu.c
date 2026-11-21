@@ -276,12 +276,63 @@ static const car_entry CARS[HP2_CARS] = {
     { "DIABLO", 41125, 27 }, { "MURCIELAGO", 41126, 28 }, { "BARCHETTA", 41127, 40 },
 };
 
+/* The car database's names by index (GLOBALB.BUN chunk 0x34600, the first
+ * 49 of 64; the rest are traffic), as the event tables name cars. */
+static const char *const CARDB[] = {
+    "CORVETTE", "CORVETTEHP", "VIPERGTS", "VIPERGTSHP", "CROWNVIC", "CLK_GTR", "CLK_GTRHP", "MCLAREN",
+    "MCLARENHP", "MCLARENLM", "MCLARENLMHP", "MUSTANG", "MUSTANGHP", "TS50", "TS50HP", "HOLDEN",
+    "HOLDENHP", "CARRERAGT", "CARRERAGTHP", "BMWM5", "BMWZ8", "SPIDER", "SPIDERHP", "F50",
+    "F50HP", "BARCHETTA", "BARCHETTAHP", "JAGUAR", "JAGUARHP", "VANQUISH", "VANQUISHHP", "BMWM5COP",
+    "LAMBOCOP", "CORVETTECOP", "MUSTANGCOP", "VAUXHALL", "VAUXHALLHP", "OPEL", "OPELHP", "911TURBO",
+    "911TURBOHP", "ELISE", "ELISEHP", "CL55AMG", "CL55AMGHP", "DIABLO", "DIABLOHP", "MURCIELAGO", "MURCIELAGOHP",
+};
+#define CARDB_N ((int)(sizeof CARDB / sizeof CARDB[0]))
+
+/* Names of the cars outside the port's 23: the pursuit cars, and the
+ * 360 Modena Challenge (SPIDERHP), which has no name string of its own. */
+static const struct { const char *db; uint32_t sid; const char *own; } MORE_NAMES[] = {
+    { "CROWNVIC", 41102u, "Pursuit Crown Victoria" }, { "BMWM5COP", 41116u, "Pursuit M5" },
+    { "LAMBOCOP", 41117u, "Pursuit Murcielago" }, { "CORVETTECOP", 41118u, "Pursuit Corvette Z06" },
+    { "MUSTANGCOP", 41119u, "Pursuit Mustang Cobra R" }, { "SPIDERHP", 0u, "Ferrari 360 Modena" },
+};
+
+/* The cars car select offers: the port's 23, or an event's own. */
+static int roster_count(const hp2_femenu *m) { return m->ev_mode ? m->ev_ncars : HP2_CARS; }
+
+/* The car's name in the car database and in the layout (THUMBNAIL_<x>,
+ * CARLOGO_<x>). */
+static const char *roster_thumb(const hp2_femenu *m, int k)
+{
+    if (!m->ev_mode) return CARS[k].thumb;
+    return m->ev_cars[k] >= 0 && m->ev_cars[k] < CARDB_N ? CARDB[m->ev_cars[k]] : "UNKNOWN";
+}
+
 const char *hp2_femenu_car_name(const hp2_femenu *m, int k)
 {
-    const char *s = NULL;
-    if (k < 0 || k >= HP2_CARS) return NULL;
-    if (m->lang) s = hp2_lang_by_id(m->lang, CARS[k].name);
-    return s ? s : CARS[k].thumb;
+    const char *s = NULL, *db;
+    size_t len;
+    int i;
+    if (k < 0 || k >= roster_count(m)) return NULL;
+    if (!m->ev_mode) {
+        if (m->lang) s = hp2_lang_by_id(m->lang, CARS[k].name);
+        return s ? s : CARS[k].thumb;
+    }
+    db = roster_thumb(m, k);
+    for (i = 0; i < HP2_CARS; i++)
+        if (!strcmp(CARS[i].thumb, db)) { if (m->lang) s = hp2_lang_by_id(m->lang, CARS[i].name); return s ? s : db; }
+    for (i = 0; i < (int)(sizeof MORE_NAMES / sizeof MORE_NAMES[0]); i++)
+        if (!strcmp(MORE_NAMES[i].db, db)) {
+            if (MORE_NAMES[i].sid && m->lang) s = hp2_lang_by_id(m->lang, MORE_NAMES[i].sid);
+            return s ? s : MORE_NAMES[i].own;
+        }
+    len = strlen(db);     /* another "HP" version: the base car's name */
+    if (len > 2 && !strcmp(db + len - 2, "HP"))
+        for (i = 0; i < HP2_CARS; i++)
+            if (strlen(CARS[i].thumb) == len - 2 && !strncmp(CARS[i].thumb, db, len - 2)) {
+                if (m->lang) s = hp2_lang_by_id(m->lang, CARS[i].name);
+                return s ? s : CARS[i].thumb;
+            }
+    return db;
 }
 
 static const char *lang_or(const hp2_femenu *m, uint32_t id, const char *dflt)
@@ -304,6 +355,11 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
         case HP2_IN_BACK:  m->car_popup--; return HP2_FEM_REDRAW;
         case HP2_IN_ACCEPT:
             if (m->car_popup == 1) { m->car_popup = 2; return HP2_FEM_REDRAW; }
+            if (m->ev_mode) {   /* the event sets the track; no race yet: back to the event list */
+                m->car_popup = 0; m->ev_mode = 0; m->car = 0;
+                m->screen = HP2_FEM_TREE;
+                return HP2_FEM_REDRAW;
+            }
             if (!m->tracksel) return 0;
             m->car_popup = 0;
             m->screen = HP2_FEM_SELECT_TRACK;
@@ -315,9 +371,10 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
     switch (in) {
     case HP2_IN_UP:    m->color = (m->color + CAR_SWATCHES_N - 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
     case HP2_IN_DOWN:  m->color = (m->color + 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
-    case HP2_IN_LEFT:  m->car = (m->car + HP2_CARS - 1) % HP2_CARS; return HP2_FEM_REDRAW;
-    case HP2_IN_RIGHT: m->car = (m->car + 1) % HP2_CARS; return HP2_FEM_REDRAW;
+    case HP2_IN_LEFT:  m->car = (m->car + roster_count(m) - 1) % roster_count(m); return HP2_FEM_REDRAW;
+    case HP2_IN_RIGHT: m->car = (m->car + 1) % roster_count(m); return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
+        if (m->ev_mode) { m->ev_mode = 0; m->car = 0; m->screen = HP2_FEM_TREE; return HP2_FEM_REDRAW; }   /* back to the event list */
         if (!m->quick_mode && m->rsetup) { m->screen = HP2_FEM_RACE_SETUP; m->sel = m->setup_sel > 0 ? m->setup_sel : 1; return HP2_FEM_REDRAW; }
         if (!m->quick_mode && m->chal) { m->screen = HP2_FEM_CHALLENGE; m->sel = m->chal_cop ? 3 : 4; return HP2_FEM_REDRAW; }
         m->screen = HP2_FEM_MAIN;
@@ -693,6 +750,20 @@ static int tree_input(hp2_femenu *m, hp2_fem_input in)
         m->screen = (hp2_fem_screen)m->tree_from;
         m->sel = m->chal_sel;
         return HP2_FEM_REDRAW;
+    case HP2_IN_ACCEPT: {   /* car select with the event's own cars */
+        const hp2_tree *t = m->trees ? &m->trees[m->tree_kind] : NULL;
+        const hp2_tree_event *e;
+        int k;
+        if (!t || !t->present || m->tree_ev >= t->count || !m->carsel) return 0;
+        e = &t->ev[m->tree_ev];
+        if (e->ncars < 1) return 0;
+        m->ev_ncars = 0;
+        for (k = 0; k < e->ncars && k < HP2_TREE_MAX_CARS; k++) m->ev_cars[m->ev_ncars++] = e->cars[k];
+        m->ev_mode = 1;
+        m->car = 0; m->color = 0; m->car_popup = 0;
+        m->screen = HP2_FEM_SELECT_CAR;
+        return HP2_FEM_REDRAW;
+    }
     default: return 0;
     }
     if (m->tree_ev < m->tree_scroll) m->tree_scroll = m->tree_ev;
@@ -1152,7 +1223,7 @@ static const uint8_t SWATCH_RGB[CAR_SWATCHES][3] = {
 static int car_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *s = m->carsel;
-    const car_entry *c = &CARS[m->car];
+    int nr = roster_count(m);
     static char unl[48];
     int i;
     hp2_fe_item *it;
@@ -1170,16 +1241,20 @@ static int car_items(hp2_femenu *m, list *l)
             || !strcmp(w->name, "UP_ARROW") || !strcmp(w->name, "DOWN_ARROW")) continue;
         if (w->kind == HP2_FE_TEXT) {
             str = hp2_femenu_text(m, w);
-            if (!strcmp(w->name, "CARSUNLOCKED")) str = unl;
+            if (!strcmp(w->name, "CARSUNLOCKED")) {
+                if (m->ev_mode) continue;          /* an event's own cars: no count */
+                str = unl;
+            }
         }
         it = push(l, w, str);
         if (!it) continue;
         if (!strcmp(w->name, "CARSUNLOCKED")) it->w.x = 233.0f;
     }
-    for (i = -2; i <= 4; i++) {   /* the strip */
+    for (i = -2; i <= 4; i++) {   /* the strip; a short list shows each car once */
         char nm[32];
         it = NULL;
-        snprintf(nm, sizeof nm, "THUMBNAIL_%s", CARS[(m->car + i + 2 * HP2_CARS) % HP2_CARS].thumb);
+        if (nr < 7 && (i < -((nr - 1) / 2) || i > nr / 2)) continue;
+        snprintf(nm, sizeof nm, "THUMBNAIL_%s", roster_thumb(m, (m->car + i + 2 * nr) % nr));
         it = push(l, named(s, nm), NULL);
         if (it) {
             it->w.x = i <= 0 ? STRIP_X + STRIP_STEP * (float)i : STRIP_X + 44.0f + STRIP_STEP * (float)(i - 1);
@@ -1239,7 +1314,7 @@ static int car_items(hp2_femenu *m, list *l)
     }
     {   /* the car's name logo, a picture per car (CARLOGO_<name>) */
         char nm[40];
-        snprintf(nm, sizeof nm, "CARLOGO_%s", c->thumb);
+        snprintf(nm, sizeof nm, "CARLOGO_%s", roster_thumb(m, m->car));
         it = push(l, named(s, "CAR_LOGO"), NULL);
         if (it) { it->w.texture = hp2_fe_hash(nm); it->w.visible = 1; }
     }
