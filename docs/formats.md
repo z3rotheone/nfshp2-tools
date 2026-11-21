@@ -1413,3 +1413,24 @@ Strings in `FE_<LANGUAGE>.BIN` carry `$RGB(r,g,b)` and `$FONT(NAME)` codes and
 the textures (identical to `tools/hp2_tpk.py` on all 481 front-end and global
 textures); `hp2fe` (`launcher/src/fe_main.c`) draws the OPTIONS screen and a
 settings list in the DISPLAY_OPTIONS layout with them.
+
+
+### Event trees (FRONTB chunk `0x80034A00`, two of them)
+
+Tree 0 is the World Racing "Ultimate Racer" championship (31 events), tree 1
+is Hot Pursuit "Ultimate Fugitive" (32 events: 31 is the bonus event, 32 the
+super bonus "Championship Duel").
+
+* Chunk `0x00034A05`: 32 records of 188 bytes. Record r's title string is
+  `base + r` (World Racing 70000, Hot Pursuit 70031) and its blurb is
+  World Racing 70064 + r, Hot Pursuit 70095 + r. Byte 62 is the node index.
+  A u16 block of six child-slot node indices follows (values >= 0x7E mean
+  empty); a non-decreasing cursor sits at offset 160.
+* Chunks `0x34A01`, `02`, `03`, `04`, `06` (line-piece masks, 6-bit junction
+  types, grid cells as mask, x, y) are not decoded yet, so the connector
+  lines between events cannot be drawn.
+* No reward field has been found; the blurb text names unlocked events and
+  rewards ("unlock Events 2 and 3, as well as the Lotus Elise").
+* Texture names in the packs are cut at 23 characters
+  (`PURSUIT_EVENT_PANEL_UNL`); the star ring the TREE_VIEW screen uses is
+  not found by that name or by the widget's own hash 962684706 in FRONTB.
