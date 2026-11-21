@@ -13,9 +13,12 @@
  * wheel grips with the force the game's own slip-angle tables give for its
  * load, and once its contact patch slides faster than 0.5 m/s it slides
  * with the car's sliding friction, as the executable's Tire does (0x1A4930);
- * brakes and handbrake have the game's torques. What is not the game's:
- * no suspension (the loads move with a guessed centre of gravity), no
- * wheel spin dynamics, and the steering lock. It also uses the hubs and the
+ * brakes and handbrake have the game's torques. The loads come from the
+ * game's springs, dampers and anti-roll bars (Suspension, 0x1A5FBC) with
+ * the body pitching and rolling on them about the model's origin. What is
+ * not the game's: the body moves only up and down and leans (it does not
+ * leave the ground on its springs), no wheel spin dynamics, and the
+ * steering lock. It also uses the hubs and the
  * collision mesh (hp2_coll) for the ground and the walls. Fixed steps of
  * 1/120 s. World axes: z up; heading 0 faces +x and turns anticlockwise.
  * No SDL, plain C99.
@@ -71,6 +74,14 @@ typedef struct {
     float accel[2];             /* last step's acceleration, body axes (for the load transfer) */
     int   sliding[4];           /* 1 while a tyre slides */
     int   arcade;               /* 1: the first stand-in's grip instead of the tyres */
+    /* the suspension (docs/formats.md 12): the body's heave, pitch (nose
+     * up) and roll (left up) on its springs, relative to the ground */
+    float susp[2][8];
+    float roll_inertia, pitch_inertia;
+    float heave, heave_v, body_pitch, body_pitch_v, body_roll, body_roll_v;
+    float rest[4];              /* each spring's compression when parked */
+    float wheel_load[4];        /* each wheel's load, kN */
+    float comp[4];              /* each spring's compression now */
 } hp2_drive;
 
 /* Engine torque (kN m) at an engine speed: the car's curve, flat below

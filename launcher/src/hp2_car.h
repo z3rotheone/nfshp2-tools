@@ -57,7 +57,11 @@ typedef struct {
     float     tyre[2][8];       /* 0x1A0 front, 0x1C0 rear: [0] slip-angle span (12), [1] load
                                  * scale, [2] force scale, [3] ?, [4] sliding friction */
     float     brakes[7];        /* 0x300: [1] brake torque scale, [2] handbrake torque scale */
-    float     inertia[3];       /* 0x1F0, 0x204, 0x218: roll, pitch, yaw inertia, t m^2 (inferred) */
+    float     inertia[3];       /* 0x1F0, 0x204, 0x218: the diagonal of the body's 4x4 inertia
+                                 * matrix at 0x1F0 (roll, pitch, yaw; t m^2, inferred) */
+    float     susp[2][8];       /* 0x230 front, 0x250 rear: [0] progression, [1] spring kN/m,
+                                 * [2] bump and [3] rebound damping kN s/m, [4] anti-roll kN/m,
+                                 * [5] bump and [6] droop travel m, [7] ? */
 } hp2_carrec;
 
 #define HP2_CARDB_MAX 64

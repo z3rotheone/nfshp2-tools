@@ -160,9 +160,12 @@ patch slides faster than 0.5 m/s (docs/formats.md 12, "The car's physics
 parts"); brakes and handbrake have the game's torques, and the road surface
 its grip. So the 911 corners at about 1.5 g and stops from 60 mph in about
 30 m, the F50 (the same grip front and rear) lets its tail out, the Elise
-has the least grip. What is still not the game's: there is no suspension
-(the weight moves about a guessed centre of gravity), no wheel spin, and
-the steering lock is made up. `--arcade` brings back the first stand-in's
+has the least grip. The loads on the tyres come from the game's
+springs, dampers and anti-roll bars, so the body squats when you
+accelerate, dives when you brake and rolls in corners. What is still not
+the game's: the body only moves up and down and leans on its springs (it
+cannot be thrown into the air), there is no wheel spin, and the steering
+lock is made up. `--arcade` brings back the first stand-in's
 grip, which never runs out.
 
 Driving: W / Up accelerates, S / Down brakes and then reverses, A D / Left

@@ -425,7 +425,13 @@ static void draw_car(const world *w, const hp2_drive *d, int pass)
     glRotatef(d->heading * 180 / PI, 0, 0, 1);
     glRotatef(-d->pitch * 180 / PI, 0, 1, 0);
     glRotatef(d->roll * 180 / PI, 1, 0, 0);
+    /* the body leans on its springs; the wheels stay on the road */
+    glPushMatrix();
+    glTranslatef(0, 0, d->heave);
+    glRotatef(-d->body_pitch * 180 / PI, 0, 1, 0);
+    glRotatef(d->body_roll * 180 / PI, 1, 0, 0);
     draw_groups(w, w->carg, c->body.nb, pass);
+    glPopMatrix();
     for (k = 0; k < 4; k++) {
         const hp2_wheel *wh = &c->rec.wheel[k];
         int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR;

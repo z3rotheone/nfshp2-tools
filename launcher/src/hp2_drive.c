@@ -8,6 +8,31 @@
 #define G       9.81f
 #define MPH     0.44704f
 
+/* Suspension::Update's spring (0x1A626C on): rate [1] x (1 + [0] x
+ * compression), damping [2] in bump and [3] in rebound, the anti-roll bar
+ * [4] x the difference to the other side; never pulling. Travel is held to
+ * [6]..[5] by a stiff stop (the game clamps the compression there). */
+static float spring_force(const float *sb, float x, float v, float x_other)
+{
+    float k = sb[1] * (1 + sb[0] * (x > 0 ? x : 0)), f;
+    f = k * x + v * (v > 0 ? sb[2] : sb[3]) + sb[4] * (x - x_other);
+    if (x > sb[5]) f += 3000.0f * (x - sb[5]);
+    return f > 0 ? f : 0;
+}
+
+/* The compression that carries load n (kN), parked. */
+static float spring_rest(const float *sb, float n)
+{
+    float lo = 0, hi = 0.5f;
+    int i;
+    for (i = 0; i < 40; i++) {
+        float m = (lo + hi) / 2;
+        if (sb[1] * (1 + sb[0] * m) * m < n) lo = m;
+        else hi = m;
+    }
+    return (lo + hi) / 2;
+}
+
 void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float z, float heading)
 {
     int k;
@@ -71,6 +96,25 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
     d->brake_torque = 4.0f * (rec->brakes[1] > 0 ? rec->brakes[1] : 1);
     d->handbrake_torque = 10.0f * (rec->brakes[2] > 0 ? rec->brakes[2] : 0.8f);
     d->yaw_inertia = rec->inertia[2] > 0.5f ? rec->inertia[2] : 3.0f;
+    d->roll_inertia = rec->inertia[0] > 0.1f ? rec->inertia[0] : 0.6f;
+    d->pitch_inertia = rec->inertia[1] > 0.3f ? rec->inertia[1] : 2.5f;
+    for (k = 0; k < 8; k++) {
+        d->susp[0][k] = rec->susp[0][k];
+        d->susp[1][k] = rec->susp[1][k];
+    }
+    for (k = 0; k < 2; k++)
+        if (d->susp[k][1] <= 0) {
+            static const float def[8] = { 5, 75, 5.8f, 5.4f, 70, 0.12f, -0.12f, 0.05f };
+            memcpy(d->susp[k], def, sizeof def);
+        }
+    /* each spring's compression parked: its share of the weight by the hubs */
+    for (k = 0; k < 4; k++) {
+        int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR;
+        float n = G * d->mass * (front ? -d->hub_x_rear : d->hub_x_front) / d->wheelbase * 0.5f;
+        d->rest[k] = spring_rest(d->susp[front ? 0 : 1], n);
+        d->wheel_load[k] = n;
+        d->comp[k] = d->rest[k];
+    }
     d->rpm = d->idle_rpm;
     d->gear = 1;
     d->on_ground = 1;
@@ -78,6 +122,8 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
 }
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+
 
 float hp2_drive_torque(const hp2_drive *d, float rpm)
 {
@@ -244,8 +290,7 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
     } else if (d->on_ground) {
         /* the drive force at the wheels: the car's torque through its gearing,
          * cut at the listed top speed and while changing gear */
-        float drive = 0, fsum[2] = { 0, 0 }, mz = 0, share = 1, g_load = G * d->mass, hcg = 0.45f;
-        float rear_x = -d->hub_x_rear, front_x = d->hub_x_front;
+        float drive = 0, fsum[2] = { 0, 0 }, mz = 0, share = 1, g_load = G * d->mass;
         int k;
         if (in->throttle > 0 && vf > -0.5f && d->shift <= 0 && vf < d->max_speed) {
             int g = d->gear >= 1 ? d->gear : 1;
@@ -258,14 +303,11 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
         if (in->throttle > 0 && vf < -0.5f) drive = 0;
         share = d->final_drive > 0 ? 1 : 1;
         for (k = 0; k < 4; k++) {
-            int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR, left = d->hub[k][1] > 0;
+            int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR;
             const float *tb = d->tyre[front ? 0 : 1];
             float x = d->hub[k][0], y = d->hub[k][1];
-            /* load, kN: the static share by the hubs, moved by the last
-             * step's acceleration about a guessed centre of gravity */
-            float n = g_load * (front ? rear_x : front_x) / d->wheelbase * 0.5f
-                      + (front ? -1 : 1) * d->mass * d->accel[0] * hcg / d->wheelbase * 0.5f
-                      + (left ? -1 : 1) * d->mass * d->accel[1] * hcg / d->track * 0.5f;
+            /* load, kN: what its spring pushes with (below) */
+            float n = d->wheel_load[k];
             float mu = tb[4] * surface_grip(d->surface), cmax, wa, cx, cy, wx, wy, fx, fy, bx, by, m_i;
             float torque_share = front ? (1 - d->rear_share) : d->rear_share;
             if (n < 0) n = 0;
@@ -300,8 +342,13 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
              * friction circle that made the drive eat the rear's sideways
              * grip spun the lighter cars; the game's wheels spin up before
              * they share, which this model does not have) */
-            if (fx > cmax) fx = cmax;
-            if (fx < -cmax) fx = -cmax;
+            /* gripping, the game passes the wheel's torque straight to the
+             * road (Fx = torque / radius); only braking is held to the
+             * friction here, since this model has no wheel spin to lock */
+            if (d->sliding[k] || fx < 0) {
+                if (fx > cmax) fx = cmax;
+                if (fx < -cmax) fx = -cmax;
+            }
             if (fy > cmax) fy = cmax;
             if (fy < -cmax) fy = -cmax;
             /* never more sideways force than stops the slip this step */
@@ -318,6 +365,38 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
         a = fsum[0] / d->mass;
         d->accel[0] = a;
         d->accel[1] = fsum[1] / d->mass;
+        /* the body on its springs: the tyres push at the ground, below the
+         * model's origin by the ride height, so driving and braking pitch
+         * it and cornering rolls it; the springs answer */
+        {
+            float fz = 0, mp = 0, mr = 0, h2 = d->ride;
+            for (k = 0; k < 4; k++) {
+                int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR;
+                int other = k ^ 1;
+                float x = d->hub[k][0], y = d->hub[k][1];
+                float c0 = d->rest[k] - (d->heave + x * d->body_pitch + y * d->body_roll);
+                float cv = -(d->heave_v + x * d->body_pitch_v + y * d->body_roll_v);
+                float xo = d->rest[other] - (d->heave + d->hub[other][0] * d->body_pitch + d->hub[other][1] * d->body_roll);
+                float f = spring_force(d->susp[front ? 0 : 1], c0 - d->rest[k] * 0, cv, xo);
+                if (c0 < d->susp[front ? 0 : 1][6]) f = 0;          /* the wheel hangs */
+                d->comp[k] = c0;
+                d->wheel_load[k] = f;
+                fz += f;
+                mp += x * f;
+                mr += y * f;
+            }
+            mp += h2 * fsum[0];
+            mr += h2 * fsum[1];
+            d->heave_v += (fz / d->mass - G) * h;
+            d->body_pitch_v += mp / d->pitch_inertia * h;
+            d->body_roll_v += mr / d->roll_inertia * h;
+            d->heave += d->heave_v * h;
+            d->body_pitch += d->body_pitch_v * h;
+            d->body_roll += d->body_roll_v * h;
+            d->heave = clampf(d->heave, -0.2f, 0.2f);
+            d->body_pitch = clampf(d->body_pitch, -0.12f, 0.12f);
+            d->body_roll = clampf(d->body_roll, -0.15f, 0.15f);
+        }
         vf += (a + d->yawrate * vl) * h;
         vl += (fsum[1] / d->mass - d->yawrate * vf) * h;
         d->yawrate += mz / d->yaw_inertia * h;

@@ -1208,10 +1208,8 @@ XKR, CL55) would go faster, as the real ones would without their limiter.
 The car's physics proper is a rigid body with Engine, DriveTrain,
 Suspension, Tire and Aerodynamics parts (the executable's slot pools and
 `PhysicsCar::ResolveForces()`, `PhysicsSystem::IntegrateEuler()`); that
-code is decoded for the tyres (below). `0x1F0`–`0x22C` hold three
-inertia-like values (0.69, 2.93, 6.32 on the 911; read as roll, pitch and
-yaw inertia in t·m², inferred) and `0x230`–`0x26C` the two suspension
-blocks (5.2, 75, 5.8, 5.4, 68, 0.12, −0.125, 0.05).
+code is decoded for the tyres (below). `0x1F0`–`0x22C` hold the body's
+inertia matrix and `0x230`–`0x26C` the two suspension blocks (both below).
 
 ### The car's physics parts, and the tyres
 
@@ -1248,6 +1246,27 @@ through the record pointer it keeps at `+0x4C`:
   SNOW_SHOULDER, SIDEWALK, SNOW_SIDEWALK, ROCK, the walls, BOARDWALK,
   COBBLESTONE): 1 on road, 0.94–0.98 off it. `+0x28` (2 for sand, 1.5 for
   deep water) is probably rolling drag.
+
+**The suspension** (`Suspension::Update`, `0x1A5FBC`; its spring force at
+`0x1A626C`), per wheel, from its block (`0x230` front, `0x250` rear):
+
+| Offset | 911 front / rear | Meaning |
+|---|---|---|
+| +0x00 | 5.2 / 5.35 | progression: the rate is `[+4] × (1 + this × compression)` |
+| +0x04 | 75 / 75 | spring rate, kN/m |
+| +0x08 | 5.8 / 5.8 | damping, compressing, kN·s/m |
+| +0x0C | 5.4 / 5.4 | damping, extending |
+| +0x10 | 68 / 78 | anti-roll bar: kN/m times the difference to the other side's compression (the constructor pairs FL with FR, RR with RL) |
+| +0x14 | 0.12 / 0.115 | most compression, m |
+| +0x18 | −0.125 / −0.115 | most extension, m |
+| +0x1C | 0.05 / 0.05 | ? |
+
+The force is never negative (a spring does not pull the wheel down). The
+body's inertia is the 4×4 matrix at `0x1F0` (the rigid body copies it from
+`+0x10` of its block at `0x1E0`; `0x19CC58`): diagonal 0.69, 2.93, 6.32, 1 on
+the 911, read as roll, pitch and yaw in t·m². `launcher/src/hp2_drive.c` hangs
+the body on these springs about the model's origin, so the loads under the
+tyres come from them and the body squats, dives and rolls.
 
 `[tyre +0xC]` (1.86 / 1.98 on the 911) is not read here. `launcher/src/hp2_drive.c`
 follows this tyre on a flat model of the car (no suspension, no wheel spin):
