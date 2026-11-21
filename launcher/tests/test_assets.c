@@ -1142,14 +1142,33 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         hp2_femenu_input(&m, HP2_IN_ACCEPT); hp2_femenu_input(&m, HP2_IN_ACCEPT);
         CHECK(m.car_popup == 2, "accept: Transmission, then Handling");
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
-        CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 3 && !m.ev_mode && !m.car_popup, "accept on Handling: back to the event list (no race yet)");
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.screen == HP2_FEM_EVENT_INFO && find_text(it, n, "Event 4 Objective:") == 1 && find_text(it, n, "Finish 2nd or better") == 1
+              && find_text(it, n, "Desert Heat") == 1 && find_text(it, n, "Opel Speedster") == 1 && find_text(it, n, "No reward") == 1
+              && find_text(it, n, "3") == 1 && !strcmp(m.help, "Australia vs Germany Desert Knockout"),
+              "accept on Handling: event 4's details (objective, track, car, no reward), its title in the bar");
+        CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_EVENT_INFO, "accept: no race yet");
+        hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_SELECT_CAR && m.car_popup == 2 && m.ev_mode, "back: Handling again");
+        hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK);
+        CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 3 && !m.ev_mode && !m.car_popup, "back, back, back: the event list on event 4");
         hp2_femenu_input(&m, HP2_IN_DOWN);
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
         CHECK(!strcmp(hp2_femenu_car_name(&m, 0), "Pursuit Crown Victoria"), "event 5: the Pursuit Crown Victoria");
+        for (k = 0; k < 3; k++) hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(m.screen == HP2_FEM_EVENT_INFO && find_text(it, n, "Arrest all of the speeders in 2:00 or less") == 1
+              && find_text(it, n, "Coastal Parklands") == 1, "event 5: arrest the speeders in 2:00");
+        for (k = 0; k < 3; k++) hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         for (k = 0; k < 12; k++) hp2_femenu_input(&m, HP2_IN_DOWN);
         hp2_femenu_input(&m, HP2_IN_ACCEPT);
         CHECK(m.tree_ev == 16 && !strcmp(hp2_femenu_car_name(&m, 0), "Ferrari 360 Modena"), "event 17: the 360 Modena Challenge, named by the port");
+        for (k = 0; k < 3; k++) hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        n = hp2_femenu_items(&m, it, 160);
+        CHECK(find_text(it, n, "Make your delivery in 6:10 or less") == 1 && find_text(it, n, "Autumn Crossing") == 2,
+              "event 17: deliver within 6:10 at Autumn Crossing, which is also the reward");
+        for (k = 0; k < 3; k++) hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);
         hp2_femenu_input(&m, HP2_IN_BACK);

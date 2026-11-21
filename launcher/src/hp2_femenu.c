@@ -78,6 +78,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_CHALLENGE    0x2D62CFE2u
 #define SCR_COP          0xE55F1297u
 #define SCR_TREE_VIEW    0x492E86E9u
+#define SCR_EVENT_INFO   0xA744BA7Bu      /* unnamed: BLURB_BOX, "Next Track:", TRACK_NAME, TRACK_LINE_1 */
 #define SCR_RACE_SETUP   0xD1EADBCAu
 #define SID_JUKEBOX    110020u      /* "Jukebox", AUDIO_OPTIONS' row 9 */
 #define OPT_JUKEBOX    0            /* orow[] value of the Jukebox entry */
@@ -276,6 +277,13 @@ static const car_entry CARS[HP2_CARS] = {
     { "DIABLO", 41125, 27 }, { "MURCIELAGO", 41126, 28 }, { "BARCHETTA", 41127, 40 },
 };
 
+/* The two event lists (the game's trees, the 0x80034A00 chunks of FRONTB,
+ * shown in the port as plain lists in event order): Championship (the
+ * port's Ultimate Racer, World Racing) has 31 events, Hot Pursuit (the
+ * port's Ultimate Fugitive) 32. Event k's title is string title + k and its blurb
+ * blurb + k. */
+static const struct { int events; uint32_t title, blurb; } TREES[2] = { { 31, 70000u, 70064u }, { 32, 70031u, 70095u } };
+
 /* The car database's names by index (GLOBALB.BUN chunk 0x34600, the first
  * 49 of 64; the rest are traffic), as the event tables name cars. */
 static const char *const CARDB[] = {
@@ -307,17 +315,25 @@ static const char *roster_thumb(const hp2_femenu *m, int k)
     return m->ev_cars[k] >= 0 && m->ev_cars[k] < CARDB_N ? CARDB[m->ev_cars[k]] : "UNKNOWN";
 }
 
+static const char *db_car_name(const hp2_femenu *m, const char *db);
+
 const char *hp2_femenu_car_name(const hp2_femenu *m, int k)
 {
-    const char *s = NULL, *db;
-    size_t len;
-    int i;
+    const char *s = NULL;
     if (k < 0 || k >= roster_count(m)) return NULL;
     if (!m->ev_mode) {
         if (m->lang) s = hp2_lang_by_id(m->lang, CARS[k].name);
         return s ? s : CARS[k].thumb;
     }
-    db = roster_thumb(m, k);
+    return db_car_name(m, roster_thumb(m, k));
+}
+
+/* A car's full name from its car database name. */
+static const char *db_car_name(const hp2_femenu *m, const char *db)
+{
+    const char *s = NULL;
+    size_t len;
+    int i;
     for (i = 0; i < HP2_CARS; i++)
         if (!strcmp(CARS[i].thumb, db)) { if (m->lang) s = hp2_lang_by_id(m->lang, CARS[i].name); return s ? s : db; }
     for (i = 0; i < (int)(sizeof MORE_NAMES / sizeof MORE_NAMES[0]); i++)
@@ -355,9 +371,9 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
         case HP2_IN_BACK:  m->car_popup--; return HP2_FEM_REDRAW;
         case HP2_IN_ACCEPT:
             if (m->car_popup == 1) { m->car_popup = 2; return HP2_FEM_REDRAW; }
-            if (m->ev_mode) {   /* the event sets the track; no race yet: back to the event list */
-                m->car_popup = 0; m->ev_mode = 0; m->car = 0;
-                m->screen = HP2_FEM_TREE;
+            if (m->ev_mode) {   /* the event sets the track: its details next */
+                if (!m->evinfo || !m->chal) return 0;
+                m->screen = HP2_FEM_EVENT_INFO;
                 return HP2_FEM_REDRAW;
             }
             if (!m->tracksel) return 0;
@@ -597,6 +613,9 @@ static void refresh(hp2_femenu *m)
         snprintf(m->help, sizeof m->help, "%s", hp2_menu_help(m->sel));
     } else if (list_screen(m)) {
         list_help(m);
+    } else if (m->screen == HP2_FEM_EVENT_INFO) {
+        /* the bar shows the event's title, as the game's EVENT_TITLE_BAR */
+        snprintf(m->help, sizeof m->help, "%s", lang_or(m, TREES[m->tree_kind].title + (uint32_t)m->tree_ev, ""));
     } else if (m->screen == HP2_FEM_TITLE || m->screen == HP2_FEM_SELECT_CAR || m->screen == HP2_FEM_SELECT_TRACK || m->screen == HP2_FEM_TREE) {
         /* no ticker */
     } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
@@ -648,6 +667,7 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->chal = hp2_fe_find_id(layout, SCR_CHALLENGE);
     if (!hp2_fe_row(m->chal, 1)) m->chal = NULL;
     m->tree = hp2_fe_find_id(layout, SCR_TREE_VIEW);
+    m->evinfo = hp2_fe_find_id(layout, SCR_EVENT_INFO);
     m->rsetup = hp2_fe_find_id(layout, SCR_RACE_SETUP);
     if (!hp2_fe_row(m->rsetup, 1)) m->rsetup = NULL;
     m->setup_val[SU_OPPONENTS] = 6; m->setup_val[SU_CATCHUP] = 1; m->setup_val[SU_TRAFFIC] = 2; m->setup_val[SU_DAMAGE] = 1;
@@ -731,13 +751,6 @@ static int title_input(hp2_femenu *m, hp2_fem_input in)
 
 /* ---- event trees -------------------------------------------------------- */
 
-/* The two event lists (the game's trees, the 0x80034A00 chunks of FRONTB,
- * shown in the port as plain lists in event order): Championship (the
- * port's Ultimate Racer, World Racing) has 31 events, Hot Pursuit (the
- * port's Ultimate Fugitive) 32. Event k's title is string title + k and its blurb
- * blurb + k. */
-static const struct { int events; uint32_t title, blurb; } TREES[2] = { { 31, 70000u, 70064u }, { 32, 70031u, 70095u } };
-
 static int tree_input(hp2_femenu *m, hp2_fem_input in)
 {
     int n = TREES[m->tree_kind].events;
@@ -768,6 +781,16 @@ static int tree_input(hp2_femenu *m, hp2_fem_input in)
     }
     if (m->tree_ev < m->tree_scroll) m->tree_scroll = m->tree_ev;
     if (m->tree_ev >= m->tree_scroll + HP2_FEM_EVENT_ROWS) m->tree_scroll = m->tree_ev - HP2_FEM_EVENT_ROWS + 1;
+    return HP2_FEM_REDRAW;
+}
+
+/* The event's details: back returns to Handling; accept would start the
+ * race, which is not in the port yet. */
+static int evinfo_input(hp2_femenu *m, hp2_fem_input in)
+{
+    if (in != HP2_IN_BACK) return 0;
+    m->screen = HP2_FEM_SELECT_CAR;
+    m->car_popup = 2;
     return HP2_FEM_REDRAW;
 }
 
@@ -920,6 +943,8 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         r = title_input(m, in);
     } else if (m->screen == HP2_FEM_TREE) {
         r = tree_input(m, in);
+    } else if (m->screen == HP2_FEM_EVENT_INFO) {
+        r = evinfo_input(m, in);
     } else if (m->screen == HP2_FEM_RACE_SETUP) {
         r = setup_input(m, in);
     } else if (m->screen == HP2_FEM_CHALLENGE) {
@@ -1438,28 +1463,35 @@ static int track_items(hp2_femenu *m, list *l)
 #define EVL_NUM_X 196.0f       /* right edge of the event number */
 #define EVL_TXT_X 212.0f
 
+/* The backdrop and header of Challenge, titled with the mode. */
+static void chal_backdrop(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *c = m->chal;
+    int i;
+    if (!c) return;
+    for (i = 0; i < c->count; i++) {
+        const hp2_fe_widget *w = &c->widgets[i];
+        hp2_fe_item *bi;
+        if (w->x >= 640.0f || w->y >= 480.0f) continue;
+        if (!strcmp(w->name, "CHALLENGE_TITLE")) push(l, w, m->tree_kind ? "Ultimate Fugitive" : "Ultimate Racer");
+        else if (w->kind == HP2_FE_TEXT && !strcmp(w->name, "NONAME")) push(l, w, hp2_femenu_text(m, w));
+        else if (w->kind == HP2_FE_IMAGE && (!strcmp(w->name, "GRID") || !strcmp(w->name, "MASTER_BP_OBJECT")
+                 || !strcmp(w->name, "FADING_BP_OBJECT") || (!strcmp(w->name, "NONAME") && w->sx > 1.0f && w->y < 70.0f)
+                 || (!strcmp(w->name, "GRID_SHADOW") && w->x == 0.0f))) { bi = push(l, w, NULL); if (bi) bi->w.layer = (uint8_t)(20 + (w->layer > 30 ? 30 : w->layer)); }
+    }
+}
+
 static int tree_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *c = m->chal, *s = m->tree;
     const hp2_fe_widget *row = c ? named(c, "MENUITEM_1") : NULL, *band = c ? named(c, "MI_1_MASK") : NULL;
     const hp2_fe_widget *line = c ? first_line(c) : NULL;
     static char num[EVL_ROWS][12], title[EVL_ROWS][96];
-    int i, k, n = TREES[m->tree_kind].events;
+    int k, n = TREES[m->tree_kind].events;
     float sel_y = -1.0f;
     hp2_fe_item *it;
     (void)s;
-    if (c) {      /* the backdrop and header of Challenge */
-        for (i = 0; i < c->count; i++) {
-            const hp2_fe_widget *w = &c->widgets[i];
-            hp2_fe_item *bi;
-            if (w->x >= 640.0f || w->y >= 480.0f) continue;
-            if (!strcmp(w->name, "CHALLENGE_TITLE")) push(l, w, m->tree_kind ? "Ultimate Fugitive" : "Ultimate Racer");
-            else if (w->kind == HP2_FE_TEXT && !strcmp(w->name, "NONAME")) push(l, w, hp2_femenu_text(m, w));
-            else if (w->kind == HP2_FE_IMAGE && (!strcmp(w->name, "GRID") || !strcmp(w->name, "MASTER_BP_OBJECT")
-                     || !strcmp(w->name, "FADING_BP_OBJECT") || (!strcmp(w->name, "NONAME") && w->sx > 1.0f && w->y < 70.0f)
-                     || (!strcmp(w->name, "GRID_SHADOW") && w->x == 0.0f))) { bi = push(l, w, NULL); if (bi) bi->w.layer = (uint8_t)(20 + (w->layer > 30 ? 30 : w->layer)); }
-        }
-    }
+    chal_backdrop(m, l);
     for (k = 0; k < EVL_ROWS && m->tree_scroll + k < n; k++) {
         int ev = m->tree_scroll + k, on = ev == m->tree_ev;
         float y = EVL_Y + EVL_PITCH * (float)k;
@@ -1489,6 +1521,128 @@ static int tree_items(hp2_femenu *m, list *l)
         if (m->tree_scroll + EVL_ROWS < n && (it = push(l, named(m->carsel, "DOWN_ARROW"), NULL)) != NULL) { it->w.x = 608.0f; it->w.y = 312.0f; it->w.visible = 1; }
     }
     if (c) help_bar(m, l, c);
+    return l->n;
+}
+
+/* ---- the event's details ---------------------------------------------- */
+
+/* fmt with its first "%s" replaced by s. */
+static void sub_s(char *out, size_t cap, const char *fmt, const char *s)
+{
+    const char *d = strstr(fmt, "%s");
+    if (!d) { snprintf(out, cap, "%s", fmt); return; }
+    snprintf(out, cap, "%.*s%s%s", (int)(d - fmt), fmt, s, d + 2);
+}
+
+/* fmt with "%d:%#02d" (or "%d:%02d") replaced by minutes:seconds. */
+static void sub_time(char *out, size_t cap, const char *fmt, uint32_t ticks)
+{
+    unsigned secs = (unsigned)(ticks / HP2_TREE_TICKS);
+    char t[16];
+    const char *d = strstr(fmt, "%d:%#02d"), *e = d ? d + 8 : NULL;
+    if (!d && (d = strstr(fmt, "%d:%02d")) != NULL) e = d + 7;
+    snprintf(t, sizeof t, "%u:%02u", secs / 60u, secs % 60u);
+    if (!d) { snprintf(out, cap, "%s %s", fmt, t); return; }
+    snprintf(out, cap, "%.*s%s%s", (int)(d - fmt), fmt, t, e);
+}
+
+/* A track number's name: the course's (string 50000 + 10 x course, 51000 +
+ * for its "II"); numbers ending 4..6 are the course in its other lighting. */
+static const char *track_num_name(const hp2_femenu *m, int num, int ii)
+{
+    int base = num % 10 > 3 ? num - 3 : num;
+    const char *s = m->lang ? hp2_lang_by_id(m->lang, (ii ? 51000u : 50000u) + 10u * (uint32_t)base) : NULL;
+    return s ? s : "Track";
+}
+
+/* The objective, in the game's words (strings 64000-65001). */
+static void objective(const hp2_femenu *m, const hp2_tree_event *e, char *out, size_t cap)
+{
+    const hp2_tree_cond *g = &e->target;
+    out[0] = 0;
+    if (g->kind == 2) {
+        const char *fmt = e->race_type == HP2_RT_DELIVERY ? lang_or(m, 65001u, "Make your delivery in %d:%#02d or less")
+                        : e->race_type == HP2_RT_PURSUIT ? "Arrest all of the speeders in %d:%#02d or less"   /* the port's: no string */
+                        : lang_or(m, 65000u, "Record a Lap Time of %d:%#02d or less");
+        sub_time(out, cap, fmt, g->value);
+    } else if (g->kind == 1 && g->value >= 1 && g->value <= 8) {
+        const char *place = lang_or(m, 61000u + g->value, "1st");
+        sub_s(out, cap, g->value == 1 ? lang_or(m, 64000u, "Finish in %s place") : lang_or(m, 64001u, "Finish %s or better"), place);
+    }
+}
+
+/* The event's details on the game's event information panel (BLURB_BOX,
+ * labels and lines in its fonts): the objective, the tracks, laps,
+ * opponents, the car chosen and the reward; the bar below shows the
+ * event's title. */
+static int evinfo_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = m->evinfo;
+    const hp2_tree *t = m->trees ? &m->trees[m->tree_kind] : NULL;
+    const hp2_tree_event *e = t && m->tree_ev < t->count ? &t->ev[m->tree_ev] : NULL;
+    const hp2_fe_widget *lab = s ? named(s, "TRACK") : NULL, *val = s ? named(s, "TRACK_LINE_1") : NULL;
+    static char head[48], obj[128], tracks[200], laps[16], opp[16], reward[128];
+    static const char *labels[5];
+    const char *values[5];
+    hp2_fe_item *it;
+    int k;
+    chal_backdrop(m, l);
+    if (!s || !e || !lab || !val) return l->n;
+    it = push(l, named(s, "BLURB_BOX"), NULL);
+    if (it) it->w.visible = 1;
+    { char f[48]; snprintf(f, sizeof f, "%s", lang_or(m, 63001u, "Event %d Objective:"));
+      { const char *d = strstr(f, "%d"); if (d) snprintf(head, sizeof head, "%.*s%d%s", (int)(d - f), f, m->tree_ev + 1, d + 2); else snprintf(head, sizeof head, "%s", f); } }
+    objective(m, e, obj, sizeof obj);
+    tracks[0] = 0;
+    for (k = 0; k < e->nraces && k < 2; k++) {
+        size_t n = strlen(tracks);
+        snprintf(tracks + n, sizeof tracks - n, "%s%s", k ? ", " : "", track_num_name(m, e->races[k].track, e->races[k].ii));
+    }
+    if (e->nraces > 2) { size_t n = strlen(tracks); snprintf(tracks + n, sizeof tracks - n, " +%d", e->nraces - 2); }
+    {
+        int lo = 99, hi = 0;
+        for (k = 0; k < e->nraces; k++) { if (e->races[k].laps < lo) lo = e->races[k].laps; if (e->races[k].laps > hi) hi = e->races[k].laps; }
+        if (!e->nraces) snprintf(laps, sizeof laps, "-");
+        else if (lo == hi) snprintf(laps, sizeof laps, "%d", lo);
+        else snprintf(laps, sizeof laps, "%d-%d", lo, hi);
+    }
+    snprintf(opp, sizeof opp, "%d", e->nopponents);
+    reward[0] = 0;
+    for (k = 0; k < e->nrewards; k++) {
+        const hp2_tree_reward *r = &e->rewards[k];
+        size_t n = strlen(reward);
+        const char *nm = r->kind == 0 ? db_car_name(m, r->id >= 0 && r->id < CARDB_N ? CARDB[r->id] : "")
+                       : track_num_name(m, r->id, r->ii);
+        snprintf(reward + n, sizeof reward - n, "%s%s", k ? ", " : "", nm);
+    }
+    if (!reward[0]) snprintf(reward, sizeof reward, "%s", lang_or(m, 67001u, "No reward"));
+    labels[0] = e->nraces > 1 ? lang_or(m, 66006u, "Tracks:") : "Track:";
+    labels[1] = lang_or(m, 66002u, "Laps:");
+    labels[2] = lang_or(m, 66001u, "Opponents:");
+    labels[3] = lang_or(m, 66003u, "Car:");
+    labels[4] = lang_or(m, 66007u, "Reward:");
+    values[0] = tracks; values[1] = laps; values[2] = opp; values[3] = hp2_femenu_car_name(m, m->car); values[4] = reward;
+    it = push(l, lab, head);
+    if (it) { it->w.y = 74.0f; it->w.visible = 1; }
+    it = push(l, val, obj);
+    if (it) {
+        size_t len = strlen(obj);
+        float sc = len > 44 ? 44.0f / (float)len : 1.0f;
+        it->w.y = 104.0f; it->w.sx *= sc; it->w.sy *= sc; it->w.visible = 1;
+    }
+    for (k = 0; k < 5; k++) {
+        float y = 148.0f + 36.0f * (float)k;
+        it = push(l, lab, labels[k]);
+        if (it) { it->w.y = y; it->w.visible = 1; }
+        it = push(l, val, values[k] ? values[k] : "");
+        if (it) {
+            size_t len = values[k] ? strlen(values[k]) : 0;
+            float sc = len > 28 ? 28.0f / (float)len : 1.0f;     /* about 28 characters fit */
+            it->w.x = 290.0f; it->w.y = y + 4.0f + (1.0f - sc) * 10.0f; it->w.sx *= sc; it->w.sy *= sc; it->w.visible = 1;
+            it->clip = 1; it->clip_rect[0] = 140.0f; it->clip_rect[1] = y - 8.0f; it->clip_rect[2] = 478.0f; it->clip_rect[3] = 44.0f;
+        }
+    }
+    if (m->chal) help_bar(m, l, m->chal);
     return l->n;
 }
 
@@ -1727,6 +1881,7 @@ int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
     if (m->screen == HP2_FEM_JUKEBOX) return jukebox_items(m, &l);
     if (m->screen == HP2_FEM_TITLE) return title_items(m, &l);
     if (m->screen == HP2_FEM_TREE) return tree_items(m, &l);
+    if (m->screen == HP2_FEM_EVENT_INFO) return evinfo_items(m, &l);
     if (m->screen == HP2_FEM_SELECT_CAR) return car_items(m, &l);
     if (m->screen == HP2_FEM_SELECT_TRACK) return track_items(m, &l);
     if (list_screen(m)) return list_items(m, &l);

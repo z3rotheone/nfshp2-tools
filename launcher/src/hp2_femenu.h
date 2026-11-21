@@ -84,7 +84,8 @@ extern "C" {
 typedef enum {
     HP2_FEM_OPTIONS, HP2_FEM_SETTINGS, HP2_FEM_JUKEBOX,
     HP2_FEM_TITLE, HP2_FEM_MAIN, HP2_FEM_HOT_PURSUIT, HP2_FEM_WORLD_RACING,
-    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK, HP2_FEM_CHALLENGE, HP2_FEM_RACE_SETUP, HP2_FEM_TREE
+    HP2_FEM_SELECT_CAR, HP2_FEM_SELECT_TRACK, HP2_FEM_CHALLENGE, HP2_FEM_RACE_SETUP, HP2_FEM_TREE,
+    HP2_FEM_EVENT_INFO
 } hp2_fem_screen;
 /* HP2_IN_HELP (Triangle) switches the ticker between the row's help line
  * and the menu buttons (accept, back, help), on every screen. */
@@ -109,6 +110,7 @@ typedef struct {
     const hp2_fe_layout *layout;
     const hp2_fe_screen *options, *display, *audio;
     const hp2_fe_screen *title, *mainm, *hotp, *world, *carsel, *tracksel, *chal, *cop, *rsetup, *tree;   /* NULL if missing */
+    const hp2_fe_screen *evinfo;    /* the event information panel (screen a744ba7b), or NULL */
     int                  track;     /* SELECT_TRACK: index into the course table */
     int                  tod;       /* 0 sunny, 1 the course's other lighting */
     int                  alt;       /* 1: the course the other way round */
