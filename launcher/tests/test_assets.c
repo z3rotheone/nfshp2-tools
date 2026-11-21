@@ -13,11 +13,15 @@
  *                                        its decoded RGBA, for check_tex.py
  *   test_assets --treedump FRONTB        every event of both career trees,
  *                                        for check_tree.py
+ *   test_assets --scenedump SCENERY      the placed scenery, per section,
+ *                                        for check_scene.py
  *   test_assets --vagdump BANK SONG FRAMES
  *                                        a hash of the first FRAMES stereo
  *                                        frames of a song, for check_vag.py
  */
 #include "../src/hp2_fe.h"
+#include "../src/hp2_geom.h"
+#include "../src/hp2_scene.h"
 #include "../src/hp2_jukebox.h"
 #include "../src/hp2_jbplay.h"
 #include "../src/hp2_vag.h"
@@ -1371,6 +1375,168 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
     free(F); free(G); free(Lb);
 }
 
+
+/* ---- models and scenery -------------------------------------------------- */
+
+static uint8_t *put_chunk(uint8_t *p, uint32_t id, const uint8_t *body, uint32_t n)
+{
+    set32(p, id);
+    set32(p + 4, n);
+    if (body) memcpy(p + 8, body, n);
+    return p + 8 + n;
+}
+
+/* One part, "BOX_A", with one batch: a 5-vertex strip (3 triangles). */
+static size_t make_model(uint8_t *out)
+{
+    uint8_t part[1024], vif[512], hdr[64], tex[8], rec[64], *q;
+    float pos[5][3] = { { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 2, 1 } };
+    int i, k;
+    size_t n;
+    memset(hdr, 0, sizeof hdr);
+    set32(hdr + 8, hp2_geom_hash("BOX_A"));
+    set32(hdr + 12, 0x0B);
+    memcpy(hdr + 16, "BOX_A", 5);
+    memset(tex, 0, sizeof tex);
+    set32(tex, hp2_geom_hash("T_BOX"));
+    memset(rec, 0, sizeof rec);
+    rec[29] = 5;
+    rec[30] = 3;
+    rec[31] = 0xFF;
+    memset(vif, 0, sizeof vif);
+    q = vif + 8;                                        /* the 8-byte lead */
+    set32(q, 0x6E010000); q += 4;                       /* V4_8 x1 at 0 */
+    q[0] = 5; q[1] = 1; q[2] = 15; q[3] = 0xFC; q += 4;
+    set32(q, 0x6C010001); q += 4;                       /* V4_32 x1 at 1 */
+    set32(q, 0x6000); q += 16;                          /* vertices 0, 1 start the strip */
+    set32(q, 0x6C030002); q += 4;                       /* V4_32 x3 at 2: x0..3 y0..3 z0..3 */
+    for (k = 0; k < 3; k++)
+        for (i = 0; i < 4; i++) { setf(q, pos[i][k]); q += 4; }
+    set32(q, 0x68010005); q += 4;                       /* V3_32 x1 at 5: the leftover */
+    for (k = 0; k < 3; k++) { setf(q, pos[4][k]); q += 4; }
+    set32(q, 0x14000000); q += 4;                       /* MSCAL */
+    n = 0;
+    q = put_chunk(part, 0x34003, hdr, sizeof hdr);
+    q = put_chunk(q, 0x34006, tex, sizeof tex);
+    q = put_chunk(q, 0x34004, rec, sizeof rec);
+    q = put_chunk(q, 0x34005, vif, (uint32_t)((vif + 8 + 4 + 4 + 4 + 16 + 4 + 48 + 4 + 12 + 4) - vif));
+    n = (size_t)(q - part);
+    q = put_chunk(out + 8, 0x80034002, part, (uint32_t)n);
+    set32(out, 0x80034000);
+    set32(out + 4, (uint32_t)(q - out - 8));
+    return (size_t)(q - out);
+}
+
+/* A section placing model 0 once at (100, 0, 0) turned 90 degrees. */
+static size_t make_section(uint8_t *out, int num, float x)
+{
+    uint8_t body[512], hdr[56], mod[40], inst[48], *q;
+    memset(hdr, 0, sizeof hdr);
+    set32(hdr + 8, (uint32_t)num);
+    memset(mod, 0, sizeof mod);
+    set32(mod, hp2_geom_hash("BOX_A"));
+    memset(inst, 0, sizeof inst);
+    setf(inst + 16, x);
+    set16(inst + 28 + 2, 0x4000);                       /* row 0 = +y */
+    set16(inst + 28 + 6, 0xC000);                       /* row 1 = -x */
+    set16(inst + 28 + 16, 0x4000);                      /* row 2 = +z */
+    q = put_chunk(body, 0x34101, hdr, sizeof hdr);
+    q = put_chunk(q, 0x34102, mod, sizeof mod);
+    q = put_chunk(q, 0x34103, inst, sizeof inst);
+    return (size_t)(put_chunk(out, 0x80034100, body, (uint32_t)(q - body)) - out);
+}
+
+static void test_geom(void)
+{
+    static uint8_t f[4096];
+    size_t n = make_model(f), n2;
+    hp2_partset ps = { 0 };
+    hp2_mesh m;
+    hp2_scene s;
+    const hp2_part *p;
+    uint8_t comp[64], *dec;
+    printf("models and scenery (synthetic)\n");
+    CHECK(hp2_geom_hash("") == 0xFFFFFFFFu, "hash of nothing");
+    CHECK(hp2_geom_scan(&ps, f, n) == 1, "one part");
+    p = hp2_geom_find(&ps, hp2_geom_hash("BOX_A"));
+    CHECK(p && !strcmp(p->name, "BOX_A") && p->ntex == 1 && p->nrec == 1, "part found by hash");
+    CHECK(!hp2_geom_find(&ps, 1234), "no such part");
+    if (p && hp2_geom_decode(p, &m) == 0) {
+        CHECK(m.nb == 1 && m.nv == 9 && !m.bad && !m.wrong, "one batch, 3 triangles: %d %d %d %d", m.nb, m.nv, m.bad, m.wrong);
+        CHECK(m.nb == 1 && m.b[0].tex == hp2_geom_hash("T_BOX") && m.b[0].mat == 0, "texture from the record");
+        /* strip 0 1 2 3 4: (0 1 2) (2 1 3) (2 3 4) */
+        CHECK(m.nv == 9 && NEAR(m.v[3].x, 0) && NEAR(m.v[3].y, 1) && NEAR(m.v[4].x, 1) && NEAR(m.v[4].y, 0)
+              && NEAR(m.v[5].x, 1) && NEAR(m.v[5].y, 1), "second triangle wound the other way");
+        CHECK(m.nv == 9 && NEAR(m.v[8].y, 2) && NEAR(m.v[8].z, 1), "leftover vertex from its own block");
+        CHECK(m.nv == 9 && m.v[0].c[0] == 128, "no colours: full brightness (128)");
+        hp2_mesh_free(&m);
+    } else {
+        CHECK(0, "decode");
+    }
+    hp2_geom_free(&ps);
+
+    n += make_section(f + n, 41, 100);
+    n += make_section(f + n, 42, 100);                  /* the same record again */
+    n += make_section(f + n, 43, -50);
+    CHECK(hp2_scene_build(&s, f, n, 0) == 0, "scene builds");
+    CHECK(s.nsec == 3 && s.inst == 3 && s.placed == 2 && s.dup == 1 && s.tris == 6,
+          "3 sections, 2 placed, 1 repeat: %d %d %d %d %ld", s.nsec, s.inst, s.placed, s.dup, s.tris);
+    if (s.nsec == 3 && s.sec[0].ng == 1) {
+        const hp2_vert *v = s.sec[0].g[0].v;
+        /* (1, 0, 0) -> 100 + 1 * row 0 = (100, 1, 0); (0, 1, 0) -> (99, 0, 0) */
+        CHECK(NEAR(v[1].x, 100) && NEAR(v[1].y, 1) && NEAR(v[2].x, 99) && NEAR(v[2].y, 0), "placed with the matrix");
+        CHECK(s.sec[0].num == 41 && s.sec[1].ng == 0 && NEAR(s.sec[0].box[0], 98) && NEAR(s.sec[0].box[4], 1),
+              "section box %g %g", s.sec[0].box[0], s.sec[0].box[4]);
+        CHECK(NEAR(s.box[0], -52) && NEAR(s.box[3], 100), "track box");
+    }
+    hp2_scene_free(&s);
+    CHECK(hp2_scene_build(&s, f, 100, 0) < 0, "no sections: fails");
+
+    /* COMP: "abcabcabc!" as 3 literals, a match of 6 back 3, a literal */
+    memset(comp, 0, sizeof comp);
+    memcpy(comp, "COMP", 4);
+    comp[4] = 1; comp[5] = 16;
+    set32(comp + 8, 10);
+    set32(comp + 12, 16 + 2 + 3 + 2 + 1);
+    set16(comp + 16, 0x8);
+    memcpy(comp + 18, "abc", 3);
+    comp[21] = 0x03; comp[22] = 3;                      /* length 3 + 3, distance 3 */
+    comp[23] = '!';
+    dec = hp2_comp_decode(comp, 24, &n2);
+    CHECK(dec && n2 == 10 && !memcmp(dec, "abcabcabc!", 10), "COMP decodes");
+    free(dec);
+    comp[22] = 9;
+    CHECK(!hp2_comp_decode(comp, 24, &n2), "COMP with a bad distance fails");
+}
+
+/* The placed scenery, per section, for tests/check_scene.py. */
+static int scenedump(const char *path)
+{
+    size_t n = 0;
+    uint8_t *F = hp2_read_file(path, &n), *dec = NULL;
+    hp2_scene s;
+    int i, j, k;
+    if (F && n >= 4 && !memcmp(F, "COMP", 4)) {
+        dec = hp2_comp_decode(F, n, &n);
+        free(F);
+        F = dec;
+    }
+    if (!F || hp2_scene_build(&s, F, n, 0) < 0) { fprintf(stderr, "no scenery in %s\n", path); free(F); return 1; }
+    printf("total inst=%d placed=%d dup=%d missing=%d tris=%ld sky=%ld bad=%d\n", s.inst, s.placed, s.dup, s.missing, s.tris,
+           s.sky_tris, s.bad);
+    for (i = 0; i < s.nsec; i++) {
+        const hp2_ssection *c = &s.sec[i];
+        long tris = 0;
+        for (j = 0; j < c->ng; j++) tris += c->g[j].nv / 3;
+        printf("section %d %d %ld", c->num, c->placed, tris);
+        for (k = 0; k < 6; k++) printf(" %.3f", c->ng ? c->box[k] : (k < 3 ? 1e30 : -1e30));
+        printf("\n");
+    }
+    hp2_scene_free(&s);
+    free(F);
+    return 0;
+}
+
 /* Every event of both trees, one line each, for tests/check_tree.py. */
 static int treedump(const char *path)
 {
@@ -1464,6 +1630,7 @@ int main(int argc, char **argv)
     int i;
     if (argc > 1 && !strcmp(argv[1], "--texdump")) return texdump(argc - 2, argv + 2);
     if (argc == 3 && !strcmp(argv[1], "--treedump")) return treedump(argv[2]);
+    if (argc == 3 && !strcmp(argv[1], "--scenedump")) return scenedump(argv[2]);
     if (argc == 5 && !strcmp(argv[1], "--vagdump")) return vagdump(argv[2], atoi(argv[3]), atoi(argv[4]));
     for (i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--frontb")) fb = argv[i + 1];
@@ -1482,6 +1649,7 @@ int main(int argc, char **argv)
     test_stream();
     test_zdir_hash();
     test_tree();
+    test_geom();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

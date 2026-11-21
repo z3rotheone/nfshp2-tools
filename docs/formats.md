@@ -1016,25 +1016,55 @@ They come in three kinds:
 
 ### Fog: `0x34250`
 
-A 16-byte header (`3, 3, 2, count`), then 128-byte records: `FOG<MAIN>`, plus
-local zones `FOG<TUNNEL>nn` and `FOG<SMOKE>nn`. Partly read:
+After any `0x11` filler, a 16-byte header (`3, 3, 2, count`), then 128-byte
+records: `FOG<MAIN>`, plus local zones `FOG<TUNNEL>nn` and `FOG<SMOKE>nn`.
+Offsets from the start of a record (an earlier version of this table had
+them 4 too high; these reproduce the values below in TRACKB11, 14, 24, 65):
 
 | Offset | Type | Meaning |
 |---|---|---|
 | 0x10 | char[] | name |
-| 0x54 | u32 | type? (1) |
-| 0x58 | 4 × u8 | colour RGBA |
-| 0x5C | f32 | start distance |
-| 0x64 | 3 × f32 | centre |
-| 0x70 | f32 | radius |
-| 0x74 | f32 | density |
-| 0x78 | f32 | radius again |
+| 0x50 | u32 | type? (1) |
+| 0x54 | 4 × u8 | colour RGBA |
+| 0x58 | f32 | start distance |
+| 0x60 | 3 × f32 | centre |
+| 0x6C | f32 | radius |
+| 0x70 | f32 | density |
+| 0x74 | f32 | radius again |
 
-| | Track 11 (sunny) | Track 14 (overcast) |
-|---|---|---|
-| colour | (150, 150, 210) | (100, 110, 140) |
-| start | 125 | 0 |
-| density | 0.15 | 0.65 |
+| | Track 11 (sunny) | Track 14 (overcast) | Track 24 | Track 65 |
+|---|---|---|---|---|
+| colour | (150, 150, 210) | (100, 110, 140) | (110, 120, 165) | (150, 169, 250) |
+| start | 125 | 0 | 0 | 150 |
+| density | 0.15 | 0.65 | 0.4 | 0.12 |
+
+How density turns into distance is not known. The track viewer fogs
+linearly from the start to start + 600 / density (at least 800 units on,
+at most 8,000 away), which is a guess that looks right on track 24.
+
+### Drawing it
+
+`launcher/src/hp2_scene.c` does what `hp2_scenery.py` does, in C: every
+instance placed, each record repeated in two sections drawn once, the
+triangles of each section gathered by texture. `make trackcheck` compares
+the two per section (instances, triangles, the box of what is drawn);
+`launcher/hp2track` draws the result. What it needed beyond the above:
+
+- **The sky.** Section 99 places `SKYDOME`, `SKYDOME_ENVMAP` and `PANORAMA`
+  like any prop, at the origin. `SKYDOME` (about 15,000 units across) and
+  `PANORAMA` (the mountains on the horizon) are drawn first, unfogged and
+  without writing depth. `SKYDOME_ENVMAP` is a second dome inside the first,
+  probably the image the cars reflect; drawn, it hides the sky, so it is
+  left out.
+- **Colours.** Vertex colours are the PS2's: 0x80 per channel is full
+  brightness, so a surface is the texture times twice its vertex colour, as
+  the GS's modulate does. Alpha the same.
+- **Transparency.** A texture whose alpha is only clear or solid (plants,
+  fences) is cut out at half alpha; one with much in between (shadow decals,
+  glass) is blended after everything else.
+- **Textures** come from `TRACKS\TEXnnLOCATION.BIN` and `TEXnnTRACK.BIN`,
+  plain texture packs, by the hash in each batch record. In track 24, 8 of
+  the 160 hashes the scenery uses are in neither pack.
 
 ### What differs between a track and its n+3 variant
 

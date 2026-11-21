@@ -62,6 +62,9 @@ dropped in later.
 | `src/hp2_lang.c` | no | yes, and on FE_ENGLISH.BIN |
 | `src/hp2_zdir.c` | no | yes, and through the real archive |
 | `src/hp2_femenu.c` | no | yes, on the real layouts |
+| `src/hp2_geom.c` | no | yes; models decoded as `hp2_geom.py` does |
+| `src/hp2_scene.c` | no | yes; identical to `hp2_scenery.py`, section by section |
+| `src/track_main.c` | yes (and OpenGL) | screenshots, offscreen |
 | `src/hp2_fedraw.c` | yes | screenshots, offscreen |
 | `src/fe_main.c` | yes | screenshots, offscreen |
 | `src/hp2_input.c` | yes | compile-checked |
@@ -85,6 +88,9 @@ make fecheck FRONTB=~/hp2work/extracted/021_14c57a19.bin \
                  # textures, text, menu flow and the event trees' layout
 make             # build the launcher (needs SDL2)
 make hp2fe       # build the front-end menus (needs SDL2 2.0.18 or newer)
+make hp2track    # build the track viewer (needs SDL2 and OpenGL)
+make trackcheck SCENERY="~/hp2work/extracted/196_5ebf48d3.bin ~/hp2work/extracted/187_5c3401d3.comp"
+                 # the scenery placed in C, compared with tools/hp2_scenery.py
 ```
 
 SDL2:
@@ -108,6 +114,31 @@ With no arguments it loads `hp2.ini` (writing one if absent), opens the first
 controller it finds, prints which pad it detected and the bindings in that
 pad's own button names, then shows live steering, throttle, brake and the
 actions currently held. Escape or Ctrl+C to quit.
+
+### The track viewer (`hp2track`)
+
+```sh
+./hp2track --disc /path/to/disc/NFSHP2 --track 24
+./hp2track --scenery 196_5ebf48d3.bin --tex 258_395d331a.bin --tex 259_04dce816.bin
+./hp2track --disc ... --track 24 --shot t24.bmp --cam 610,-1288,-77,-127,-5
+```
+
+The first step towards the race: one track's scenery, placed as the game
+places it (roads, terrain, every plant, sign and pole), with its textures,
+sky and fog, drawn with OpenGL 1.x. Track numbers: the tens digit is the
+location (1-4 and 6), the units the variant (1-6; n and n+3 are the same
+roads at another time of day or weather). It starts on the main route's
+first point, looking along it.
+
+WASD or the arrows move, Q/E (Page Down/Up) go down and up, hold the right
+mouse button (or press M) to look around, Shift is faster and Ctrl slower,
+the mouse wheel changes the speed. F toggles fog, R goes back to the start,
+P prints the camera as a `--cam` option, F12 saves a screenshot, Esc quits.
+On a controller the left stick moves, the right stick looks and the triggers
+go down and up.
+
+There are no cars, no collision and no lighting beyond the vertex colours
+yet; the fog distance is a guess (docs/formats.md, "Fog").
 
 ### The menus (`hp2fe`)
 
@@ -284,6 +315,17 @@ archive, and the menus: OPTIONS' 7 rows in FE_ENGLISH's words, the settings
 list showing 7 of the 12 rows with the selection always among them. `make
 fecheck` adds `tests/check_tex.py`: every texture decoded by `hp2_tex` and by
 `hp2_tpk.py`, all 481 identical.
+
+`test_assets` also builds a model and a scenery file of its own (a strip of
+five vertices with its leftover in a block of its own, a turned instance, a
+record repeated in two sections, COMP data), and `make trackcheck` places
+every section of a real track in C and in Python: on TRACKB24, 63 sections,
+18,477 models and 635,777 triangles, identical, the box of each section to
+0.01.
+
+`hp2track` has been run only offscreen (Mesa's software OpenGL): the
+screenshots show the track as expected, but the window, mouse and controller
+paths are untested until it runs on a desktop.
 
 `hp2fe` has been run only offscreen (`--shot`, SDL's software renderer) in a
 machine with no display or controller: the screenshots match the layouts, but

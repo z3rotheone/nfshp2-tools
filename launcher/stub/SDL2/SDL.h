@@ -92,6 +92,25 @@ typedef enum {
 #define SDLK_h                      104
 #define SDLK_F1                     0x4000003A
 
+#define SDLK_f                      102
+#define SDLK_m                      109
+#define SDLK_p                      112
+#define SDLK_r                      114
+#define SDLK_F12                    0x40000045
+#define SDL_MOUSEMOTION             0x400
+#define SDL_MOUSEBUTTONDOWN         0x401
+#define SDL_MOUSEBUTTONUP           0x402
+#define SDL_MOUSEWHEEL              0x403
+#define SDL_BUTTON_RIGHT            3
+typedef enum {
+    SDL_SCANCODE_A = 4, SDL_SCANCODE_D = 7, SDL_SCANCODE_E = 8, SDL_SCANCODE_Q = 20, SDL_SCANCODE_S = 22,
+    SDL_SCANCODE_W = 26, SDL_SCANCODE_PAGEUP = 75, SDL_SCANCODE_PAGEDOWN = 78, SDL_SCANCODE_RIGHT = 79,
+    SDL_SCANCODE_LEFT = 80, SDL_SCANCODE_DOWN = 81, SDL_SCANCODE_UP = 82, SDL_SCANCODE_LCTRL = 224,
+    SDL_SCANCODE_LSHIFT = 225, SDL_SCANCODE_RCTRL = 228, SDL_SCANCODE_RSHIFT = 229
+} SDL_Scancode;
+typedef struct { Uint32 type; int xrel, yrel; } SDL_MouseMotionEvent;
+typedef struct { Uint32 type; Uint8 button; } SDL_MouseButtonEvent;
+typedef struct { Uint32 type; int x, y; } SDL_MouseWheelEvent;
 typedef struct { int sym; } SDL_Keysym;
 typedef struct { Uint32 type; SDL_Keysym keysym; } SDL_KeyboardEvent;
 typedef struct { Uint32 type; int which; } SDL_ControllerDeviceEvent;
@@ -103,6 +122,9 @@ typedef union {
     SDL_ControllerDeviceEvent cdevice;
     SDL_ControllerButtonEvent cbutton;
     SDL_ControllerAxisEvent caxis;
+    SDL_MouseMotionEvent motion;
+    SDL_MouseButtonEvent button;
+    SDL_MouseWheelEvent wheel;
 } SDL_Event;
 
 /* video, for the front-end renderer (hp2_fedraw.c, fe_main.c) */
@@ -188,4 +210,17 @@ int   SDL_GameControllerRumble(SDL_GameController *c, Uint16 lo, Uint16 hi, Uint
 SDL_Joystick *SDL_GameControllerGetJoystick(SDL_GameController *c);
 SDL_JoystickID SDL_JoystickInstanceID(SDL_Joystick *j);
 
+/* OpenGL windows and input, for the track viewer (track_main.c) */
+typedef void *SDL_GLContext;
+typedef enum { SDL_GL_DOUBLEBUFFER = 5, SDL_GL_DEPTH_SIZE = 6 } SDL_GLattr;
+#define SDL_WINDOW_OPENGL               0x2u
+int   SDL_GL_SetAttribute(SDL_GLattr attr, int value);
+SDL_GLContext SDL_GL_CreateContext(SDL_Window *w);
+void  SDL_GL_DeleteContext(SDL_GLContext c);
+void  SDL_GL_GetDrawableSize(SDL_Window *w, int *dw, int *dh);
+int   SDL_GL_SetSwapInterval(int interval);
+void  SDL_GL_SwapWindow(SDL_Window *w);
+const Uint8 *SDL_GetKeyboardState(int *numkeys);
+SDL_bool SDL_GetRelativeMouseMode(void);
+int   SDL_SetRelativeMouseMode(SDL_bool enabled);
 #endif /* HP2_SDL_STUB_H */
