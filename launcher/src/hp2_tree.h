@@ -3,10 +3,11 @@
  *
  * Data (docs/formats.md, "Event trees"):
  *   FRONTB.BUN holds two 0x80034A00 chunks. Child 0x00000001 is the name
- *   ("Championship" -> kind 0, "Hot Pursuit" -> kind 1), 0x00034A03 the
- *   prerequisite links (8 bytes: u16 kind, u16 event number, u32 value) and
- *   0x00034A05 the events (188-byte records: event number at +0x28, number
- *   of links at +0x3D, s16 link indices at +0x7C).
+ *   ("Championship" -> kind 0, "Hot Pursuit" -> kind 1), 0x00034A05 the
+ *   events (188-byte records) and four tables they index: 34A01 cars to
+ *   pick, 34A02 races (track, II, laps), 34A03 conditions (the links that
+ *   unlock an event, and its own goal), 34A04 rewards, 34A06 opponents.
+ *   Field by field: docs/formats.md and tools/hp2_eventtree.py.
  *   The executable SLUS_203.62 holds each tree's column layout: a 20 x 10
  *   grid of ' ' and 'x' (Championship first, Hot Pursuit 208 bytes later);
  *   the n-th 'x' is event n. Its row equals the event's depth (the steps
@@ -31,15 +32,56 @@ extern "C" {
 
 #define HP2_TREE_MAX_EVENTS 40
 #define HP2_TREE_MAX_LINKS 8
+#define HP2_TREE_MAX_CARS 8
+#define HP2_TREE_MAX_RACES 8
+#define HP2_TREE_MAX_OPPONENTS 8
+#define HP2_TREE_MAX_REWARDS 4
 #define HP2_TREE_COL_UNITS 130.0f
 #define HP2_TREE_ROW_UNITS 350.0f
+#define HP2_TREE_TICKS 4000          /* time values: ticks a second */
+
+/* Race types (+0x29 of an event record) */
+enum { HP2_RT_SINGLE, HP2_RT_TIME_TRIAL, HP2_RT_LAP_KNOCKOUT, HP2_RT_KNOCKOUT,
+       HP2_RT_TOURNAMENT, HP2_RT_DELIVERY, HP2_RT_PURSUIT };
+
+/* A condition (34A03): kind 1 = finish `event` in place <= value, kind 2 =
+ * finish it within value ticks. */
+typedef struct { int kind, event; uint32_t value; } hp2_tree_cond;
+
+typedef struct {
+    int track;                       /* track number, 11..66 */
+    int ii;                          /* 1: the course's "II" version */
+    int laps;
+} hp2_tree_race;
+
+typedef struct { int car, colour, skill; } hp2_tree_opponent;   /* colour -1 = any */
+
+typedef struct {
+    int kind;                        /* 0 car, 1 track */
+    int id;                          /* car database index or track number */
+    int ii;                          /* track: 1 = its "II" version; car: 1
+                                        (9 on one), meaning not known */
+    uint32_t value;                  /* the condition: place, or ticks */
+} hp2_tree_reward;
 
 typedef struct {
     int number;                      /* 1.. */
     int nlinks;
     int links[HP2_TREE_MAX_LINKS];   /* prerequisite event numbers */
+    hp2_tree_cond need[HP2_TREE_MAX_LINKS];   /* what each prerequisite asks */
     int depth;                       /* steps back to event 1, -1 if broken */
     int col, row;                    /* grid cell; -1 without the grid */
+    int race_type;                   /* HP2_RT_* */
+    int tier;                        /* 5 (first events) .. 1 (last) */
+    int cops;                        /* cop level, 0 = none */
+    int ncars, cars[HP2_TREE_MAX_CARS];       /* car database indices */
+    int nraces;
+    hp2_tree_race races[HP2_TREE_MAX_RACES];
+    int nopponents;
+    hp2_tree_opponent opponents[HP2_TREE_MAX_OPPONENTS];
+    int nrewards;
+    hp2_tree_reward rewards[HP2_TREE_MAX_REWARDS];
+    hp2_tree_cond target;            /* the event's own goal; kind 0 if none */
 } hp2_tree_event;
 
 typedef struct {

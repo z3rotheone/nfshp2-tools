@@ -87,6 +87,7 @@ fecheck: test_fe test_assets
 	python3 tests/check_fe.py ./test_fe "$(FRONTB)"
 	./test_assets --frontb "$(FRONTB)" --globalb "$(GLOBALB)" --lang "$(FELANG)" $(if $(BANK),--jukebox "$(BANK)") $(if $(DISC),--disc "$(DISC)") $(if $(EXE),--exe "$(EXE)")
 	python3 tests/check_tex.py ./test_assets "$(FRONTB)" "$(GLOBALB)"
+	python3 tests/check_tree.py ./test_assets "$(FRONTB)"
 	$(if $(BANK),python3 tests/check_vag.py ./test_assets "$(BANK)")
 
 # Compiles the SDL-dependent sources against a stand-in header, to catch

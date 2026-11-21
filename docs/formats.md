@@ -1434,32 +1434,56 @@ settings list in the DISPLAY_OPTIONS layout with them.
 
 Read by `eventtree.cpp` (loader 0x1FFC40 in SLUS_203.62) and drawn by
 `tEventTreeView` (0x1F96B8) with `tEventLeaf`, `tEventGroup` and
-`tLineSegment`. `launcher/src/hp2_tree.c` implements the layout below.
+`tLineSegment`. `launcher/src/hp2_tree.c` reads it all (the port shows
+the events as a plain list; the tree layout is decoded but not drawn).
 
 * Child `0x00000001` (64 bytes) is the tree's name: "Championship" (World
   Racing, the port's Ultimate Racer; tree kind 0) or "Hot Pursuit" (kind 1;
-  the executable also knows "... E3" variants). Both trees have 32 events
-  (31 and 32 are the bonus events).
+  the executable also knows "... E3" variants). Hot Pursuit lists 32
+  events (31 and 32 are bonus events), Championship 31 (plus a hidden 32nd).
 * The loader keeps each other child as a pointer and an item count in the
   tree object: `34A01` at +0x14 (4-byte items), `34A02` +0x1C (4-byte),
   `34A03` +0x24 (8-byte), `34A04` +0x2C (8-byte), `34A06` +0x34 (4-byte).
   `34A05` is the event list: 188-byte records; the loader writes the tree
   pointer into each record's first word (the 8 zero bytes on disc).
-* Event record (`34A05`): +0x28 event number, +0x29 race type (the start
-  code switches on it, 1..6), +0x2B..+0x3A small race settings copied into
-  the race setup, counts at +0x3B (`34A01` items), +0x3C (`34A02`), +0x3D
-  (`34A03`), +0x3E (`34A04`), +0x3F (`34A06`), and s16 index lists into
-  those tables at +0x44, +0x6C, +0x7C, +0x8C and +0x9C; +0x42 is one more
-  `34A03` index. Title string = base + r (World Racing 70000, Hot Pursuit
-  70031), blurb = 70064 / 70095 + r. Unused list slots hold leftover bytes.
-* **`34A03` = prerequisite links**, 8 bytes: u16 kind (1 or 2), u16 event
-  number, u32 value (kind 2: values like 1,200,000; kind 1: 1..3; meaning
-  not known, perhaps a points or place requirement). Event e's links name
-  the events it follows from; event 1 has none.
-* `34A01` (u16 0xFFFF + u16), `34A02` (byte 0 = a track number 11..65,
-  flags, u16), `34A04` (8 bytes; feeds a lookup in the 0x560-byte car
-  database) and `34A06` (4 bytes) are race parameters copied when an event
-  starts (0x1FEE20). They are **not** the tree's lines.
+* Event record (`34A05`): +0x28 event number, +0x29 race type (0 Single
+  Race, 1 Time Trial, 2 Lap Knockout, 3 Race Knockout, 4 Tournament, 5
+  Delivery, 6 Pursuit), +0x2A tier (5 for the first events down to 1 for the
+  last), +0x2C cop level (Hot Pursuit 0..4, 6 on the hidden duel; always 0
+  in Championship); counts at +0x3B (`34A01`), +0x3C (`34A02`), +0x3D
+  (`34A03`), +0x3E (`34A04`), +0x3F (`34A06`) and s16 index lists into those
+  tables at +0x44, +0x6C, +0x7C, +0x8C and +0x9C; +0x42 is one more `34A03`
+  index, the event's own goal (`$TARGET_TIME` prints it when its kind is
+  2). Other bytes of +0x2B..+0x3A are copied into the race set-up (0x1FEE20),
+  meaning not known. Title string = base + r (World Racing 70000, Hot
+  Pursuit 70031), blurb = 70064 / 70095 + r. Unused list slots hold
+  leftover bytes. Championship has a 32nd record the game does not list: a
+  one-on-one 360 Spider race (cop level 6) after event 31, no title.
+* **`34A01` = cars you may pick**, 4 bytes: u16 0xFFFF, u16 car database
+  index (0x4000 set on Championship event 31's F50).
+* **`34A02` = the races**, one entry per race (a Tournament or Knockout
+  lists several), read as u32 v: v & 0xFF track number (11..66, as the
+  track list), v >> 9 & 1 the course's "II" version, v >> 14 & 0xF laps
+  (the game's `$NUM_LAPS` reads exactly this), v >> 18 & 0xFF and v >> 26
+  unknown (0 or 25..100; 25 mostly, 30 or 40 on some); bits 12 and 13
+  always set. Point-to-point courses read 1 lap, 2 on Hot Pursuit's first
+  three Deliveries. "II" names are strings 51000 + 10 x course, plain ones
+  50000 + 10 x course; track numbers ending 4..6 are the other lighting
+  (overcast in Parkland and Desert, sunset elsewhere) of n - 3.
+* **`34A03` = conditions**, 8 bytes: u16 kind, u16 event number, u32 value.
+  Kind 1: finish that event in place <= value; kind 2: within value ticks,
+  **4000 ticks a second** (the time formatter 0x1A3B28 divides by 0xFA0).
+  The conditions an event lists are the ones that unlock it; checked
+  against the blurbs ("Finishing 2nd unlocks Event 10").
+* **`34A04` = rewards**, 8 bytes: u8 kind (0 car, 1 track), u8 id (car
+  database index or track number), u16 flag (track: 1 = its "II"; car: 1,
+  9 once), u32 condition value as in `34A03` (1 = win, or a time).
+* **`34A06` = opponents**, 4 bytes: u8 car, u8 colour (255 = any), u8 skill
+  (0..9), u8 0. `$NUM_OPPONENTS` is their count.
+* Every field was checked against the event blurbs (cars, track, laps,
+  number of opponents, rewards, unlock places); `tools/hp2_eventtree.py`
+  prints them all and `launcher/src/hp2_tree.c` reads the same (compared by
+  `tests/check_tree.py`).
 * **Layout grids (in the executable, not on the data disc):** two 200-byte
   grids of ' ' and 'x', 20 columns x 10 rows, Championship at 0x31B3C0 and
   Hot Pursuit 208 bytes later (NTSC-U addresses; `hp2_tree.c` finds them by
@@ -1476,8 +1500,6 @@ Read by `eventtree.cpp` (loader 0x1FFC40 in SLUS_203.62) and drawn by
   from the leftmost to the rightmost member (sorted by x), with a vertical
   from every member to the bar. Segments whose span covers a won path get
   a second colour (0x1F8450); both colours are set at run time.
-* No reward field has been found; the blurb text names unlocked events and
-  rewards ("unlock Events 2 and 3, as well as the Lotus Elise").
 * Texture names in the packs are cut at 23 characters; the hashes give the
   full names: `PURSUIT_EVENT_PANEL_LOCKED` (6ec8d95c), `_UNLOCKED`
   (5b00bd5f), `_WON` (494510fe), 272 x 272, the star badge of Hot Pursuit;

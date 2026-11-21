@@ -201,6 +201,20 @@ Every model file records how many triangles each batch should produce.
 number, one line per file. Over the whole disc it does for all 16,789 batches
 in 44 cars, about 260,000 triangles.
 
+### Career events
+
+```sh
+python tools/hp2_eventtree.py extracted/021_14c57a19.bin \
+    --lang extracted/003_0e1049ed.bin --carinfo extracted/302_4c937012.bin
+```
+
+Lists the 31 World Racing (Championship) and 32 Hot Pursuit events from
+`FRONTB.BUN`: race type, the cars you may pick, each race's track, "II"
+version and laps, the opponents with their skill, the cop level, the target
+time, the reward and the place or time in earlier events that unlocks it.
+`--json OUT.json` writes the same as data. The format is in
+`docs/formats.md`, "Event trees".
+
 ### When a mod boots but nothing changed
 
 Three causes, and `hp2_verify.py` tells them apart:

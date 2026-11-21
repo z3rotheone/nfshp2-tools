@@ -5,8 +5,12 @@
 
 #define CH_TREE   0x80034A00u
 #define CH_NAME   0x00000001u
+#define CH_CARS   0x00034A01u
+#define CH_RACES  0x00034A02u
 #define CH_LINKS  0x00034A03u
+#define CH_REWARD 0x00034A04u
 #define CH_EVENTS 0x00034A05u
+#define CH_OPP    0x00034A06u
 #define REC       188
 #define GRID_W    20
 #define GRID_H    10
@@ -27,21 +31,93 @@ static int depth_of(const hp2_tree *t, int n)
     return -1;
 }
 
+typedef struct { const uint8_t *p; size_t n; } table;   /* n items */
+
+/* The s16 indices of list `at` (count at `cnt`) of record r into t, item
+ * size w; fills out[] with item pointers, at most max. */
+static int indexed(const uint8_t *r, int cnt, int at, table t, size_t w, const uint8_t **out, int max)
+{
+    int c = (signed char)r[cnt], k, n = 0;
+    if (c < 0) c = 0;
+    if (c > max) c = max;
+    if (at + 2 * c > REC) c = (REC - at) / 2;
+    for (k = 0; k < c; k++) {
+        int i = (int16_t)rd16(r + at + 2 * k);
+        if (i >= 0 && (size_t)i < t.n) out[n++] = t.p + (size_t)i * w;
+    }
+    return n;
+}
+
+static void cond_at(hp2_tree_cond *c, const uint8_t *b)
+{
+    c->kind = rd16(b);
+    c->event = rd16(b + 2);
+    c->value = rd32(b + 4);
+}
+
+static void parse_event(hp2_tree_event *e, const uint8_t *r, table cars, table races, table links, table rewards, table opp)
+{
+    const uint8_t *it[HP2_TREE_MAX_RACES];
+    int k, n, own;
+    e->race_type = r[0x29];
+    e->tier = r[0x2A];
+    e->cops = r[0x2C];
+    n = indexed(r, 0x3B, 0x44, cars, 4, it, HP2_TREE_MAX_CARS);
+    for (k = 0; k < n; k++) e->cars[e->ncars++] = rd16(it[k] + 2) & 0x3FFF;
+    n = indexed(r, 0x3C, 0x6C, races, 4, it, HP2_TREE_MAX_RACES);
+    for (k = 0; k < n; k++) {
+        uint32_t v = rd32(it[k]);
+        hp2_tree_race *rc = &e->races[e->nraces++];
+        rc->track = (int)(v & 0xFF);
+        rc->ii = (int)(v >> 9 & 1);
+        rc->laps = (int)(v >> 14 & 0xF);
+    }
+    n = indexed(r, 0x3D, 0x7C, links, 8, it, HP2_TREE_MAX_LINKS);
+    for (k = 0; k < n; k++) {
+        cond_at(&e->need[e->nlinks], it[k]);
+        e->links[e->nlinks] = e->need[e->nlinks].event;
+        e->nlinks++;
+    }
+    n = indexed(r, 0x3E, 0x8C, rewards, 8, it, HP2_TREE_MAX_REWARDS);
+    for (k = 0; k < n; k++) {
+        hp2_tree_reward *rw = &e->rewards[e->nrewards++];
+        rw->kind = it[k][0];
+        rw->id = it[k][1];
+        rw->ii = rd16(it[k] + 2);
+        rw->value = rd32(it[k] + 4);
+    }
+    n = indexed(r, 0x3F, 0x9C, opp, 4, it, HP2_TREE_MAX_OPPONENTS);
+    for (k = 0; k < n; k++) {
+        hp2_tree_opponent *o = &e->opponents[e->nopponents++];
+        o->car = it[k][0];
+        o->colour = it[k][1] == 255 ? -1 : it[k][1];
+        o->skill = it[k][2];
+    }
+    own = (int16_t)rd16(r + 0x42);
+    if (own >= 0 && (size_t)own < links.n) cond_at(&e->target, links.p + (size_t)own * 8);
+}
+
 /* One 0x80034A00 chunk body; 1 if it gave a tree. */
 static int parse_tree(const uint8_t *b, size_t sz, hp2_tree out[2])
 {
-    const uint8_t *links = NULL, *events = NULL;
-    size_t nlinks = 0, nevents = 0, o = 0;
+    table cars = { NULL, 0 }, races = { NULL, 0 }, links = { NULL, 0 }, rewards = { NULL, 0 }, opp = { NULL, 0 };
+    const uint8_t *events = NULL;
+    size_t nevents = 0, o = 0;
     int kind = -1, i;
     hp2_tree *t;
     while (o + 8 <= sz) {
         uint32_t id = rd32(b + o), csz = rd32(b + o + 4);
+        const uint8_t *p = b + o + 8;
         if (csz > sz - o - 8) return 0;
         if (id == CH_NAME) {
-            if (csz >= 12 && !memcmp(b + o + 8, "Championship", 12)) kind = 0;
-            else if (csz >= 11 && !memcmp(b + o + 8, "Hot Pursuit", 11)) kind = 1;
-        } else if (id == CH_LINKS) { links = b + o + 8; nlinks = csz / 8; }
-        else if (id == CH_EVENTS) { events = b + o + 8; nevents = csz / REC; }
+            if (csz >= 12 && !memcmp(p, "Championship", 12)) kind = 0;
+            else if (csz >= 11 && !memcmp(p, "Hot Pursuit", 11)) kind = 1;
+        } else if (id == CH_CARS) { cars.p = p; cars.n = csz / 4; }
+        else if (id == CH_RACES) { races.p = p; races.n = csz / 4; }
+        else if (id == CH_LINKS) { links.p = p; links.n = csz / 8; }
+        else if (id == CH_REWARD) { rewards.p = p; rewards.n = csz / 8; }
+        else if (id == CH_OPP) { opp.p = p; opp.n = csz / 4; }
+        else if (id == CH_EVENTS) { events = p; nevents = csz / REC; }
         o += 8 + csz;
     }
     if (kind < 0 || !events || out[kind].present) return 0;
@@ -50,21 +126,14 @@ static int parse_tree(const uint8_t *b, size_t sz, hp2_tree out[2])
     t->kind = kind;
     for (i = 0; (size_t)i < nevents; i++) {
         const uint8_t *r = events + (size_t)i * REC;
-        int n = r[0x28], k, c = (signed char)r[0x3D];
+        int n = r[0x28];
         hp2_tree_event *e;
         if (n < 1 || n > HP2_TREE_MAX_EVENTS) continue;
         e = &t->ev[n - 1];
         if (e->number) continue;
         e->number = n;
         e->col = e->row = -1;
-        if (c < 0) c = 0;
-        if (c > HP2_TREE_MAX_LINKS) c = HP2_TREE_MAX_LINKS;
-        if (0x7C + 2 * c > REC) c = (REC - 0x7C) / 2;
-        for (k = 0; k < c; k++) {
-            int li = (int16_t)rd16(r + 0x7C + 2 * k);
-            if (li < 0 || (size_t)li >= nlinks) continue;
-            e->links[e->nlinks++] = rd16(links + (size_t)li * 8 + 2);
-        }
+        parse_event(e, r, cars, races, links, rewards, opp);
         if (n > t->count) t->count = n;
     }
     for (i = 0; i < t->count; i++)      /* events must run 1..count */

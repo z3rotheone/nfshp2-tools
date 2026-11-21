@@ -11,6 +11,8 @@
  *                                        for the event trees' layout)
  *   test_assets --texdump FILE...        one line per texture with a hash of
  *                                        its decoded RGBA, for check_tex.py
+ *   test_assets --treedump FRONTB        every event of both career trees,
+ *                                        for check_tree.py
  *   test_assets --vagdump BANK SONG FRAMES
  *                                        a hash of the first FRAMES stereo
  *                                        frames of a song, for check_vag.py
@@ -503,14 +505,32 @@ static size_t synth_tree(uint8_t *b, size_t o, const char *name)
     for (e = 0; e < 3; e++) {   /* links: event 1, event 2, event 3 */
         b[o] = 1; b[o + 1] = 0; b[o + 2] = (uint8_t)(e + 1); b[o + 3] = 0; put32(b, o + 4, 7); o += 8;
     }
+    o = put32(b, o, 0x00034A01u); o = put32(b, o, 8);        /* cars: 41, 37 */
+    o = put32(b, o, 0x0029FFFFu); o = put32(b, o, 0x0025FFFFu);
+    o = put32(b, o, 0x00034A02u); o = put32(b, o, 4);        /* track 12, II, 5 laps */
+    o = put32(b, o, 12u | 1u << 9 | 0x3000u | 5u << 14 | 25u << 26);
+    o = put32(b, o, 0x00034A04u); o = put32(b, o, 8);        /* reward: track 11 II, place 1 */
+    b[o] = 1; b[o + 1] = 11; b[o + 2] = 1; b[o + 3] = 0; put32(b, o + 4, 1); o += 8;
+    o = put32(b, o, 0x00034A06u); o = put32(b, o, 8);        /* opponents */
+    b[o] = 13; b[o + 1] = 255; b[o + 2] = 4; b[o + 3] = 0; b[o + 4] = 19; b[o + 5] = 3; b[o + 6] = 7; b[o + 7] = 0; o += 8;
     o = put32(b, o, 0x00034A05u); o = put32(b, o, 4 * 188);
     c = o;
     memset(b + o, 0, 4 * 188);
     for (e = 0; e < 4; e++) {
         uint8_t *r = b + c + (size_t)e * 188;
         r[0x28] = (uint8_t)(e + 1);
+        r[0x42] = 0xFF; r[0x43] = 0xFF;      /* no goal of its own */
         if (e == 1 || e == 2) { r[0x3D] = 1; r[0x7C] = 0; }
         if (e == 3) { r[0x3D] = 2; r[0x7C] = 1; r[0x7E] = 2; }
+    }
+    {   /* event 1: a Lap Knockout, 2 cars, 1 race, 2 opponents, a reward, goal = link 0 */
+        uint8_t *r = b + c;
+        r[0x29] = 2; r[0x2A] = 5; r[0x2C] = 3;
+        r[0x3B] = 2; r[0x44] = 0; r[0x46] = 1;
+        r[0x3C] = 1; r[0x6C] = 0;
+        r[0x3E] = 1; r[0x8C] = 0;
+        r[0x3F] = 3; r[0x9C] = 0; r[0x9E] = 1; r[0xA0] = 7;   /* index 7 is past the table: skipped */
+        r[0x42] = 0; r[0x43] = 0;
     }
     o += 4 * 188;
     put32(b, start + 4, (uint32_t)(o - body));
@@ -538,6 +558,18 @@ static void test_tree(void)
           "two trees, kind by name, 4 events each");
     CHECK(t[1].ev[3].nlinks == 2 && t[1].ev[3].links[0] == 2 && t[1].ev[3].links[1] == 3 && t[1].ev[3].depth == 2
           && t[1].ev[0].depth == 0, "links and depth");
+    {
+        const hp2_tree_event *e = &t[1].ev[0];
+        CHECK(e->race_type == HP2_RT_LAP_KNOCKOUT && e->tier == 5 && e->cops == 3 && e->ncars == 2 && e->cars[0] == 41 && e->cars[1] == 37,
+              "event 1: Lap Knockout, tier, cop level, two cars");
+        CHECK(e->nraces == 1 && e->races[0].track == 12 && e->races[0].ii == 1 && e->races[0].laps == 5, "a race: track 12 II, 5 laps");
+        CHECK(e->nopponents == 2 && e->opponents[0].car == 13 && e->opponents[0].colour == -1 && e->opponents[0].skill == 4
+              && e->opponents[1].colour == 3 && e->opponents[1].skill == 7, "opponents; an index past the table is skipped");
+        CHECK(e->nrewards == 1 && e->rewards[0].kind == 1 && e->rewards[0].id == 11 && e->rewards[0].ii == 1 && e->rewards[0].value == 1,
+              "reward: track 11 II for a win");
+        CHECK(e->target.kind == 1 && e->target.event == 1 && e->target.value == 7 && t[1].ev[1].target.kind == 0, "own goal from +0x42; -1 = none");
+        CHECK(t[1].ev[3].need[1].kind == 1 && t[1].ev[3].need[1].event == 3 && t[1].ev[3].need[1].value == 7, "what a link asks");
+    }
     CHECK(hp2_tree_segments(&t[0], seg, 32) == 0 && !hp2_tree_pos(&t[0], 1, &x, &y), "no grid: no positions, no lines");
     memset(ex, 0x55, sizeof ex);
     synth_grid(ex + 100, 0); synth_grid(ex + 308, 1);
@@ -1189,6 +1221,19 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
     CHECK(real_trees[0].ev[27].nlinks == 4 && real_trees[0].ev[27].links[0] == 22 && real_trees[0].ev[27].links[3] == 25,
           "Championship event 28 needs events 22, 23, 24 and 25");
     CHECK(real_trees[1].ev[31].depth == 9 && real_trees[1].ev[0].depth == 0 && real_trees[1].ev[10].nlinks == 3, "Hot Pursuit: depths 0 to 9, event 11 has three links");
+    {
+        const hp2_tree_event *w2 = &real_trees[0].ev[1], *w9 = &real_trees[0].ev[8], *w30 = &real_trees[0].ev[29], *h1 = &real_trees[1].ev[0];
+        CHECK(w2->race_type == HP2_RT_TIME_TRIAL && w2->ncars == 1 && w2->cars[0] == 43 && w2->nraces == 1 && w2->races[0].track == 32
+              && w2->target.kind == 2 && w2->target.value == 185u * HP2_TREE_TICKS && w2->nrewards == 1 && w2->rewards[0].kind == 0 && w2->rewards[0].id == 43,
+              "Championship 2: CL55 AMG time trial at Calypso Coast, 3:05, wins the CL55 AMG");
+        CHECK(w9->race_type == HP2_RT_TOURNAMENT && w9->nraces == 5 && w9->races[4].track == 23 && w9->races[4].ii == 1 && w9->nopponents == 6,
+              "Championship 9: five races ending at Rocky Canyons II, six opponents");
+        CHECK(w30->nraces == 1 && w30->races[0].laps == 10 && w30->races[0].track == 65 && w30->nopponents == 7, "Championship 30: ten laps, seven McLaren F1 LMs");
+        CHECK(h1->race_type == HP2_RT_DELIVERY && h1->cops == 2 && h1->target.value == 300u * HP2_TREE_TICKS && h1->races[0].track == 13,
+              "Hot Pursuit 1: a Delivery at Scenic Drive within 5:00, cop level 2");
+        CHECK(real_trees[1].ev[4].race_type == HP2_RT_PURSUIT && real_trees[1].ev[4].cars[0] == 4 && real_trees[1].ev[4].nopponents == 3,
+              "Hot Pursuit 5: a Pursuit in the Crown Victoria after three speeders");
+    }
     if (exe) {
         size_t xl = 0;
         uint8_t *X = hp2_read_file(exe, &xl);
@@ -1264,6 +1309,33 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
     free(F); free(G); free(Lb);
 }
 
+/* Every event of both trees, one line each, for tests/check_tree.py. */
+static int treedump(const char *path)
+{
+    static hp2_tree t[2];
+    size_t n = 0;
+    uint8_t *F = hp2_read_file(path, &n);
+    int k, i, j;
+    if (!F || hp2_tree_parse(F, n, t) != 2) { fprintf(stderr, "no trees in %s\n", path); free(F); return 1; }
+    for (k = 0; k < 2; k++)
+        for (i = 0; i < t[k].count; i++) {
+            const hp2_tree_event *e = &t[k].ev[i];
+            printf("%d %d type %d tier %d cops %d cars", k, e->number, e->race_type, e->tier, e->cops);
+            for (j = 0; j < e->ncars; j++) printf(" %d", e->cars[j]);
+            printf(" races");
+            for (j = 0; j < e->nraces; j++) printf(" %d/%d/%d", e->races[j].track, e->races[j].ii, e->races[j].laps);
+            printf(" opp");
+            for (j = 0; j < e->nopponents; j++) printf(" %d/%d/%d", e->opponents[j].car, e->opponents[j].colour, e->opponents[j].skill);
+            printf(" rew");
+            for (j = 0; j < e->nrewards; j++) printf(" %d/%d/%d/%u", e->rewards[j].kind, e->rewards[j].id, e->rewards[j].ii, (unsigned)e->rewards[j].value);
+            printf(" need");
+            for (j = 0; j < e->nlinks; j++) printf(" %d/%d/%u", e->need[j].kind, e->need[j].event, (unsigned)e->need[j].value);
+            printf(" goal %d/%d/%u\n", e->target.kind, e->target.event, (unsigned)e->target.value);
+        }
+    free(F);
+    return 0;
+}
+
 /* FNV-1a 64 of each decoded texture, as tests/check_tex.py computes it. */
 static int texdump(int argc, char **argv)
 {
@@ -1329,6 +1401,7 @@ int main(int argc, char **argv)
     const char *fb = NULL, *gb = NULL, *lf = NULL, *disc = NULL, *bank = NULL, *exe = NULL;
     int i;
     if (argc > 1 && !strcmp(argv[1], "--texdump")) return texdump(argc - 2, argv + 2);
+    if (argc == 3 && !strcmp(argv[1], "--treedump")) return treedump(argv[2]);
     if (argc == 5 && !strcmp(argv[1], "--vagdump")) return vagdump(argv[2], atoi(argv[3]), atoi(argv[4]));
     for (i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--frontb")) fb = argv[i + 1];
