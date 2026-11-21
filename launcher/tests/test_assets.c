@@ -1225,6 +1225,88 @@ static double tex_vdiff(const hp2_tex *t)
     return n ? sum / n : -1.0;
 }
 
+
+#define G_TEST 9.81f
+
+/* A 3,840 m square of road, one polygon listed in every 32 m cell. */
+static uint8_t *big_floor(size_t *len)
+{
+    const int N = 120;
+    size_t cells = 12 + 12 * (size_t)N * N, n = 8 + cells + 8 + 32 + 8 + 2 * (size_t)N * N;
+    uint8_t *b = (uint8_t *)calloc(1, n), *q = b, *p;
+    static const int X[4] = { -1920, 1920, 1920, -1920 }, Y[4] = { -1920, -1920, 1920, 1920 };
+    int i, j, k;
+    if (!b) return NULL;
+    set32(q, 0x34131);
+    set32(q + 4, (uint32_t)cells);
+    for (i = 0; i < N; i++)
+        for (j = 0; j < N; j++) {
+            uint8_t *r = q + 8 + 12 + 12 * (i * N + j);
+            setf(r, -1920 + 16 + 32 * i);
+            setf(r + 4, -1920 + 16 + 32 * j);
+            set16(r + 8, (unsigned)(i * N + j));
+            set16(r + 10, 1);
+        }
+    q += 8 + cells;
+    set32(q, 0x34132);
+    set32(q + 4, 32);
+    p = q + 8;
+    set16(p + 2, 0x1001);
+    for (k = 0; k < 4; k++) { set16(p + 8 + 2 * k, (unsigned)(X[k] * 8) & 0xFFFF); set16(p + 16 + 2 * k, (unsigned)(Y[k] * 8) & 0xFFFF); }
+    q += 8 + 32;
+    set32(q, 0x34133);
+    set32(q + 4, 2 * (uint32_t)N * N);
+    *len = n;
+    return b;
+}
+
+/* The game's tyres on real cars: steady turns, braking, a light car. */
+static void test_tyres_real(const hp2_carrec *recs, int n)
+{
+    size_t len = 0;
+    uint8_t *fl = big_floor(&len);
+    hp2_coll c;
+    hp2_drive d;
+    hp2_drive_in in;
+    const hp2_carrec *p911 = hp2_cardb_find(recs, n, "911TURBO"), *f50 = hp2_cardb_find(recs, n, "F50");
+    float t, x0, ay = 0, slip;
+    if (!fl || !p911 || !f50 || hp2_coll_parse(&c, fl, len) < 0) { CHECK(0, "tyre test set-up"); free(fl); return; }
+    CHECK(NEAR(p911->tyre[0][0], 12) && NEAR(p911->tyre[0][4], 1.47f) && NEAR(p911->tyre[1][4], 1.59f)
+          && NEAR(p911->brakes[1], 1.18f) && NEAR(p911->inertia[2], 6.318f), "911TURBO's tyre, brake and yaw fields");
+    /* 60-0 mph */
+    hp2_drive_init(&d, p911, -1500, 0, 0, 0);
+    memset(&in, 0, sizeof in);
+    in.throttle = 1;
+    for (t = 0; t < 10 && d.speed < 26.82f; t += 0.01f) hp2_drive_step(&d, &c, &in, 0.01f);
+    x0 = d.pos[0];
+    in.throttle = 0;
+    in.brake = 1;
+    for (t = 0; t < 10 && d.speed > 0.3f; t += 0.01f) hp2_drive_step(&d, &c, &in, 0.01f);
+    CHECK(d.pos[0] - x0 > 15 && d.pos[0] - x0 < 40 && fabsf(d.pos[1]) < 0.5f, "911: 60-0 mph in %.1f m, straight", d.pos[0] - x0);
+    /* a steady turn at 25 m/s: held to the sliding friction, not spinning */
+    hp2_drive_init(&d, p911, -1500, 0, 0, 0);
+    memset(&in, 0, sizeof in);
+    for (t = 0; t < 12; t += 0.01f) {
+        in.throttle = d.speed < 25 ? 1.0f : 0.0f;
+        in.steer = t > 4 ? 0.7f : 0;
+        hp2_drive_step(&d, &c, &in, 0.01f);
+        if (t > 11) ay = fabsf(d.yawrate * d.speed) / G_TEST;
+    }
+    slip = fabsf(-d.vel[0] * sinf(d.heading) + d.vel[1] * cosf(d.heading));
+    CHECK(ay > 1.2f && ay < 1.7f && slip < 2 && d.yawrate < 0, "911 turning right at %.1f g, sliding sideways %.1f m/s", ay, slip);
+    hp2_drive_init(&d, f50, -1500, 0, 0, 0);
+    memset(&in, 0, sizeof in);
+    for (t = 0; t < 12; t += 0.01f) {
+        in.throttle = d.speed < 25 ? 1.0f : 0.0f;
+        in.steer = t > 4 ? -1.0f : 0;
+        hp2_drive_step(&d, &c, &in, 0.01f);
+    }
+    slip = fabsf(-d.vel[0] * sinf(d.heading) + d.vel[1] * cosf(d.heading));
+    CHECK(d.speed > 15 && slip < 10 && d.yawrate > 0, "F50 at full lock left: %.0f m/s, drifting %.1f m/s, not spun", d.speed, slip);
+    hp2_coll_free(&c);
+    free(fl);
+}
+
 static void test_cardb_real(const uint8_t *G, size_t lgb)
 {
     static hp2_carrec recs[HP2_CARDB_MAX];
@@ -1250,6 +1332,7 @@ static void test_cardb_real(const uint8_t *G, size_t lgb)
         CHECK(NEAR(hp2_drive_torque(&dv, 950), 0.57f) && NEAR(hp2_drive_torque(&dv, 7400), 0.4f) && hp2_drive_torque(&dv, 9000) == 0,
               "torque curve from idle to redline");
     }
+    test_tyres_real(recs, n);
     c = hp2_cardb_find(recs, n, "SPIDERHP");
     CHECK(c && !strcmp(c->model, "CHALLENGE"), "SPIDERHP uses the CHALLENGE model");
 }

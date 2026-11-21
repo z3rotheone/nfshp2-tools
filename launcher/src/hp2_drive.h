@@ -9,8 +9,13 @@
  * torque curve, gearing, tyre size, mass and air drag from the car
  * database, combined the way the game's own acceleration table combines
  * them (hp2_car.h), with an automatic gearbox that changes up at 95% of the
- * redline as that table does. Grip, braking and steering are made up. It
- * also uses the wheelbase and wheel hubs, and the
+ * redline as that table does. The tyres follow the game's Tire too: each
+ * wheel grips with the force the game's own slip-angle tables give for its
+ * load, and once its contact patch slides faster than 0.5 m/s it slides
+ * with the car's sliding friction, as the executable's Tire does (0x1A4930);
+ * brakes and handbrake have the game's torques. What is not the game's:
+ * no suspension (the loads move with a guessed centre of gravity), no
+ * wheel spin dynamics, and the steering lock. It also uses the hubs and the
  * collision mesh (hp2_coll) for the ground and the walls. Fixed steps of
  * 1/120 s. World axes: z up; heading 0 faces +x and turns anticlockwise.
  * No SDL, plain C99.
@@ -57,6 +62,15 @@ typedef struct {
     float load;                 /* 0..1, how hard the engine pulls (for its sound) */
     /* the engine and drivetrain (hp2_car.h) */
     float torque[9], mass, drag, efficiency, final_drive_used;
+    /* the tyres (docs/formats.md 12, "Tyres") */
+    float hub[4][2];            /* x, y of each wheel, model axes */
+    float tyre[2][8];           /* front, rear */
+    float brake_torque, handbrake_torque;   /* kN m per wheel at full pedal */
+    float yaw_inertia;          /* t m^2 */
+    float rear_share;           /* of the drive, to the rear wheels */
+    float accel[2];             /* last step's acceleration, body axes (for the load transfer) */
+    int   sliding[4];           /* 1 while a tyre slides */
+    int   arcade;               /* 1: the first stand-in's grip instead of the tyres */
 } hp2_drive;
 
 /* Engine torque (kN m) at an engine speed: the car's curve, flat below

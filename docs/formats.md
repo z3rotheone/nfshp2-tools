@@ -1208,10 +1208,50 @@ XKR, CL55) would go faster, as the real ones would without their limiter.
 The car's physics proper is a rigid body with Engine, DriveTrain,
 Suspension, Tire and Aerodynamics parts (the executable's slot pools and
 `PhysicsCar::ResolveForces()`, `PhysicsSystem::IntegrateEuler()`); that
-code is not decoded yet. `0x1A0`–`0x1DC` hold two blocks of 8, front and
-rear (12, 1, 1, 1.86, 1.47, 0, 0, 0 on the 911: tyres, probably) and
-`0x1F0`–`0x26C` three inertia-like values and two suspension-like blocks
-(5.2, 75, 5.8, 5.4, 68, 0.12, −0.125, 0.05); not used yet.
+code is decoded for the tyres (below). `0x1F0`–`0x22C` hold three
+inertia-like values (0.69, 2.93, 6.32 on the 911; read as roll, pitch and
+yaw inertia in t·m², inferred) and `0x230`–`0x26C` the two suspension
+blocks (5.2, 75, 5.8, 5.4, 68, 0.12, −0.125, 0.05).
+
+### The car's physics parts, and the tyres
+
+`PhysicsCar`'s constructor (`0x137100`) shows what each part reads, all
+through the record pointer it keeps at `+0x4C`:
+
+| Part (stored at) | Built by | From the record |
+|---|---|---|
+| rigid body (`+0x18`) | `0x19C9B0` | `0x1E0` on (mass, size, inertia); its `+0x174` gets the top speed `0x320` |
+| 4 tyres (`+0x30`) | `0x1A3F10`, vtable `0x2B5C40` | wheel `i` at `0x120 + 0x20·i`; tyre block `0x1A0` (front) or `0x1C0` (rear); `0x300` |
+| 4 suspensions (`+0x20`) | `0x1A5EA0`, vtable `0x2B5CD0` | `0x230` (front) or `0x250` (rear), 8 floats |
+| engine (`+0x40`) | `0x18A7E8` | `0x2B0` |
+| drivetrain (`+0x44`) | `0x18AE70` | `0x270`, the engine, the tyres |
+| aerodynamics (`+0x48`) | inline | `0x2F0`, the body |
+
+**The tyre** (`Tire::ComputeForce`, `0x1A4930`), per wheel each step:
+
+- Brake torque `4 kN·m × pedal × [0x304]` and handbrake `10 kN·m × lever ×
+  [0x308]` act on the wheel's spin.
+- The contact patch's slip: `ω·r − vx` along the wheel, `vy` across it; the
+  slip angle is `atan2(vy, vx)`.
+- **Sliding**, once the slip is faster than 0.5 m/s (or the wheel is
+  locked): a force of `load × [tyre +0x10] × grip(surface)` straight
+  against the slip. `[tyre +0x10]` is 1.47 front / 1.59 rear on the 911,
+  1.31 on the F50, 1.01 / 1.11 on the Elise: the sliding friction.
+- **Gripping**: along the wheel, the torque over the radius; across it, the
+  game's lateral table (`0x1A4D28`): seven curves of force against load
+  (`0x310F60`: 0, 2, 4 … 12° of slip angle, each at load 0, 2, 4 … 10), read
+  at angle × `12/[tyre +0]` and load × `0.8/[tyre +4]`, times
+  `2.5 × [tyre +8]`. Every car has 12, 1, 1 there.
+- `grip(surface)` is `+0x24` of the surface table at `0x318C00` (0x90 per
+  surface, a name pointer first: NONE, ROAD, DIRT, DIRTROAD, PUDDLE,
+  DEEP_WATER, GRASS, SAND, SNOW, DIRT_SHOULDER, SAND_SHOULDER,
+  SNOW_SHOULDER, SIDEWALK, SNOW_SIDEWALK, ROCK, the walls, BOARDWALK,
+  COBBLESTONE): 1 on road, 0.94–0.98 off it. `+0x28` (2 for sand, 1.5 for
+  deep water) is probably rolling drag.
+
+`[tyre +0xC]` (1.86 / 1.98 on the 911) is not read here. `launcher/src/hp2_drive.c`
+follows this tyre on a flat model of the car (no suspension, no wheel spin):
+the 911 corners at about 1.5 g sliding and stops from 60 mph in about 30 m.
 
 `launcher/src/hp2_car.c` reads the same records and assembles the car the
 same way (body, mirrors, rear plate; the tyre scaled to each wheel and

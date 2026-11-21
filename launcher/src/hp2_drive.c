@@ -4,7 +4,7 @@
 #include <math.h>
 #include <string.h>
 
-#define STEP    (1.0f / 120.0f)
+#define STEP    (1.0f / 240.0f)
 #define G       9.81f
 #define MPH     0.44704f
 
@@ -44,6 +44,7 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
         d->final_drive = (1 - a) * ff + a * fr;
         if (d->final_drive <= 0) d->final_drive = 3.5f;
         d->wheel_radius = (1 - a) * rf + a * rr;
+        d->rear_share = a;
         if (d->wheel_radius < 0.1f) d->wheel_radius = 0.32f;
     }
     d->mass = rec->mass > 0.3f ? rec->mass : 1.4f;
@@ -52,6 +53,24 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
     for (k = 0; k < 9; k++) d->torque[k] = rec->torque[k] > 0 ? rec->torque[k] : 0.4f;
     d->idle_rpm = rec->idle_rpm > 300 ? rec->idle_rpm : 900;
     d->redline_rpm = rec->redline_rpm > d->idle_rpm + 1000 ? rec->redline_rpm : 7000;
+    for (k = 0; k < 4; k++) {
+        d->hub[k][0] = rec->wheel[k].x;
+        d->hub[k][1] = rec->wheel[k].y;
+    }
+    for (k = 0; k < 8; k++) {
+        d->tyre[0][k] = rec->tyre[0][k];
+        d->tyre[1][k] = rec->tyre[1][k];
+    }
+    for (k = 0; k < 2; k++) {
+        if (d->tyre[k][0] <= 0) d->tyre[k][0] = 12;
+        if (d->tyre[k][1] <= 0) d->tyre[k][1] = 1;
+        if (d->tyre[k][2] <= 0) d->tyre[k][2] = 1;
+        if (d->tyre[k][4] <= 0) d->tyre[k][4] = 1.4f;
+    }
+    /* Tire::ComputeForce: brake 4 kN m x [0x304], handbrake 10 kN m x [0x308] */
+    d->brake_torque = 4.0f * (rec->brakes[1] > 0 ? rec->brakes[1] : 1);
+    d->handbrake_torque = 10.0f * (rec->brakes[2] > 0 ? rec->brakes[2] : 0.8f);
+    d->yaw_inertia = rec->inertia[2] > 0.5f ? rec->inertia[2] : 3.0f;
     d->rpm = d->idle_rpm;
     d->gear = 1;
     d->on_ground = 1;
@@ -75,6 +94,55 @@ float hp2_drive_torque(const hp2_drive *d, float rpm)
 
 /* 60 / 2 pi, as the executable has it */
 #define RPM_PER_RAD_S 9.549304f
+
+/* The road surfaces' grip (+0x24) and rolling factor (+0x28) in the
+ * executable's table at 0x318C00 (NONE, ROAD, DIRT, DIRTROAD, PUDDLE,
+ * DEEP_WATER, GRASS, SAND, SNOW, DIRT_SHOULDER, SAND_SHOULDER,
+ * SNOW_SHOULDER, SIDEWALK ...), taken to be indexed by the collision
+ * surface's low nibble: the names agree with what the polygons are drawn as
+ * for 1, 2, 3, 4, 6, 9 and C; 5 (bridge decks) and 7 (road shoulders) are
+ * given the road's values rather than deep water's and sand's. */
+static const float SURF_GRIP[16] = { 1, 1, 0.958f, 0.981f, 0.951f, 1, 0.948f, 1, 0.938f, 0.971f, 0.961f,
+                                     0.958f, 1, 0.958f, 1, 1 };
+static const float SURF_ROLL[16] = { 1, 1, 1, 1, 1.1f, 1, 1.05f, 1, 1, 1, 1.2f, 1, 1, 1, 1.01f, 1 };
+static float surface_grip(int s) { return SURF_GRIP[s & 0xF]; }
+static float surface_roll(int s) { return SURF_ROLL[s & 0xF]; }
+
+/* The game's lateral force tables (0x310F60.., built into curves at
+ * 0x1A57DC): force against load, one curve per 2 degrees of slip angle
+ * from 0 to 12, each sampled at load 0, 2, 4, 6, 8, 10. */
+static const float LATERAL[7][6] = {
+    { 0, 0, 0, 0, 0, 0 },
+    { 0, 1.2f, 2.3f, 3.0f, 3.0f, 2.8f },
+    { 0, 1.7f, 3.2f, 4.3f, 5.1f, 5.2f },
+    { 0, 1.8f, 3.5f, 4.9f, 5.8f, 6.1f },
+    { 0, 1.83f, 3.6f, 5.0f, 5.96f, 6.4f },
+    { 0, 1.86f, 3.7f, 5.1f, 6.13f, 6.7f },
+    { 0, 1.9f, 3.8f, 5.2f, 6.3f, 7.1f },
+};
+
+static float curve6(const float *c, float x)          /* 0..10 in 6 points */
+{
+    float t;
+    int j;
+    if (x <= 0) return c[0];
+    if (x >= 10) return c[5];
+    t = x / 2;
+    j = (int)t;
+    return c[j] + (c[j + 1] - c[j]) * (t - j);
+}
+
+/* Tire's lateral force (0x1A4D28): the slip angle picks two curves (per
+ * span/12 x 2 degrees), the load (x 0.8 / [1]) reads them, x 2.5 x [2]. */
+static float lateral_force(const float *tb, float load, float angle)
+{
+    float deg = angle * 57.29578f, x = deg * (12.0f / tb[0]) * 0.5f, l = load * 0.8f / tb[1], a, b;
+    int i = (int)x;
+    if (i >= 6) return tb[2] * 2.5f * curve6(LATERAL[6], l);
+    a = curve6(LATERAL[i], l);
+    b = curve6(LATERAL[i + 1], l);
+    return tb[2] * 2.5f * (a + (b - a) * (x - i));
+}
 
 float hp2_drive_accel(const hp2_drive *d, float v, int gear)
 {
@@ -140,7 +208,8 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
     if (d->steer_angle < target) d->steer_angle = fminf(target, d->steer_angle + 3.0f * h);
     else d->steer_angle = fmaxf(target, d->steer_angle - 3.0f * h);
 
-    if (d->on_ground) {
+    if (d->on_ground && d->arcade) {
+        /* the first stand-in: grip that never runs out, slip that dies away */
         /* engine (the car's torque through its gearing), brakes, reverse;
          * the drive is held to what the tyres could take (a guess: 1.1 g)
          * and cut at the car's listed top speed */
@@ -172,6 +241,91 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
         yaw_target = -vf * tanf(d->steer_angle) / d->wheelbase;
         if (in->handbrake) yaw_target *= 1.6f;
         d->yawrate += (yaw_target - d->yawrate) * fminf(1, 10 * h);
+    } else if (d->on_ground) {
+        /* the drive force at the wheels: the car's torque through its gearing,
+         * cut at the listed top speed and while changing gear */
+        float drive = 0, fsum[2] = { 0, 0 }, mz = 0, share = 1, g_load = G * d->mass, hcg = 0.45f;
+        float rear_x = -d->hub_x_rear, front_x = d->hub_x_front;
+        int k;
+        if (in->throttle > 0 && vf > -0.5f && d->shift <= 0 && vf < d->max_speed) {
+            int g = d->gear >= 1 ? d->gear : 1;
+            float ratio = d->ratio[g - 1];
+            float rpm = fabsf(vf) / d->wheel_radius * d->final_drive * ratio * RPM_PER_RAD_S;
+            drive = d->efficiency * hp2_drive_torque(d, rpm > d->rpm ? rpm : d->rpm) * ratio * d->final_drive
+                    / d->wheel_radius * in->throttle;
+        }
+        if (in->brake > 0 && vf < 0.5f && vf > -12) drive = -0.5f * d->mass * G * in->brake;   /* reverse */
+        if (in->throttle > 0 && vf < -0.5f) drive = 0;
+        share = d->final_drive > 0 ? 1 : 1;
+        for (k = 0; k < 4; k++) {
+            int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR, left = d->hub[k][1] > 0;
+            const float *tb = d->tyre[front ? 0 : 1];
+            float x = d->hub[k][0], y = d->hub[k][1];
+            /* load, kN: the static share by the hubs, moved by the last
+             * step's acceleration about a guessed centre of gravity */
+            float n = g_load * (front ? rear_x : front_x) / d->wheelbase * 0.5f
+                      + (front ? -1 : 1) * d->mass * d->accel[0] * hcg / d->wheelbase * 0.5f
+                      + (left ? -1 : 1) * d->mass * d->accel[1] * hcg / d->track * 0.5f;
+            float mu = tb[4] * surface_grip(d->surface), cmax, wa, cx, cy, wx, wy, fx, fy, bx, by, m_i;
+            float torque_share = front ? (1 - d->rear_share) : d->rear_share;
+            if (n < 0) n = 0;
+            cmax = mu * n;
+            m_i = n / G;                        /* the mass this wheel carries, t */
+            /* the contact's velocity, then turned into the wheel's frame */
+            cx = vf - d->yawrate * y;
+            cy = vl + d->yawrate * x;
+            wa = front ? -d->steer_angle : 0;
+            wx = cx * cosf(wa) + cy * sinf(wa);
+            wy = -cx * sinf(wa) + cy * cosf(wa);
+            /* the force along the wheel: drive, brakes, handbrake (rear) */
+            fx = drive * torque_share * 0.5f;
+            if (in->brake > 0 && vf > 0.5f) fx -= d->brake_torque * in->brake / d->wheel_radius * (wx > 0 ? 1 : -1);
+            if (in->throttle > 0 && vf < -0.5f) fx += d->brake_torque * in->throttle / d->wheel_radius;
+            if (in->handbrake && !front) {
+                /* a locked wheel slides against its own motion */
+                float sp = sqrtf(wx * wx + wy * wy);
+                if (sp > 0.05f) { fx = -cmax * wx / sp; fy = -cmax * wy / sp; }
+                else { fx = 0; fy = 0; }
+                d->sliding[k] = 1;
+            } else if (fabsf(wy) > 0.5f) {
+                /* sliding sideways: the sliding friction, shared with the drive */
+                fy = -cmax * (wy > 0 ? 1 : -1);
+                d->sliding[k] = 1;
+            } else {
+                float ang = atan2f(fabsf(wy), fmaxf(fabsf(wx), 2.0f));
+                fy = -(wy > 0 ? 1 : -1) * lateral_force(tb, n, ang);
+                d->sliding[k] = 0;
+            }
+            /* each direction held to the sliding friction on its own (a
+             * friction circle that made the drive eat the rear's sideways
+             * grip spun the lighter cars; the game's wheels spin up before
+             * they share, which this model does not have) */
+            if (fx > cmax) fx = cmax;
+            if (fx < -cmax) fx = -cmax;
+            if (fy > cmax) fy = cmax;
+            if (fy < -cmax) fy = -cmax;
+            /* never more sideways force than stops the slip this step */
+            if (m_i > 0 && fabsf(fy) * h > m_i * fabsf(wy)) fy = -wy * m_i / h;
+            /* back into the body's frame */
+            bx = fx * cosf(wa) - fy * sinf(wa);
+            by = fx * sinf(wa) + fy * cosf(wa);
+            fsum[0] += bx;
+            fsum[1] += by;
+            mz += x * by - y * bx;
+        }
+        /* air drag and rolling resistance (the surface's factor at +0x28) */
+        fsum[0] -= (vf > 0 ? 1 : vf < 0 ? -1 : 0) * (d->drag * vf * vf + 0.015f * g_load * surface_roll(d->surface));
+        a = fsum[0] / d->mass;
+        d->accel[0] = a;
+        d->accel[1] = fsum[1] / d->mass;
+        vf += (a + d->yawrate * vl) * h;
+        vl += (fsum[1] / d->mass - d->yawrate * vf) * h;
+        d->yawrate += mz / d->yaw_inertia * h;
+        if (fabsf(vf) < 0.2f && fabsf(vl) < 0.2f && in->throttle <= 0 && in->brake <= 0) {
+            vf = vl = 0;
+            d->yawrate *= 0.9f;
+        }
+        (void)share; (void)grip; (void)yaw_target;
     } else {
         d->yawrate *= expf(-1.0f * h);
     }

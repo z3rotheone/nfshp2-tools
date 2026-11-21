@@ -99,6 +99,14 @@ int hp2_cardb_parse(const uint8_t *globalb, size_t len, hp2_carrec *out, int max
         c->rear_share = rdf(r + 0x280);
         c->drag = rdf(r + 0x2BC);
         for (k = 0; k < 9; k++) c->torque[k] = rdf(r + 0x2C0 + 4 * k);
+        for (k = 0; k < 8; k++) {
+            c->tyre[0][k] = rdf(r + 0x1A0 + 4 * k);
+            c->tyre[1][k] = rdf(r + 0x1C0 + 4 * k);
+        }
+        for (k = 0; k < 7; k++) c->brakes[k] = rdf(r + 0x300 + 4 * k);
+        c->inertia[0] = rdf(r + 0x1F0);
+        c->inertia[1] = rdf(r + 0x204);
+        c->inertia[2] = rdf(r + 0x218);
         got++;
     }
     return got;

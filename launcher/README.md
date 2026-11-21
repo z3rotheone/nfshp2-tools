@@ -152,11 +152,18 @@ stand-in** (`hp2_drive`), not the game's, but each car goes as its own
 data says: its torque curve through its gear ratios and final drive, its
 tyre size, mass and air drag, combined the way the game's own acceleration
 table combines them (docs/formats.md 12, "The drivetrain fields"), with
-the gearbox changing up at 95% of the redline as that table does. On a
-flat road the Lamborghini police car does 0-60 mph in 2.6 s, the F50 in
-3.0, the 911 Turbo in 3.3, the M5 in 3.9 and the CL55 in 6.2; all reach
-their listed top speed or near it. Grip, braking, steering and the
-handbrake sliding the back are made up.
+the gearbox changing up at 95% of the redline as that table does; all
+reach their listed top speed or near it. The tyres are the game's: each
+wheel grips with the force the game's own tables give for its load and slip
+angle, and slides with the car's own sliding friction once its contact
+patch slides faster than 0.5 m/s (docs/formats.md 12, "The car's physics
+parts"); brakes and handbrake have the game's torques, and the road surface
+its grip. So the 911 corners at about 1.5 g and stops from 60 mph in about
+30 m, the F50 (the same grip front and rear) lets its tail out, the Elise
+has the least grip. What is still not the game's: there is no suspension
+(the weight moves about a guessed centre of gravity), no wheel spin, and
+the steering lock is made up. `--arcade` brings back the first stand-in's
+grip, which never runs out.
 
 Driving: W / Up accelerates, S / Down brakes and then reverses, A D / Left
 Right steer, Space is the handbrake; on a controller RT, LT, the left stick

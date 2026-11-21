@@ -53,6 +53,11 @@ typedef struct {
     float     rear_share;       /* 0x280: torque to the rear axle; 0.6 on the four-wheel-drive cars */
     float     drag;             /* 0x2BC: air drag, kN per (m/s)^2 */
     float     torque[9];        /* 0x2C0: kN m, idle to redline in eight equal steps */
+    /* the tyres, as the game's Tire reads them (docs/formats.md 12, "Tyres") */
+    float     tyre[2][8];       /* 0x1A0 front, 0x1C0 rear: [0] slip-angle span (12), [1] load
+                                 * scale, [2] force scale, [3] ?, [4] sliding friction */
+    float     brakes[7];        /* 0x300: [1] brake torque scale, [2] handbrake torque scale */
+    float     inertia[3];       /* 0x1F0, 0x204, 0x218: roll, pitch, yaw inertia, t m^2 (inferred) */
 } hp2_carrec;
 
 #define HP2_CARDB_MAX 64

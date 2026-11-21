@@ -34,6 +34,9 @@
  * display (rev counter, speed, gear, lap, lap time, best lap, wrong way)
  * and the car's engine sound. R starts the race again.
  *
+ * The tyres follow the game's (hp2_drive.h); --arcade brings back the first
+ * stand-in's grip, which never runs out.
+ *
  * --shot OUT.bmp renders one frame and exits: behind the car, or with
  * --cam X,Y,Z,YAW,PITCH (degrees) from there. --sim SECONDS[,STEER] drives
  * that long at full throttle first (steer -1..1), for testing.
@@ -106,6 +109,7 @@ typedef struct {
     int        shadow_tex;
     hp2_coll   coll;
     int        has_coll;
+    int        arcade;          /* --arcade: the first stand-in grip */
 } world;
 
 typedef struct {
@@ -697,6 +701,7 @@ static void start_car(const world *w, hp2_drive *d)
     if (sc->has_start) hd = atan2f(sc->ahead[1] - sc->start[1], sc->ahead[0] - sc->start[0]);
     if (w->has_coll) hp2_coll_ground(&w->coll, x, y, z + 5, 5, &z, NULL, NULL);
     hp2_drive_init(d, &w->car.rec, x, y, z, hd);
+    d->arcade = w->arcade;
 }
 
 static float axis(SDL_GameController *p, SDL_GameControllerAxis a)
@@ -753,6 +758,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--sim") && i + 1 < argc) sim = argv[++i];
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
+        else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--ingame") && i + 1 < argc) igf = argv[++i];
         else if (!strcmp(argv[i], "--hudtex") && i + 1 < argc) htf = argv[++i];
         else if (!strcmp(argv[i], "--msh") && i + 1 < argc) mshf = argv[++i];
@@ -763,7 +769,7 @@ int main(int argc, char **argv)
                             "       [--car NAME] [--skin N] [--no-car]\n"
                             "       [--globalb FILE --cartex FILE --geometry FILE]   (the car, with --scenery)\n"
                             "       [--ingame INGAMEB.BUN --hudtex HUDTEX.BIN --msh F --msb F]   (display, engine)\n"
-                            "       [--laps N] [--no-sound]\n"
+                            "       [--laps N] [--no-sound] [--arcade]\n"
                             "       [--size WxH] [--no-fog] [--shot OUT.bmp] [--cam X,Y,Z,YAW,PITCH] [--sim S[,STEER]]\n"
                             "tracks: 11-16 21-26 31-36 41-46 61-66\n", argv[0]);
             return 2;
