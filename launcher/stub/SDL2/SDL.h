@@ -92,6 +92,7 @@ typedef enum {
 #define SDLK_h                      104
 #define SDLK_F1                     0x4000003A
 
+#define SDLK_c                      99
 #define SDLK_f                      102
 #define SDLK_m                      109
 #define SDLK_p                      112
@@ -106,7 +107,7 @@ typedef enum {
     SDL_SCANCODE_A = 4, SDL_SCANCODE_D = 7, SDL_SCANCODE_E = 8, SDL_SCANCODE_Q = 20, SDL_SCANCODE_S = 22,
     SDL_SCANCODE_W = 26, SDL_SCANCODE_PAGEUP = 75, SDL_SCANCODE_PAGEDOWN = 78, SDL_SCANCODE_RIGHT = 79,
     SDL_SCANCODE_LEFT = 80, SDL_SCANCODE_DOWN = 81, SDL_SCANCODE_UP = 82, SDL_SCANCODE_LCTRL = 224,
-    SDL_SCANCODE_LSHIFT = 225, SDL_SCANCODE_RCTRL = 228, SDL_SCANCODE_RSHIFT = 229
+    SDL_SCANCODE_LSHIFT = 225, SDL_SCANCODE_SPACE = 44, SDL_SCANCODE_RCTRL = 228, SDL_SCANCODE_RSHIFT = 229
 } SDL_Scancode;
 typedef struct { Uint32 type; int xrel, yrel; } SDL_MouseMotionEvent;
 typedef struct { Uint32 type; Uint8 button; } SDL_MouseButtonEvent;
@@ -223,4 +224,5 @@ void  SDL_GL_SwapWindow(SDL_Window *w);
 const Uint8 *SDL_GetKeyboardState(int *numkeys);
 SDL_bool SDL_GetRelativeMouseMode(void);
 int   SDL_SetRelativeMouseMode(SDL_bool enabled);
+void  SDL_SetWindowTitle(SDL_Window *w, const char *title);
 #endif /* HP2_SDL_STUB_H */

@@ -1136,6 +1136,13 @@ files are in the archive.
 - This answers "where do the wheels attach": not in `GEOMETRY.BIN`, here.
 - A car's `GEOMETRY.BIN` holds one tyre (`<CAR>_TIRE_FRONT_A/B/C`), built at the origin as a right-hand wheel (outer face toward −y), and the brake discs `_BRAKE_FRONT`/`_REAR`, also at the origin. The body, mirrors, plate and `_SCUFFS` (a damage overlay) are already in place. `tools/hp2_car.py` assembles a whole car: it puts the tyre and disc at each hub, mirrors them for the left side, and by default scales the tyre to the stored radius and width (the model's tyre is a little larger: 911, radius 0.345 vs 0.319). Rendered, the 911's wheels sit in the arches at the right height. Whether the game scales the tyre is not checked.
 
+`launcher/src/hp2_car.c` reads the same records and assembles the car the
+same way (body, mirrors, rear plate; the tyre scaled to each wheel and
+mirrored for the left; the discs at the hubs, unscaled): for the 911 Turbo,
+4,242 body and 511 tyre triangles, as `hp2_geom.py` decodes them. Drawn on a
+track by `hp2track`, the wheels sit in the arches with the discs behind the
+spokes.
+
 The rest of the record (0x0F0–0x118, 0x1A0–0x1E0, 0x200–0x270, 0x2C0–0x310 (a
 0.4–0.7 curve, torque?), 0x350–0x550) is not read yet.
 

@@ -20,6 +20,9 @@
  *                                        frames of a song, for check_vag.py
  */
 #include "../src/hp2_fe.h"
+#include "../src/hp2_car.h"
+#include "../src/hp2_coll.h"
+#include "../src/hp2_drive.h"
 #include "../src/hp2_geom.h"
 #include "../src/hp2_scene.h"
 #include "../src/hp2_jukebox.h"
@@ -1219,6 +1222,20 @@ static double tex_vdiff(const hp2_tex *t)
     return n ? sum / n : -1.0;
 }
 
+static void test_cardb_real(const uint8_t *G, size_t lgb)
+{
+    static hp2_carrec recs[HP2_CARDB_MAX];
+    int n = hp2_cardb_parse(G, lgb, recs, HP2_CARDB_MAX);
+    const hp2_carrec *c = n > 0 ? hp2_cardb_find(recs, n, "911TURBO") : NULL;
+    CHECK(n == 64, "car database: %d records", n);
+    CHECK(c && !strcmp(c->model, "911TURBO") && !strcmp(c->path, "CARS\\911TURBO\\GEOMETRY.BIN"), "911TURBO's model");
+    /* the real 996 Turbo: gears 3.82 .. 0.75, final drive 3.44 (docs/formats.md 12) */
+    CHECK(c && c->gears == 6 && NEAR(c->ratio[0], 3.82f) && NEAR(c->ratio[5], 0.75f) && NEAR(c->final_drive, 3.44f)
+          && NEAR(c->top_speed, 191) && NEAR(c->wheel[0].x, 1.259f) && NEAR(c->wheel[0].radius, 0.319f), "911TURBO's record");
+    c = hp2_cardb_find(recs, n, "SPIDERHP");
+    CHECK(c && !strcmp(c->model, "CHALLENGE"), "SPIDERHP uses the CHALLENGE model");
+}
+
 static void test_real(const char *fb, const char *gb, const char *lf, const char *disc, const char *bank, const char *exe)
 {
     static hp2_jukebox jb;
@@ -1236,6 +1253,7 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
     CHECK(F && G, "read %s and %s", fb, gb);
     if (!F || !G) return;
     CHECK(hp2_font_scan(&fonts, F, lfb) == 4 && hp2_font_scan(&fonts, G, lgb) == 4, "4 + 4 fonts");
+    test_cardb_real(G, lgb);
     f = hp2_font_find(&fonts, hp2_fe_hash("FONT_IMPACTNORMAL"));
     CHECK(f && f->count == 130 && f->kern_count == 1300 && NEAR(f->line_height, 43.0f), "FONT_IMPACTNORMAL");
     if (f) {
@@ -1509,6 +1527,110 @@ static void test_geom(void)
     CHECK(!hp2_comp_decode(comp, 24, &n2), "COMP with a bad distance fails");
 }
 
+
+/* ---- collision, the car database and the stand-in driving model ---------- */
+
+/* A 64 x 64 floor at z = 0 (two triangles' worth as one quad) and an
+ * invisible wall along x = 48, in four 32-unit cells. */
+static size_t make_coll(uint8_t *out)
+{
+    uint8_t poly[64], idx[16], cells[12 + 4 * 12], *q;
+    static const int fx[4] = { 0, 64, 64, 0 }, fy[4] = { 0, 0, 64, 64 };
+    int k;
+    memset(poly, 0, sizeof poly);
+    set16(poly + 2, 0x1001);                            /* asphalt */
+    for (k = 0; k < 4; k++) { set16(poly + 8 + 2 * k, (unsigned)(fx[k] * 8)); set16(poly + 16 + 2 * k, (unsigned)(fy[k] * 8)); }
+    set16(poly + 32 + 2, 0x1600);                       /* the wall: base -60, 0..120 high */
+    set16(poly + 32 + 4, (unsigned)-60 & 0xFFFF);
+    for (k = 0; k < 4; k++) {
+        set16(poly + 32 + 8 + 2 * k, 48 * 8);
+        set16(poly + 32 + 16 + 2 * k, (unsigned)((k == 1 || k == 2 ? 64 : 0) * 8));
+        set16(poly + 32 + 24 + 2 * k, (unsigned)((k >= 2 ? 120 : 0) * 256) & 0xFFFF);
+    }
+    /* cells: (16,16) (16,48) list the floor; (48,16) (48,48) the floor and the wall */
+    set16(idx, 0); set16(idx + 2, 0); set16(idx + 4, 0); set16(idx + 6, 1); set16(idx + 8, 0); set16(idx + 10, 1);
+    memset(cells, 0, sizeof cells);
+    set32(cells, 999999); set32(cells + 4, 999999);
+    q = cells + 12;
+    setf(q, 16); setf(q + 4, 16); set16(q + 8, 0); set16(q + 10, 1); q += 12;
+    setf(q, 16); setf(q + 4, 48); set16(q + 8, 1); set16(q + 10, 1); q += 12;
+    setf(q, 48); setf(q + 4, 16); set16(q + 8, 2); set16(q + 10, 2); q += 12;
+    setf(q, 48); setf(q + 4, 48); set16(q + 8, 4); set16(q + 10, 2);
+    q = put_chunk(out, 0x34131, cells, sizeof cells);
+    q = put_chunk(q, 0x34132, poly, sizeof poly);
+    q = put_chunk(q, 0x34133, idx, 12);
+    return (size_t)(q - out);
+}
+
+static void test_drive(void)
+{
+    static uint8_t f[1024], db[0x560 * 2 + 64];
+    size_t n = make_coll(f);
+    hp2_coll c;
+    hp2_carrec recs[4], rec;
+    hp2_drive d;
+    hp2_drive_in in;
+    float z = 99, nn[3], x, y, t, n2[2];
+    int s = 0, i;
+    printf("collision and driving (synthetic)\n");
+    CHECK(hp2_coll_parse(&c, f, n) == 0 && c.npoly == 2 && c.ncell == 4, "collision parses");
+    CHECK(c.npoly == 2 && !c.poly[0].wall && c.poly[1].wall, "floor and wall told apart");
+    CHECK(hp2_coll_ground(&c, 10, 10, 5, 1, &z, &s, nn) && NEAR(z, 0) && s == 0x1001 && NEAR(nn[2], 1), "ground %g", z);
+    CHECK(hp2_coll_ground(&c, 50, 60, 5, 1, &z, &s, NULL) && NEAR(z, 0), "ground next to the wall");
+    CHECK(!hp2_coll_ground(&c, 100, 10, 5, 1, &z, &s, NULL), "no ground outside the cells");
+    x = 47.5f; y = 20;
+    CHECK(hp2_coll_push(&c, &x, &y, 0, 1, n2) && NEAR(x, 47) && NEAR(n2[0], -1), "pushed off the wall: %g", x);
+    x = 40;
+    CHECK(!hp2_coll_push(&c, &x, &y, 0, 1, n2) && NEAR(x, 40), "clear of it");
+
+    /* the database: one record, found by name in any case */
+    memset(db, 0, sizeof db);
+    set32(db, 0x34600);
+    set32(db + 4, 8 + 0x560);
+    {
+        uint8_t *r = db + 16;
+        memcpy(r, "TESTCAR", 7);
+        memcpy(r + 0x20, "TESTCAR", 7);
+        for (i = 0; i < 4; i++) {
+            setf(r + 0x120 + 32 * i, i < 2 ? 1.3f : -1.3f);
+            setf(r + 0x124 + 32 * i, i == 0 || i == 3 ? 0.75f : -0.75f);
+            setf(r + 0x128 + 32 * i, 0.1f);
+            setf(r + 0x12C + 32 * i, 0.32f);
+            setf(r + 0x130 + 32 * i, 0.25f);
+        }
+        setf(r + 0x1E4, 4.4f); setf(r + 0x1E8, 1.8f); setf(r + 0x1EC, 1.3f);
+        set32(r + 0x288, 6);
+        setf(r + 0x298, 3.82f);
+        setf(r + 0x320, 150);
+    }
+    CHECK(hp2_cardb_parse(db, sizeof db, recs, 4) == 1, "one record");
+    CHECK(hp2_cardb_find(recs, 1, "testcar") == &recs[0] && !hp2_cardb_find(recs, 1, "TEST"), "found by name");
+    rec = recs[0];
+    CHECK(NEAR(rec.wheel[0].x, 1.3f) && NEAR(rec.wheel[3].y, 0.75f) && rec.gears == 6 && NEAR(rec.ratio[0], 3.82f)
+          && NEAR(rec.top_speed, 150), "record read");
+
+    /* driving: away from the wall, then into it */
+    hp2_drive_init(&d, &rec, 10, 32, 0, 0);
+    CHECK(NEAR(d.wheelbase, 2.6f) && NEAR(d.ride, 0.22f), "wheelbase %g ride %g", d.wheelbase, d.ride);
+    memset(&in, 0, sizeof in);
+    in.throttle = 1;
+    for (t = 0; t < 0.99f; t += 0.05f) hp2_drive_step(&d, &c, &in, 0.05f);
+    CHECK(d.speed > 5 && d.speed < 12 && d.pos[0] > 12 && NEAR(d.pos[1], 32) && NEAR(d.pos[2], 0),
+          "1 s of throttle: %g m/s at %g", d.speed, d.pos[0]);
+    for (t = 0; t < 4; t += 0.05f) hp2_drive_step(&d, &c, &in, 0.05f);
+    CHECK(d.pos[0] + d.half_len <= 48.01f && d.pos[0] + d.half_len > 47 && d.hit < 1000, "stopped by the wall at %g", d.pos[0]);
+    hp2_drive_init(&d, &rec, 10, 32, 0, 0);
+    in.steer = 1;
+    for (t = 0; t < 1; t += 0.05f) hp2_drive_step(&d, &c, &in, 0.05f);
+    CHECK(d.heading < -0.1f && d.pos[1] < 32, "steering right turns clockwise: %g", d.heading);
+    in.throttle = 0;
+    in.brake = 1;
+    in.steer = 0;
+    for (t = 0; t < 3; t += 0.05f) hp2_drive_step(&d, &c, &in, 0.05f);
+    CHECK(d.speed < -1, "holding the brake when stopped reverses: %g", d.speed);
+    hp2_coll_free(&c);
+}
+
 /* The placed scenery, per section, for tests/check_scene.py. */
 static int scenedump(const char *path)
 {
@@ -1531,6 +1653,20 @@ static int scenedump(const char *path)
         printf("section %d %d %ld", c->num, c->placed, tris);
         for (k = 0; k < 6; k++) printf(" %.3f", c->ng ? c->box[k] : (k < 3 ? 1e30 : -1e30));
         printf("\n");
+    }
+    /* the ground on a 25-unit grid, highest surface first */
+    {
+        hp2_coll c;
+        float x, y, z;
+        int sf, walls = 0;
+        if (hp2_coll_parse(&c, F, n) == 0) {
+            for (i = 0; i < c.npoly; i++) walls += c.poly[i].wall;
+            printf("coll %d %d %d\n", c.npoly, walls, c.ncell);
+            for (x = s.box[0]; x <= s.box[3]; x += 25)
+                for (y = s.box[1]; y <= s.box[4]; y += 25)
+                    if (hp2_coll_ground(&c, x, y, 10000, 0, &z, &sf, NULL)) printf("ground %.3f %.3f %.4f %x\n", x, y, z, sf);
+            hp2_coll_free(&c);
+        }
     }
     hp2_scene_free(&s);
     free(F);
@@ -1650,6 +1786,7 @@ int main(int argc, char **argv)
     test_zdir_hash();
     test_tree();
     test_geom();
+    test_drive();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

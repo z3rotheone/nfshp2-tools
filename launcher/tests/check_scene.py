@@ -65,6 +65,53 @@ def python_side(path):
     return tot, per
 
 
+def python_ground(path, points):
+    """The highest walkable collision polygon under each point, as
+    hp2_coll_ground does with zref far above: walls (0x12xx, 0x16xx) and
+    polygons steeper than normal z 0.3 left out; a quad is the triangles
+    (0, 1, 2) and (0, 2, 3)."""
+    d = open(path, "rb").read()
+    cells, index, polys = sc.collision(d)
+    flat = []
+    for pl in polys:
+        v = pl["v"]
+        n = len(v)
+        a = [v[2][k] - v[0][k] for k in range(3)]
+        b = [v[3 if n == 4 else 1][k] - v[1 if n == 4 else 0][k] for k in range(3)]
+        nx, ny, nz = a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]
+        ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+        wall = (pl["flags"] & 0xFF00) in (0x1200, 0x1600) or abs(nz / ln) < 0.3
+        flat.append(None if wall else v)
+    grid = {}
+    for x, y, s, cnt in cells:
+        grid[(int(x // 32), int(y // 32))] = index[s:s + cnt]
+    walls = sum(1 for v in flat if v is None)
+
+    def tri(v, a, b, c, x, y):
+        d_ = (v[b][0] - v[a][0]) * (v[c][1] - v[a][1]) - (v[c][0] - v[a][0]) * (v[b][1] - v[a][1])
+        if abs(d_) < 1e-6:
+            return None
+        u = ((x - v[a][0]) * (v[c][1] - v[a][1]) - (v[c][0] - v[a][0]) * (y - v[a][1])) / d_
+        w = ((v[b][0] - v[a][0]) * (y - v[a][1]) - (x - v[a][0]) * (v[b][1] - v[a][1])) / d_
+        if u < -1e-4 or w < -1e-4 or u + w > 1 + 1e-4:
+            return None
+        return v[a][2] + u * (v[b][2] - v[a][2]) + w * (v[c][2] - v[a][2])
+    out = []
+    for x, y in points:
+        best = None
+        for k in grid.get((int(x // 32), int(y // 32)), ()):
+            v = flat[k] if k < len(flat) else None
+            if v is None:
+                continue
+            h = tri(v, 0, 1, 2, x, y)
+            if h is None and len(v) == 4:
+                h = tri(v, 0, 2, 3, x, y)
+            if h is not None and (best is None or h > best):
+                best = h
+        out.append(best)
+    return len(polys), walls, len(cells), out
+
+
 def main():
     exe, path = sys.argv[1], sys.argv[2]
     tmp = None
@@ -87,10 +134,14 @@ def main():
 
 def run(exe, path, plain):
     out = subprocess.run([exe, "--scenedump", path], capture_output=True, text=True, check=True).stdout
-    c_tot, c_per = {}, []
+    c_tot, c_per, c_coll, c_ground = {}, [], None, []
     for line in out.splitlines():
         w = line.split()
-        if w and w[0] == "total":
+        if w and w[0] == "coll":
+            c_coll = tuple(int(x) for x in w[1:4])
+        elif w and w[0] == "ground":
+            c_ground.append((float(w[1]), float(w[2]), float(w[3])))
+        elif w and w[0] == "total":
             c_tot = {k: int(v) for k, v in (x.split("=") for x in w[1:])}
         elif w and w[0] == "section":
             c_per.append((int(w[1]), int(w[2]), int(w[3]), [float(x) for x in w[4:10]]))
@@ -111,8 +162,17 @@ def run(exe, path, plain):
             if bad < 20:
                 print("section %d: C %s, Python %s" % (a[0], a, b))
             bad += 1
-    print("%s: %d sections, %d placed, %d triangles: %s"
-          % (os.path.basename(path), len(per), tot["placed"], tot["tris"],
+    # the collision mesh: counts, and the ground wherever C found it
+    npoly, walls, ncell, py_ground = python_ground(plain, [(x, y) for x, y, _ in c_ground])
+    if c_coll != (npoly, walls, ncell):
+        print("collision: C %s, Python %s" % (c_coll, (npoly, walls, ncell)))
+        bad += 1
+    gbad = sum(1 for (x, y, z), p in zip(c_ground, py_ground) if p is None or abs(p - z) > 0.01)
+    if gbad:
+        print("ground: %d of %d points differ" % (gbad, len(c_ground)))
+        bad += 1
+    print("%s: %d sections, %d placed, %d triangles; collision %d polygons (%d walls), ground at %d points: %s"
+          % (os.path.basename(path), len(per), tot["placed"], tot["tris"], npoly, walls, len(c_ground),
              "identical" if not bad else "%d differences" % bad))
     if bad:
         sys.exit(1)

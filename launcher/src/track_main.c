@@ -1,27 +1,41 @@
-/* hp2track - fly around a track's scenery.
+/* hp2track - drive a car around a track, or fly around its scenery.
  *
- * The first step towards the race: loads a track's scenery and textures
- * from your own disc (or from extracted files) and draws them with
- * OpenGL 1.x, so any PC from the last twenty years can run it.
+ * The first steps towards the race: loads a track's scenery and textures
+ * and a car from your own disc (or from extracted files) and draws them
+ * with OpenGL 1.x, so any PC from the last twenty years can run it. The
+ * car is driven by a simple stand-in model (hp2_drive), not the game's
+ * handling, on the track's collision mesh (hp2_coll).
  *
- *   hp2track --disc DIR --track 24
+ *   hp2track --disc DIR --track 24 [--car 911TURBO] [--skin N]
  *   hp2track --scenery TRACKB24.BUN --tex TEX24LOCATION.BIN --tex TEX24TRACK.BIN
+ *            [--globalb GLOBALB.BUN --cartex TEXTURES.BIN --geometry GEOMETRY.BIN --car NAME]
  *
  * DIR is the NFSHP2 folder of your disc copy (the one with ZDIR.BIN). Track
  * numbers are 11-16, 21-26, 31-36, 41-46, 61-66: the tens digit is the
  * location, the units the variant (n and n+3 are the same roads at another
  * time of day or weather).
  *
- * Controls: WASD or the arrow keys move, Q/E (or Page Down/Up) go down and
- * up, hold the right mouse button (or press M to capture the mouse) to
- * look around, Shift is faster and Ctrl slower, the mouse wheel changes
- * the speed. F fog on/off, R back to the start, P prints the camera,
- * F12 saves a screenshot, Esc quits. A game controller works too: left
- * stick moves, right stick looks, the triggers go down and up.
+ * Driving: W / Up accelerates, S / Down brakes and then reverses, A D /
+ * Left Right steer, Space is the handbrake. On a controller: RT
+ * accelerates, LT brakes, the left stick steers, A (Cross) is the
+ * handbrake. C switches between the car and the free camera.
  *
- * --shot OUT.bmp renders one frame and exits (with --cam X,Y,Z,YAW,PITCH,
- * degrees, to choose the view).
+ * Free camera: WASD or the arrow keys move, Q/E (or Page Down/Up) go down
+ * and up, hold the right mouse button (or press M to capture the mouse) to
+ * look around, Shift is faster and Ctrl slower, the mouse wheel changes
+ * the speed; on a controller the left stick moves, the right stick looks,
+ * the triggers go down and up.
+ *
+ * Both: F fog on/off, R back to the start, P prints the camera, F12 saves a
+ * screenshot, Esc quits.
+ *
+ * --shot OUT.bmp renders one frame and exits: behind the car, or with
+ * --cam X,Y,Z,YAW,PITCH (degrees) from there. --sim SECONDS[,STEER] drives
+ * that long at full throttle first (steer -1..1), for testing.
  */
+#include "hp2_car.h"
+#include "hp2_coll.h"
+#include "hp2_drive.h"
 #include "hp2_scene.h"
 #include "hp2_tex.h"
 #include "hp2_zdir.h"
@@ -74,6 +88,13 @@ typedef struct {
     glgroup  **grp;         /* per section, ng entries; sky after the sections */
     glgroup   *skyg;
     int        missing_tex;
+    /* the car */
+    int        has_car;
+    hp2_car    car;
+    glgroup   *carg, *tyreg, *brakeg[2];
+    int        shadow_tex;
+    hp2_coll   coll;
+    int        has_coll;
 } world;
 
 typedef struct {
@@ -88,6 +109,8 @@ typedef struct {
     uint8_t *tex[4];
     size_t   tex_len[4];
     int      ntex;
+    uint8_t *globalb, *cartex, *geom;
+    size_t   globalb_len, cartex_len, geom_len;
 } files;
 
 static uint8_t *maybe_decompress(uint8_t *b, size_t *len)
@@ -102,7 +125,7 @@ static uint8_t *maybe_decompress(uint8_t *b, size_t *len)
     return b;
 }
 
-static int load_disc(files *f, const char *dir, int track)
+static int load_disc(files *f, hp2_zdir *zp, const char *dir, int track)
 {
     hp2_zdir z;
     char path[64];
@@ -128,8 +151,19 @@ static int load_disc(files *f, const char *dir, int track)
     f->tex[f->ntex] = hp2_zdir_load(&z, path, &f->tex_len[f->ntex]);
     if (f->tex[f->ntex]) f->ntex++;
     if (f->ntex < 2) fprintf(stderr, "warning: track %d's texture packs not all found\n", track);
-    hp2_zdir_close(&z);
+    f->globalb = hp2_zdir_load(&z, "GLOBAL\\GLOBALB.BUN", &f->globalb_len);
+    if (!f->globalb) f->globalb = maybe_decompress(hp2_zdir_load(&z, "GLOBAL\\GLOBALB.LZC", &f->globalb_len), &f->globalb_len);
+    f->cartex = hp2_zdir_load(&z, "CARS\\TEXTURES.BIN", &f->cartex_len);
+    *zp = z;                            /* kept open: the car's model is chosen later */
     return 0;
+}
+
+/* The car's model from the disc, once the record is known. */
+static uint8_t *load_geometry(const hp2_zdir *z, const hp2_carrec *rec, size_t *len)
+{
+    uint8_t *b = hp2_zdir_load(z, rec->path, len);
+    if (!b) b = maybe_decompress(hp2_zdir_load(z, rec->path_lzc, len), len);
+    return b;
 }
 
 /* ---- textures ------------------------------------------------------------- */
@@ -192,14 +226,14 @@ static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
 
 /* ---- geometry: one display list per (section, texture) --------------------- */
 
-static GLuint compile(const hp2_sgroup *g)
+static GLuint compile_verts(const hp2_vert *vs, int nv)
 {
     GLuint l = glGenLists(1);
     int i;
     glNewList(l, GL_COMPILE);
     glBegin(GL_TRIANGLES);
-    for (i = 0; i < g->nv; i++) {
-        const hp2_vert *v = &g->v[i];
+    for (i = 0; i < nv; i++) {
+        const hp2_vert *v = &vs[i];
         glColor4ub(v->c[0], v->c[1], v->c[2], v->c[3]);
         glTexCoord2f(v->u, v->v);
         glVertex3f(v->x, v->y, v->z);
@@ -208,6 +242,8 @@ static GLuint compile(const hp2_sgroup *g)
     glEndList();
     return l;
 }
+
+static GLuint compile(const hp2_sgroup *g) { return compile_verts(g->v, g->nv); }
 
 static int build_world(world *w, int mipmaps, const hp2_texset *ts)
 {
@@ -225,8 +261,36 @@ static int build_world(world *w, int mipmaps, const hp2_texset *ts)
             out[j].list = compile(&s->g[j]);
         }
     }
-    upload_textures(w, ts, mipmaps);
+    (void)mipmaps;
+    (void)ts;
     return 0;
+}
+
+/* One list per batch of a car mesh, textures resolved as the game fills
+ * the car's slots. */
+static glgroup *build_mesh(world *w, const hp2_mesh *m, const hp2_texset *ts, int skin)
+{
+    glgroup *g = (glgroup *)calloc((size_t)(m->nb ? m->nb : 1), sizeof *g);
+    int i;
+    if (!g) return NULL;
+    for (i = 0; i < m->nb; i++) {
+        g[i].tex = find_or_add_tex(w, hp2_car_texture(&w->car, ts, m->b[i].tex, skin));
+        if (g[i].tex < 0) { free(g); return NULL; }
+        g[i].list = compile_verts(m->v + m->b[i].first, m->b[i].count);
+    }
+    return g;
+}
+
+static int build_car(world *w, const hp2_texset *ts, int skin)
+{
+    char name[64];
+    w->carg = build_mesh(w, &w->car.body, ts, skin);
+    w->tyreg = build_mesh(w, &w->car.tyre, ts, skin);
+    w->brakeg[0] = build_mesh(w, &w->car.brake[0], ts, skin);
+    w->brakeg[1] = build_mesh(w, &w->car.brake[1], ts, skin);
+    snprintf(name, sizeof name, "%s_SHADOWIG", w->car.rec.model);
+    w->shadow_tex = find_or_add_tex(w, hp2_geom_hash(name));
+    return w->carg && w->tyreg && w->brakeg[0] && w->brakeg[1] && w->shadow_tex >= 0 ? 0 : -1;
 }
 
 /* ---- drawing --------------------------------------------------------------- */
@@ -306,11 +370,80 @@ static void set_mode(int mode)
     }
 }
 
-static int draw(world *w, const camera *c, int W, int H, int fog)
+static void draw_groups(const world *w, const glgroup *g, int n, int pass)
+{
+    int j;
+    for (j = 0; j < n; j++) {
+        const gltex *t = &w->tex[g[j].tex];
+        if ((t->mode == MODE_BLEND) != pass) continue;
+        set_mode(t->mode);
+        glBindTexture(GL_TEXTURE_2D, t->id);
+        glCallList(g[j].list);
+    }
+}
+
+/* The car at its place: body, then a tyre and a brake disc on each hub
+ * (mirrored for the left side, the tyre scaled to the wheel's own size,
+ * the front ones turned by the steering). */
+static void draw_car(const world *w, const hp2_drive *d, int pass)
+{
+    const hp2_car *c = &w->car;
+    int k;
+    glPushMatrix();
+    glTranslatef(d->pos[0], d->pos[1], d->pos[2] + d->ride);
+    glRotatef(d->heading * 180 / PI, 0, 0, 1);
+    glRotatef(-d->pitch * 180 / PI, 0, 1, 0);
+    glRotatef(d->roll * 180 / PI, 1, 0, 0);
+    draw_groups(w, w->carg, c->body.nb, pass);
+    for (k = 0; k < 4; k++) {
+        const hp2_wheel *wh = &c->rec.wheel[k];
+        int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR;
+        float sy = wh->y > 0 ? -1.0f : 1.0f;     /* the model's tyre is a right-hand one */
+        float sr = c->tyre_radius > 0 ? wh->radius / c->tyre_radius : 1;
+        float sw = c->tyre_width > 0 ? wh->width / c->tyre_width : 1;
+        glPushMatrix();
+        glTranslatef(wh->x, wh->y, wh->z);
+        if (front) glRotatef(-d->steer_angle * 180 / PI, 0, 0, 1);
+        glPushMatrix();
+        glScalef(1, sy, 1);
+        draw_groups(w, w->brakeg[front ? 0 : 1], c->brake[front ? 0 : 1].nb, pass);
+        glPopMatrix();
+        glRotatef(fmodf(d->spin, 2 * PI) * 180 / PI, 0, 1, 0);
+        glScalef(sr, sy * sw, sr);
+        draw_groups(w, w->tyreg, c->tyre.nb, pass);
+        glPopMatrix();
+    }
+    glPopMatrix();
+}
+
+/* The car's shadow, a quad on the ground under it. */
+static void draw_shadow(const world *w, const hp2_drive *d)
+{
+    const gltex *t = &w->tex[w->shadow_tex];
+    float fx = cosf(d->heading), fy = sinf(d->heading), l = d->half_len + 0.2f, h = d->half_wid + 0.2f;
+    float cx[4] = { l, l, -l, -l }, cy[4] = { h, -h, -h, h }, u[4] = { 0, 1, 1, 0 }, v[4] = { 0, 0, 1, 1 };
+    int k;
+    if (t->hash != 0 && !t->id) return;
+    set_mode(MODE_BLEND);
+    glBindTexture(GL_TEXTURE_2D, t->id);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-2, -2);
+    glBegin(GL_TRIANGLE_FAN);
+    for (k = 0; k < 4; k++) {
+        glColor4ub(128, 128, 128, 128);
+        glTexCoord2f(u[k], v[k]);
+        glVertex3f(d->pos[0] + fx * cx[k] - fy * cy[k], d->pos[1] + fy * cx[k] + fx * cy[k], d->pos[2] + 0.03f);
+    }
+    glEnd();
+    glDisable(GL_POLYGON_OFFSET_FILL);
+}
+
+static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_drive *car)
 {
     float view[16], proj[16], clip[16], n = 0.5f, fa = 30000.0f, aspect = (float)W / (H ? H : 1);
     float t = n * tanf(55.0f * PI / 360.0f), r = t * aspect;
     int i, j, pass, drawn = 0;
+    (void)j;
     const hp2_scene *sc = &w->sc;
     float fogc[4] = { 0.55f, 0.6f, 0.75f, 1 };
 
@@ -370,19 +503,20 @@ static int draw(world *w, const camera *c, int W, int H, int fog)
         glFogf(GL_FOG_START, start);
         glFogf(GL_FOG_END, end);
     }
-    /* opaque and cut-out first, then the blended ones over them */
-    for (pass = 0; pass < 2; pass++)
+    /* opaque and cut-out first, then the blended ones over them; the car
+     * in between, so the scenery's blended pieces (shadows, glass) go over it */
+    for (pass = 0; pass < 2; pass++) {
+        if (pass == 1 && car) {
+            draw_shadow(w, car);
+            draw_car(w, car, 0);
+            draw_car(w, car, 1);
+        }
         for (i = 0; i < sc->nsec; i++) {
             if (!sc->sec[i].ng || !box_visible(clip, sc->sec[i].box)) continue;
             if (pass == 0) drawn++;
-            for (j = 0; j < sc->sec[i].ng; j++) {
-                const gltex *g = &w->tex[w->grp[i][j].tex];
-                if ((g->mode == MODE_BLEND) != pass) continue;
-                set_mode(g->mode);
-                glBindTexture(GL_TEXTURE_2D, g->id);
-                glCallList(w->grp[i][j].list);
-            }
+            draw_groups(w, w->grp[i], sc->sec[i].ng, pass);
         }
+    }
     set_mode(MODE_OPAQUE);
     return drawn;
 }
@@ -427,6 +561,35 @@ static void start_camera(const hp2_scene *sc, camera *c)
     }
 }
 
+/* Behind and above the car, looking a little ahead of it. k = how far to
+ * move towards that spot this frame (1 = all the way). */
+static void chase_camera(const hp2_drive *d, camera *c, float k)
+{
+    float fx = cosf(d->heading), fy = sinf(d->heading), want[3], t[3], dx, dy, dz;
+    int i;
+    want[0] = d->pos[0] - fx * 7.0f;
+    want[1] = d->pos[1] - fy * 7.0f;
+    want[2] = d->pos[2] + 2.4f;
+    for (i = 0; i < 3; i++) c->pos[i] += (want[i] - c->pos[i]) * k;
+    t[0] = d->pos[0] + fx * 3.0f;
+    t[1] = d->pos[1] + fy * 3.0f;
+    t[2] = d->pos[2] + 1.0f;
+    dx = t[0] - c->pos[0];
+    dy = t[1] - c->pos[1];
+    dz = t[2] - c->pos[2];
+    c->yaw = atan2f(dy, dx) * 180 / PI;
+    c->pitch = atan2f(dz, sqrtf(dx * dx + dy * dy)) * 180 / PI;
+}
+
+static void start_car(const world *w, hp2_drive *d)
+{
+    const hp2_scene *sc = &w->sc;
+    float x = sc->start[0], y = sc->start[1], z = sc->start[2], hd = 0;
+    if (sc->has_start) hd = atan2f(sc->ahead[1] - sc->start[1], sc->ahead[0] - sc->start[0]);
+    if (w->has_coll) hp2_coll_ground(&w->coll, x, y, z + 5, 5, &z, NULL, NULL);
+    hp2_drive_init(d, &w->car.rec, x, y, z, hd);
+}
+
 static float axis(SDL_GameController *p, SDL_GameControllerAxis a)
 {
     float v = p ? SDL_GameControllerGetAxis(p, a) / 32767.0f : 0;
@@ -436,8 +599,13 @@ static float axis(SDL_GameController *p, SDL_GameControllerAxis a)
 
 int main(int argc, char **argv)
 {
-    const char *disc = NULL, *scen = NULL, *texf[4], *shot = NULL, *cam = NULL;
+    const char *disc = NULL, *scen = NULL, *texf[4], *shot = NULL, *cam = NULL, *carname = "911TURBO";
+    const char *gbf = NULL, *ctf = NULL, *geof = NULL, *sim = NULL;
     int ntexf = 0, track = 0, W = 1280, H = 720, i, quit = 0, fog = 1, grab = 0, shots = 0;
+    int want_car = 1, driving = 0, skin = 1, have_zdir = 0, titled = 0;
+    hp2_zdir zdir;
+    hp2_drive car;
+    hp2_carrec recs[HP2_CARDB_MAX];
     files f;
     hp2_texset ts;
     world w;
@@ -459,10 +627,19 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--cam") && i + 1 < argc) cam = argv[++i];
         else if (!strcmp(argv[i], "--no-fog")) fog = 0;
+        else if (!strcmp(argv[i], "--car") && i + 1 < argc) carname = argv[++i];
+        else if (!strcmp(argv[i], "--no-car")) want_car = 0;
+        else if (!strcmp(argv[i], "--skin") && i + 1 < argc) skin = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--globalb") && i + 1 < argc) gbf = argv[++i];
+        else if (!strcmp(argv[i], "--cartex") && i + 1 < argc) ctf = argv[++i];
+        else if (!strcmp(argv[i], "--geometry") && i + 1 < argc) geof = argv[++i];
+        else if (!strcmp(argv[i], "--sim") && i + 1 < argc) sim = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
         else {
             fprintf(stderr, "usage: %s --disc DIR --track NN | --scenery FILE [--tex FILE]...\n"
-                            "       [--size WxH] [--no-fog] [--shot OUT.bmp] [--cam X,Y,Z,YAW,PITCH]\n"
+                            "       [--car NAME] [--skin N] [--no-car]\n"
+                            "       [--globalb FILE --cartex FILE --geometry FILE]   (the car, with --scenery)\n"
+                            "       [--size WxH] [--no-fog] [--shot OUT.bmp] [--cam X,Y,Z,YAW,PITCH] [--sim S[,STEER]]\n"
                             "tracks: 11-16 21-26 31-36 41-46 61-66\n", argv[0]);
             return 2;
         }
@@ -472,7 +649,8 @@ int main(int argc, char **argv)
             fprintf(stderr, "give --track: 11-16, 21-26, 31-36, 41-46 or 61-66\n");
             return 2;
         }
-        if (load_disc(&f, disc, track) != 0) return 1;
+        if (load_disc(&f, &zdir, disc, track) != 0) return 1;
+        have_zdir = 1;
     } else if (scen) {
         f.scen = maybe_decompress(hp2_read_file(scen, &f.scen_len), &f.scen_len);
         if (!f.scen) { fprintf(stderr, "cannot read %s\n", scen); return 1; }
@@ -481,6 +659,9 @@ int main(int argc, char **argv)
             if (!f.tex[f.ntex]) { fprintf(stderr, "cannot read %s\n", texf[i]); return 1; }
             f.ntex++;
         }
+        if (gbf) f.globalb = maybe_decompress(hp2_read_file(gbf, &f.globalb_len), &f.globalb_len);
+        if (ctf) f.cartex = hp2_read_file(ctf, &f.cartex_len);
+        if (geof) f.geom = maybe_decompress(hp2_read_file(geof, &f.geom_len), &f.geom_len);
     } else {
         fprintf(stderr, "give --disc DIR --track NN (DIR = your disc's NFSHP2 folder), or --scenery FILE\n");
         return 2;
@@ -490,6 +671,33 @@ int main(int argc, char **argv)
         if (hp2_tex_scan(&ts, f.tex[i], f.tex_len[i]) < 0) { fprintf(stderr, "out of memory\n"); return 1; }
     hp2_tex_scan(&ts, f.scen, f.scen_len);         /* any pack inside the scenery itself */
     printf("%d sections, %d models placed, %ld triangles, %d textures\n", w.sc.nsec, w.sc.placed, w.sc.tris, ts.count);
+    w.has_coll = hp2_coll_parse(&w.coll, f.scen, f.scen_len) == 0;
+
+    /* the car: its record, model and textures (the car pack, then GLOBALB's
+     * GlobalTextures for the windows, plate and underside) */
+    if (want_car && f.globalb && w.has_coll) {
+        int n = hp2_cardb_parse(f.globalb, f.globalb_len, recs, HP2_CARDB_MAX);
+        const hp2_carrec *rec = n > 0 ? hp2_cardb_find(recs, n, carname) : NULL;
+        if (!rec) {
+            fprintf(stderr, "no car '%s' in the car database; the cars are:\n", carname);
+            for (i = 0; i < n; i++) fprintf(stderr, " %s", recs[i].name);
+            fprintf(stderr, "\n");
+            return 2;
+        }
+        if (!f.geom && have_zdir) f.geom = load_geometry(&zdir, rec, &f.geom_len);
+        if (f.geom && hp2_car_build(&w.car, f.geom, f.geom_len, rec) == 0) {
+            w.has_car = 1;
+            if (f.cartex) hp2_tex_scan(&ts, f.cartex, f.cartex_len);
+            hp2_tex_scan(&ts, f.globalb, f.globalb_len);
+            printf("car %s (%s): %d body triangles\n", rec->name, rec->model, w.car.body.nv / 3);
+        } else {
+            fprintf(stderr, "could not load %s's model (%s)\n", rec->name, rec->path);
+        }
+    } else if (want_car && !w.has_coll) {
+        fprintf(stderr, "no collision mesh in the scenery: no car\n");
+    }
+    if (have_zdir) hp2_zdir_close(&zdir);
+    driving = w.has_car;
 
     if (SDL_Init(SDL_INIT_VIDEO | (shot ? 0 : SDL_INIT_GAMECONTROLLER)) != 0) {
         fprintf(stderr, "SDL: %s\n", SDL_GetError());
@@ -506,12 +714,32 @@ int main(int argc, char **argv)
         const char *ver = (const char *)glGetString(GL_VERSION);
         int major = 1, minor = 0;
         if (ver) sscanf(ver, "%d.%d", &major, &minor);
-        if (build_world(&w, major > 1 || minor >= 4, &ts) != 0) { fprintf(stderr, "out of memory\n"); return 1; }
+        if (build_world(&w, major > 1 || minor >= 4, &ts) != 0 || (w.has_car && build_car(&w, &ts, skin) != 0)) {
+            fprintf(stderr, "out of memory\n");
+            return 1;
+        }
+        upload_textures(&w, &ts, major > 1 || minor >= 4);
         printf("OpenGL %s; %d textures used, %d not found\n", ver ? ver : "?", w.ntex, w.missing_tex);
     }
     hp2_scene_drop_vertices(&w.sc);   /* the display lists hold the geometry now */
     start_camera(&w.sc, &c);
+    if (w.has_car) {
+        start_car(&w, &car);
+        if (sim) {
+            hp2_drive_in in;
+            float secs = 0, steer = 0, t;
+            sscanf(sim, "%f,%f", &secs, &steer);
+            memset(&in, 0, sizeof in);
+            in.throttle = 1;
+            in.steer = steer;
+            for (t = 0; t < secs; t += 0.05f) hp2_drive_step(&car, &w.coll, &in, 0.05f);
+            printf("after %.1f s: %.1f mph, at %.1f %.1f %.1f, heading %.1f\n", secs, car.speed / 0.44704f,
+                   car.pos[0], car.pos[1], car.pos[2], car.heading * 180 / PI);
+        }
+        chase_camera(&car, &c, 1);
+    }
     if (cam) {
+        driving = 0;
         float v[5];
         if (sscanf(cam, "%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4]) == 5) {
             c.pos[0] = v[0]; c.pos[1] = v[1]; c.pos[2] = v[2]; c.yaw = v[3]; c.pitch = v[4];
@@ -521,7 +749,7 @@ int main(int argc, char **argv)
     if (shot) {
         int dw, dh;
         SDL_GL_GetDrawableSize(win, &dw, &dh);
-        draw(&w, &c, dw, dh, fog);
+        draw(&w, &c, dw, dh, fog, w.has_car ? &car : NULL);
         glFinish();
         if (save_shot(shot, dw, dh) != 0) { fprintf(stderr, "could not save %s\n", shot); return 1; }
         printf("wrote %s (%dx%d)\n", shot, dw, dh);
@@ -531,8 +759,9 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    printf("WASD/arrows move, Q/E down/up, right mouse or M to look, Shift fast, Ctrl slow, wheel speed,\n"
-           "F fog, R start, P print camera, F12 screenshot, Esc quit\n");
+    printf("Car: W/Up accelerate, S/Down brake/reverse, A/D or Left/Right steer, Space handbrake;\n"
+           "C switches to the free camera: WASD/arrows move, Q/E down/up, right mouse or M to look,\n"
+           "Shift fast, Ctrl slow, wheel speed. F fog, R start, P print camera, F12 screenshot, Esc quit\n");
     last = SDL_GetTicks();
     while (!quit) {
         SDL_Event ev;
@@ -549,7 +778,16 @@ int main(int argc, char **argv)
                     else quit = 1;
                     break;
                 case SDLK_f: fog = !fog; break;
-                case SDLK_r: start_camera(&w.sc, &c); break;
+                case SDLK_r:
+                    if (driving) { start_car(&w, &car); chase_camera(&car, &c, 1); }
+                    else start_camera(&w.sc, &c);
+                    break;
+                case SDLK_c:
+                    if (w.has_car) {
+                        driving = !driving;
+                        if (driving) chase_camera(&car, &c, 1);
+                    }
+                    break;
                 case SDLK_m: grab = !grab; SDL_SetRelativeMouseMode(grab ? SDL_TRUE : SDL_FALSE); break;
                 case SDLK_p: printf("--cam %.1f,%.1f,%.1f,%.1f,%.1f\n", c.pos[0], c.pos[1], c.pos[2], c.yaw, c.pitch); break;
                 case SDLK_F12: {
@@ -565,7 +803,7 @@ int main(int argc, char **argv)
                 SDL_SetRelativeMouseMode(SDL_TRUE);
             } else if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_RIGHT && !grab) {
                 SDL_SetRelativeMouseMode(SDL_FALSE);
-            } else if (ev.type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode()) {
+            } else if (ev.type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode() && !driving) {
                 c.yaw -= ev.motion.xrel * 0.15f;
                 c.pitch -= ev.motion.yrel * 0.15f;
             } else if (ev.type == SDL_MOUSEWHEEL) {
@@ -585,6 +823,28 @@ int main(int argc, char **argv)
         if (dt > 0.1f) dt = 0.1f;
         last = now;
         k = SDL_GetKeyboardState(NULL);
+        if (driving) {
+            hp2_drive_in in;
+            float lt = axis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT), rt = axis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+            in.throttle = (k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) ? 1.0f : rt;
+            in.brake = (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]) ? 1.0f : lt;
+            in.steer = (float)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]))
+                       + axis(pad, SDL_CONTROLLER_AXIS_LEFTX);
+            in.handbrake = k[SDL_SCANCODE_SPACE] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A));
+            hp2_drive_step(&car, &w.coll, &in, dt);
+            chase_camera(&car, &c, 1 - expf(-8 * dt));
+            if (now / 250 != (Uint32)titled) {
+                char title[96];
+                titled = (int)(now / 250);
+                snprintf(title, sizeof title, "Hot Pursuit 2 - %s - %.0f mph", car.speed > -1 ? w.car.rec.name : "reverse",
+                         fabsf(car.speed) / 0.44704f);
+                SDL_SetWindowTitle(win, title);
+            }
+            SDL_GL_GetDrawableSize(win, &dw, &dh);
+            draw(&w, &c, dw, dh, fog, &car);
+            SDL_GL_SwapWindow(win);
+            continue;
+        }
         c.yaw -= axis(pad, SDL_CONTROLLER_AXIS_RIGHTX) * 120 * dt;
         c.pitch -= axis(pad, SDL_CONTROLLER_AXIS_RIGHTY) * 90 * dt;
         if (c.pitch > 89) c.pitch = 89;
@@ -605,7 +865,7 @@ int main(int argc, char **argv)
              * (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL] ? 0.2f : 1.0f);
         for (i = 0; i < 3; i++) c.pos[i] += mv[i] * sp * dt;
         SDL_GL_GetDrawableSize(win, &dw, &dh);
-        draw(&w, &c, dw, dh, fog);
+        draw(&w, &c, dw, dh, fog, w.has_car ? &car : NULL);
         SDL_GL_SwapWindow(win);
     }
     if (pad) SDL_GameControllerClose(pad);

@@ -87,5 +87,13 @@ void glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei widt
 void glTexParameteri(GLenum target, GLenum pname, GLint param);
 void glVertex3f(GLfloat x, GLfloat y, GLfloat z);
 void glViewport(GLint x, GLint y, GLsizei width, GLsizei height);
+#define GL_POLYGON_OFFSET_FILL     0x8037
+#define GL_TRIANGLE_FAN            0x0006
+void glPushMatrix(void);
+void glPopMatrix(void);
+void glTranslatef(GLfloat x, GLfloat y, GLfloat z);
+void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z);
+void glScalef(GLfloat x, GLfloat y, GLfloat z);
+void glPolygonOffset(GLfloat factor, GLfloat units);
 
 #endif

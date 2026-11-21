@@ -64,6 +64,9 @@ dropped in later.
 | `src/hp2_femenu.c` | no | yes, on the real layouts |
 | `src/hp2_geom.c` | no | yes; models decoded as `hp2_geom.py` does |
 | `src/hp2_scene.c` | no | yes; identical to `hp2_scenery.py`, section by section |
+| `src/hp2_coll.c` | no | yes; the ground identical to the collision read by `hp2_scenery.py` |
+| `src/hp2_car.c` | no | yes, and on the real car database and 911 Turbo |
+| `src/hp2_drive.c` | no | yes, on a floor and wall built in the test |
 | `src/track_main.c` | yes (and OpenGL) | screenshots, offscreen |
 | `src/hp2_fedraw.c` | yes | screenshots, offscreen |
 | `src/fe_main.c` | yes | screenshots, offscreen |
@@ -115,30 +118,48 @@ controller it finds, prints which pad it detected and the bindings in that
 pad's own button names, then shows live steering, throttle, brake and the
 actions currently held. Escape or Ctrl+C to quit.
 
-### The track viewer (`hp2track`)
+### Driving around a track (`hp2track`)
 
 ```sh
-./hp2track --disc /path/to/disc/NFSHP2 --track 24
-./hp2track --scenery 196_5ebf48d3.bin --tex 258_395d331a.bin --tex 259_04dce816.bin
-./hp2track --disc ... --track 24 --shot t24.bmp --cam 610,-1288,-77,-127,-5
+./hp2track --disc /path/to/disc/NFSHP2 --track 24                 # the 911 Turbo
+./hp2track --disc ... --track 44 --car F50 --skin 3
+./hp2track --disc ... --track 24 --no-car                         # just fly around
+./hp2track --scenery 196_5ebf48d3.bin --tex 258_395d331a.bin --tex 259_04dce816.bin \
+           --globalb 302_4c937012.bin --cartex 012_0287bf4f.bin --geometry 067_89c70f1a.bin
+./hp2track --disc ... --track 24 --shot t24.bmp --sim 4           # one frame after 4 s of throttle
 ```
 
-The first step towards the race: one track's scenery, placed as the game
+The first steps towards the race: one track's scenery, placed as the game
 places it (roads, terrain, every plant, sign and pole), with its textures,
-sky and fog, drawn with OpenGL 1.x. Track numbers: the tens digit is the
-location (1-4 and 6), the units the variant (1-6; n and n+3 are the same
-roads at another time of day or weather). It starts on the main route's
-first point, looking along it.
+sky and fog, and a car on the main route's first point, drawn with
+OpenGL 1.x. Track numbers: the tens digit is the location (1-4 and 6), the
+units the variant (1-6; n and n+3 are the same roads at another time of day
+or weather). `--car` takes a car database record name (911TURBO, F50,
+MCLAREN, CORVETTECOP, TAXI...; a wrong name lists them all), `--skin` the
+paint (1-7, as the car has them).
 
-WASD or the arrows move, Q/E (Page Down/Up) go down and up, hold the right
-mouse button (or press M) to look around, Shift is faster and Ctrl slower,
-the mouse wheel changes the speed. F toggles fog, R goes back to the start,
-P prints the camera as a `--cam` option, F12 saves a screenshot, Esc quits.
-On a controller the left stick moves, the right stick looks and the triggers
-go down and up.
+The car is the game's model with its own textures (the car pack and
+GLOBALB.BUN's GlobalTextures: glass, plate, underside), a tyre and brake
+disc on each hub from the car database, the front wheels turned by the
+steering and all four rolling, and its in-game shadow. It sits on the
+track's collision mesh (`hp2_coll`: the ground under each wheel tilts it)
+and stops at walls, the invisible ones included. **The handling is a
+stand-in** (`hp2_drive`: acceleration, braking, grip, a handbrake that
+lets the back slide), not the game's; only the top speed and the wheel
+positions come from the car's record. 0-60 mph takes about 4 s.
 
-There are no cars, no collision and no lighting beyond the vertex colours
-yet; the fog distance is a guess (docs/formats.md, "Fog").
+Driving: W / Up accelerates, S / Down brakes and then reverses, A D / Left
+Right steer, Space is the handbrake; on a controller RT, LT, the left stick
+and A (Cross). The window title shows the speed. C switches to the free
+camera and back: WASD or the arrows move, Q/E (Page Down/Up) go down and up,
+hold the right mouse button (or press M) to look around, Shift is faster
+and Ctrl slower, the mouse wheel changes the speed; on a controller the left
+stick moves, the right stick looks and the triggers go down and up. Both: F
+toggles fog, R goes back to the start, P prints the camera as a `--cam`
+option, F12 saves a screenshot, Esc quits.
+
+Not there yet: other cars, sounds, damage, lights at night, a HUD, laps;
+the fog distance is a guess (docs/formats.md, "Fog").
 
 ### The menus (`hp2fe`)
 
@@ -324,8 +345,14 @@ every section of a real track in C and in Python: on TRACKB24, 63 sections,
 0.01.
 
 `hp2track` has been run only offscreen (Mesa's software OpenGL): the
-screenshots show the track as expected, but the window, mouse and controller
-paths are untested until it runs on a desktop.
+screenshots show the track and the car as expected (wheels in the arches,
+discs behind them), and `--sim` drives it, but the window, keyboard, mouse
+and controller paths are untested until it runs on a desktop. The ground
+the car stands on is checked by `make trackcheck` too: every point of a
+25-unit grid over the track gives the same height from `hp2_coll` as from
+the collision polygons `hp2_scenery.py` reads. `test_assets` drives a car
+on a floor with a wall built in the test: it speeds up, stops at the wall,
+turns the right way and reverses.
 
 `hp2fe` has been run only offscreen (`--shot`, SDL's software renderer) in a
 machine with no display or controller: the screenshots match the layouts, but

@@ -19,7 +19,7 @@ executable. Nothing here contains any game data — you supply your own disc.
 | **Name hash** | solved — djb2 with a `-1` seed, verified against every texture name checked |
 | **Filenames** | 252 of 372 archive entries mapped back to their original paths |
 | **Car models** | `GEOMETRY.BIN` decoded to triangles with normals, texture coordinates and vertex colours; exports OBJ. All 16,789 batches of all 44 cars match the triangle counts the files record |
-| **Tracks** | All 30 tracks' scenery placed, with collision, routes, police spots and cameras; `launcher/hp2track` flies around any of them |
+| **Tracks** | All 30 tracks' scenery placed, with collision, routes, police spots and cameras; `launcher/hp2track` drives a car around any of them |
 
 [`docs/formats.md`](docs/formats.md) documents every format in detail, marking
 what is confirmed against the disassembly, what is verified against data, and
@@ -254,16 +254,18 @@ make           # needs SDL2
 
 See [`launcher/README.md`](launcher/README.md).
 
-### Flying around a track
+### Driving around a track
 
 ```sh
 cd launcher
 make hp2track        # needs SDL2 and OpenGL
-./hp2track --disc /path/to/disc/NFSHP2 --track 24
+./hp2track --disc /path/to/disc/NFSHP2 --track 24 --car 911TURBO
 ```
 
-Draws one track's scenery with its textures, sky and fog; WASD and the
-mouse fly around. See [`launcher/README.md`](launcher/README.md).
+Draws one track's scenery with its textures, sky and fog, and a car you can
+drive on the track's collision mesh (the handling is a stand-in, not the
+game's yet); C switches to a free camera. See
+[`launcher/README.md`](launcher/README.md).
 
 ### Ghidra
 
