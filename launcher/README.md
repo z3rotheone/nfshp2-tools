@@ -121,6 +121,13 @@ controller it finds, prints which pad it detected and the bindings in that
 pad's own button names, then shows live steering, throttle, brake and the
 actions currently held. Escape or Ctrl+C to quit.
 
+### Questions (the POPUP screen)
+
+The three "Default" actions of the settings pages (Default Controls, Default Volumes, Default
+Jukebox) ask first, on the game's POPUP screen (a title, a line and two buttons over the page): left or
+right picks Yes or No (No is on to start), accept answers, back cancels. The wording of the line is
+the port's own (it repeats the row's help line as a question); Yes and No are the game's strings.
+
 ### Menu sounds
 
 With `--disc`, hp2fe plays the game's own menu sounds from `SOUND\COMMON` and

@@ -194,6 +194,10 @@ typedef struct {
     hp2_progress        *prog;      /* what is done in the event trees; NULL = every event open, nothing kept */
     uint8_t              swatch[8][3];   /* the colour column of car select, when the caller knows the car's own skins */
     int                  swatch_set;
+    const hp2_fe_screen *popscr;    /* POPUP: a message with two buttons */
+    int                  popup;     /* 1 while a question is up (Default Volumes ...) */
+    int                  popup_sel; /* 0 Yes, 1 No */
+    int                  popup_row; /* the settings row it asks about */
     int                  prog_dirty;/* prog changed: the caller saves it */
     hp2_fem_screen       screen;
     int                  sel;       /* OPTIONS: row 1..n; settings: hp2_row */

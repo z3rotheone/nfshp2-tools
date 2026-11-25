@@ -67,7 +67,7 @@
 extern char **environ;
 #endif
 
-#define MAX_ITEMS 160
+#define MAX_ITEMS 320
 static unsigned fc_fixed = 0xFFFFFFFFu;     /* --shot: a fixed turn */
 static unsigned fc_clock(void) { return fc_fixed != 0xFFFFFFFFu ? fc_fixed : (unsigned)(SDL_GetTicks() / 4u); }
 #define CAR_AREA_X 140.0f      /* the 3D car on car select, in canvas units */

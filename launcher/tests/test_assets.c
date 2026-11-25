@@ -687,6 +687,8 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
           "back cancels, staying on the page");
     CHECK(hp2_bound_button(&cfg, HP2_ACT_HANDBRAKE) == HP2_BTN_DPAD_UP, "cancel changes nothing");
     while (m.sel != HP2_ROW_DEFAULT_CONTROLS) hp2_femenu_input(&m, HP2_IN_DOWN);
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);              /* the question first: Yes */
+    hp2_femenu_input(&m, HP2_IN_LEFT);
     CHECK((hp2_femenu_input(&m, HP2_IN_ACCEPT) & HP2_FEM_CHANGED) && cfg.bind[HP2_ACT_ACCELERATE] == -1, "Default Controls");
     page_walk(&m, it, 15);
     hp2_femenu_input(&m, HP2_IN_BACK);
@@ -728,7 +730,18 @@ static void test_menu(const hp2_fe_layout *L, const hp2_lang *lang, const hp2_ju
     CHECK(count_named(it, n, "LEFT_ARROW") == 0, "a button has no arrows");
     CHECK(hp2_femenu_input(&m, HP2_IN_RIGHT) == 0, "right does nothing on it");
     r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
-    CHECK((r & HP2_FEM_CHANGED) && cfg.volume[HP2_VOL_MENU_MUSIC] == 70, "accept resets the volumes");
+    CHECK(m.popup == 1 && !(r & HP2_FEM_CHANGED) && cfg.volume[HP2_VOL_MENU_MUSIC] != 70, "accept asks first (the POPUP screen), nothing changed yet");
+    n = hp2_femenu_items(&m, it, 160);
+    CHECK(find_text(it, n, "Default Volumes") >= 1 && find_text(it, n, "Yes") == 1 && find_text(it, n, "No") == 1, "the question shows its title and two buttons");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);              /* No is on by default */
+    CHECK(m.popup == 0 && cfg.volume[HP2_VOL_MENU_MUSIC] != 70, "No leaves the volumes alone");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    hp2_femenu_input(&m, HP2_IN_BACK);
+    CHECK(m.popup == 0 && m.screen == HP2_FEM_SETTINGS && cfg.volume[HP2_VOL_MENU_MUSIC] != 70, "back closes the question");
+    hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    hp2_femenu_input(&m, HP2_IN_LEFT);
+    r = hp2_femenu_input(&m, HP2_IN_ACCEPT);
+    CHECK((r & HP2_FEM_CHANGED) && m.popup == 0 && cfg.volume[HP2_VOL_MENU_MUSIC] == 70, "Yes resets the volumes");
     hp2_femenu_input(&m, HP2_IN_DOWN);
     CHECK(m.sel == HP2_ROW_DEFAULT_JUKEBOX, "Default Jukebox, the last row");
     page_walk(&m, it, 10);

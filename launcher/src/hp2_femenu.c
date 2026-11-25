@@ -75,6 +75,7 @@ static const list_entry WORLD_RACING_LIST[] = {
 #define SCR_WORLD_RACING 0x033E7771u
 #define SCR_SELECT_CAR   0xB5074AB4u
 #define SCR_SELECT_TRACK 0x15417B53u
+#define SCR_POPUP        0x037F3133u
 #define SCR_CHALLENGE    0x2D62CFE2u
 #define SCR_COP          0xE55F1297u
 #define SCR_TREE_VIEW    0x492E86E9u
@@ -759,6 +760,7 @@ int hp2_femenu_init(hp2_femenu *m, const hp2_fe_layout *layout, const hp2_lang *
     m->world = hp2_fe_find_id(layout, SCR_WORLD_RACING);
     m->carsel = hp2_fe_find_id(layout, SCR_SELECT_CAR);
     m->tracksel = hp2_fe_find_id(layout, SCR_SELECT_TRACK);
+    m->popscr = hp2_fe_find_id(layout, SCR_POPUP);
     m->chal = hp2_fe_find_id(layout, SCR_CHALLENGE);
     if (!hp2_fe_row(m->chal, 1)) m->chal = NULL;
     m->tree = hp2_fe_find_id(layout, SCR_TREE_VIEW);
@@ -1082,6 +1084,17 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
         if (in == HP2_IN_BACK) { hp2_femenu_cancel_capture(m); return HP2_FEM_REDRAW; }
         return 0;
     }
+    if (m->popup) {                             /* a question: Yes or No */
+        switch (in) {
+        case HP2_IN_LEFT: case HP2_IN_RIGHT: case HP2_IN_UP: case HP2_IN_DOWN: m->popup_sel = !m->popup_sel; return HP2_FEM_REDRAW;
+        case HP2_IN_ACCEPT:
+            m->popup = 0;
+            if (m->popup_sel == 0 && hp2_menu_activate(m->cfg, m->popup_row)) { refresh(m); return HP2_FEM_REDRAW | HP2_FEM_CHANGED; }
+            return HP2_FEM_REDRAW;
+        case HP2_IN_BACK: m->popup = 0; return HP2_FEM_REDRAW;
+        default: return 0;
+        }
+    }
     if (in == HP2_IN_HELP) {
         m->show_buttons = !m->show_buttons;
         refresh(m);
@@ -1151,7 +1164,10 @@ int hp2_femenu_input(hp2_femenu *m, hp2_fem_input in)
                 m->capture = m->sel;
                 r = HP2_FEM_REDRAW;
             } else if (hp2_menu_kind(m->sel) == HP2_KIND_ACTION) {
-                if (hp2_menu_activate(m->cfg, m->sel)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
+                if (m->popscr && !strncmp(hp2_menu_label(m->sel), "Default ", 8)) {   /* "Are you sure?" first */
+                    m->popup = 1; m->popup_sel = 1; m->popup_row = m->sel;
+                    r = HP2_FEM_REDRAW;
+                } else if (hp2_menu_activate(m->cfg, m->sel)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
             } else if (hp2_menu_kind(m->sel) == HP2_KIND_TOGGLE) {
                 if (hp2_menu_adjust(m->cfg, m->sel, 1)) r = HP2_FEM_REDRAW | HP2_FEM_CHANGED;
             }
@@ -2177,7 +2193,54 @@ int hp2_femenu_songbox(const hp2_fe_screen *box, const hp2_jb_track *t, char *qu
     return l.n;
 }
 
+/* The question over the page (the game's POPUP screen: a title, up to three
+ * lines, two buttons on a faded backdrop). The wording is the port's own. */
+static int popup_items(hp2_femenu *m, list *l)
+{
+    const hp2_fe_screen *s = m->popscr;
+    static char line[96];
+    int i;
+    snprintf(line, sizeof line, "%s?", hp2_menu_help(m->popup_row));
+    if (strlen(line) > 1 && line[strlen(line) - 2] == '.') { line[strlen(line) - 2] = '?'; line[strlen(line) - 1] = 0; }
+    for (i = 0; i < s->count; i++) {
+        const hp2_fe_widget *w = &s->widgets[i];
+        hp2_fe_item *it;
+        const char *str = NULL;
+        if (animated(w)) continue;
+        if (w->kind == HP2_FE_TEXT) {
+            if (!strcmp(w->name, "POPUP_TITLE")) str = hp2_menu_label(m->popup_row);
+            else if (!strcmp(w->name, "POPUP_LINE_1")) str = line;
+            else if (!strcmp(w->name, "POPUP_1")) str = lang_or(m, 150103u, "Yes");
+            else if (!strcmp(w->name, "POPUP_2")) str = lang_or(m, 150104u, "No");
+            else continue;                                   /* the other two lines stay empty */
+        }
+        it = push(l, w, str);
+        if (it && w->kind == HP2_FE_TEXT) {
+            int btn = !strcmp(w->name, "POPUP_1") ? 0 : !strcmp(w->name, "POPUP_2") ? 1 : -1;
+            it->w.visible = 1;
+            if (btn >= 0) { if (btn == m->popup_sel) memcpy(it->w.rgba, ORANGE, 4); else grey(it, 0x50); }
+        } else if (it) it->w.visible = 1;
+    }
+    return l->n;
+}
+
+static int items_body(hp2_femenu *m, hp2_fe_item *items, int cap);
+
 int hp2_femenu_items(hp2_femenu *m, hp2_fe_item *items, int cap)
+{
+    int n = items_body(m, items, cap);
+    if (m->popup && m->popscr) {
+        list l;
+        l.it = items; l.n = n; l.cap = cap;
+        {   int i;      /* the page sinks behind the question (a lower layer is in front) */
+            for (i = 0; i < n; i++) items[i].w.layer = (uint8_t)(items[i].w.layer > 150 ? 255 : items[i].w.layer + 100);
+        }
+        n = popup_items(m, &l);
+    }
+    return n;
+}
+
+static int items_body(hp2_femenu *m, hp2_fe_item *items, int cap)
 {
     list l;
     l.it = items;
