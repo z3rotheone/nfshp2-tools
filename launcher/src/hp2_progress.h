@@ -29,6 +29,8 @@ int    hp2_progress_met(const hp2_progress *p, int kind, const hp2_tree_cond *c)
 int    hp2_progress_open(const hp2_progress *p, int kind, const hp2_tree *t, int ev);
 /* Has the event's own objective been reached? */
 int    hp2_progress_complete(const hp2_progress *p, int kind, const hp2_tree_event *e);
+/* Has reward `r` of event `e` been earned? Its value is a place (1..8) or a time in ticks. */
+int    hp2_progress_reward_got(const hp2_progress *p, int kind, const hp2_tree_event *e, const hp2_tree_reward *r);
 size_t hp2_progress_write(const hp2_progress *p, char *buf, size_t cap);
 int    hp2_progress_parse(hp2_progress *p, const char *text);
 int    hp2_progress_load(hp2_progress *p, const char *path);

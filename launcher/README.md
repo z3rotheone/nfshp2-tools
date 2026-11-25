@@ -129,8 +129,11 @@ is open when it has no prerequisite or when the condition of one of its links
 (34A03) has been met by what is kept; locked events are dimmed in the list and
 cannot be started, finished ones are brighter. The "any one link" rule is the
 port's own stand-in, since the game's rule is not decoded. Race Knockouts and
-Tournaments are kept when the whole series is decided. `--open` opens every
-event and keeps nothing; screenshots (`--shot`) always do.
+Tournaments are kept when the whole series is decided. Rewards are earned the same way: a car or course that some event
+gives (its place or time condition) is skipped in Quick Race car and track
+select until it is won, and "Cars Unlocked" counts the open ones; those no
+event gives are there from the start. `--open` opens every
+event, car and course and keeps nothing; screenshots (`--shot`) always do.
 
 ### Races from the menus
 

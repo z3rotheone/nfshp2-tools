@@ -1589,6 +1589,25 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
             CHECK(!hp2_progress_open(&pg, 1, &real_trees[1], first) || real_trees[1].ev[first - 1].nlinks != 1,
                   "progress: the two careers are kept apart");
         }
+        {   /* rewards: earned by the reward's own place or time */
+            int t, n = 0, got0 = 0;
+            for (t = 0; t < 2; t++) for (ev = 1; ev <= real_trees[t].count; ev++) {
+                const hp2_tree_event *e = &real_trees[t].ev[ev - 1];
+                int j;
+                for (j = 0; j < e->nrewards; j++) { n++; got0 += hp2_progress_reward_got(&pg, t, e, &e->rewards[j]); }
+            }
+            CHECK(n > 10, "progress: the trees hand out rewards");
+            {   const hp2_tree_event *e = &real_trees[0].ev[0];
+                hp2_progress fresh;
+                hp2_progress_reset(&fresh);
+                CHECK(e->nrewards == 0 || !hp2_progress_reward_got(&fresh, 0, e, &e->rewards[0]), "progress: a reward is not earned before the race");
+                if (e->nrewards > 0) {
+                    hp2_progress_record(&fresh, 0, 1, 1, 1);
+                    CHECK(hp2_progress_reward_got(&fresh, 0, e, &e->rewards[0]) || e->rewards[0].value > 8, "progress: a win earns the event's place reward");
+                }
+            }
+            (void)got0;
+        }
         CHECK(hp2_progress_write(&pg, pbuf, sizeof pbuf) < sizeof pbuf && hp2_progress_parse(&q, pbuf) == 1 &&
               q.played[0][0] && q.place[0][0] == pg.place[0][0] && q.ticks[0][0] == pg.ticks[0][0], "progress: the save text round trips");
     }

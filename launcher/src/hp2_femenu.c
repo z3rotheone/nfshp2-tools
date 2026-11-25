@@ -304,6 +304,42 @@ static const struct { const char *db; uint32_t sid; const char *own; } MORE_NAME
     { "MUSTANGCOP", 41119u, "Pursuit Mustang Cobra R" }, { "SPIDERHP", 0u, "Ferrari 360 Modena" },
 };
 
+/* Cars and courses are won as events' rewards. One that no event gives is
+ * there from the start; one that some event gives is open once it is earned
+ * (without a progress record everything is open). kind 0 car (by its car
+ * database name), 1 course (by its number). */
+static int reward_open(const hp2_femenu *m, int kind, const char *car, int num)
+{
+    int t, k, j, given = 0;
+    if (!m->prog || !m->trees) return 1;
+    for (t = 0; t < 2; t++) {
+        const hp2_tree *tr = &m->trees[t];
+        for (k = 0; k < tr->count; k++) {
+            const hp2_tree_event *e = &tr->ev[k];
+            for (j = 0; j < e->nrewards; j++) {
+                const hp2_tree_reward *r = &e->rewards[j];
+                if (r->kind != kind) continue;
+                if (kind == 0 ? !(r->id >= 0 && r->id < CARDB_N && !strcmp(CARDB[r->id], car)) : r->id != num) continue;
+                given = 1;
+                if (hp2_progress_reward_got(m->prog, t, e, r)) return 1;
+            }
+        }
+    }
+    return !given;
+}
+static int car_open(const hp2_femenu *m, int c) { return reward_open(m, 0, CARS[c % HP2_CARS].thumb, 0); }
+
+static int step_car(const hp2_femenu *m, int k, int dir)
+{
+    int i;
+    if (m->ev_mode) return (k + dir + m->ev_ncars) % m->ev_ncars;
+    for (i = 1; i <= HP2_CARS; i++) {
+        int c = (k + dir * i + HP2_CARS * 2) % HP2_CARS;
+        if (car_open(m, c)) return c;
+    }
+    return k;
+}
+
 /* The cars car select offers: the port's 23, or an event's own. */
 static int roster_count(const hp2_femenu *m) { return m->ev_mode ? m->ev_ncars : HP2_CARS; }
 
@@ -390,8 +426,8 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
     switch (in) {
     case HP2_IN_UP:    m->color = (m->color + CAR_SWATCHES_N - 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
     case HP2_IN_DOWN:  m->color = (m->color + 1) % CAR_SWATCHES_N; return HP2_FEM_REDRAW;
-    case HP2_IN_LEFT:  m->car = (m->car + roster_count(m) - 1) % roster_count(m); return HP2_FEM_REDRAW;
-    case HP2_IN_RIGHT: m->car = (m->car + 1) % roster_count(m); return HP2_FEM_REDRAW;
+    case HP2_IN_LEFT:  m->car = step_car(m, m->car, -1); return HP2_FEM_REDRAW;
+    case HP2_IN_RIGHT: m->car = step_car(m, m->car, 1); return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
         if (m->ev_mode) { m->ev_mode = 0; m->car = 0; m->screen = HP2_FEM_TREE; return HP2_FEM_REDRAW; }   /* back to the event list */
         if (!m->quick_mode && m->rsetup) { m->screen = HP2_FEM_RACE_SETUP; m->sel = m->setup_sel > 0 ? m->setup_sel : 1; return HP2_FEM_REDRAW; }
@@ -418,6 +454,19 @@ static const track_entry TRACKS[HP2_TRACKS] = {
     { 23, 5.30f }, { 31, 6.24f }, { 32, 5.10f }, { 33, 9.47f }, { 41, 6.99f },
     { 42, 5.67f }, { 43, 10.98f }, { 61, 5.50f }, { 62, 7.50f }, { 63, 13.25f },
 };
+
+static int track_open(const hp2_femenu *m, int k) { return reward_open(m, 1, NULL, TRACKS[k % HP2_TRACKS].num); }
+
+/* The next open course from k, stepping dir (+1 / -1); k itself if none is. */
+static int step_track(const hp2_femenu *m, int k, int dir)
+{
+    int i;
+    for (i = 1; i <= HP2_TRACKS; i++) {
+        int c = (k + dir * i + HP2_TRACKS * 2) % HP2_TRACKS;
+        if (track_open(m, c)) return c;
+    }
+    return k;
+}
 
 const char *hp2_femenu_track_name(const hp2_femenu *m, int k, int alternate)
 {
@@ -492,8 +541,8 @@ static int track_input(hp2_femenu *m, hp2_fem_input in)
     switch (in) {
     case HP2_IN_UP:
     case HP2_IN_DOWN:  m->tod = !m->tod; return HP2_FEM_REDRAW;       /* the Time of Day column */
-    case HP2_IN_LEFT:  m->track = (m->track + HP2_TRACKS - 1) % HP2_TRACKS; return HP2_FEM_REDRAW;
-    case HP2_IN_RIGHT: m->track = (m->track + 1) % HP2_TRACKS; return HP2_FEM_REDRAW;
+    case HP2_IN_LEFT:  m->track = step_track(m, m->track, -1); return HP2_FEM_REDRAW;
+    case HP2_IN_RIGHT: m->track = step_track(m, m->track, 1); return HP2_FEM_REDRAW;
     case HP2_IN_ACCEPT: m->lap_popup = 1; return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
         m->screen = HP2_FEM_SELECT_CAR;
@@ -1351,12 +1400,16 @@ static const uint8_t SWATCH_RGB[CAR_SWATCHES][3] = {
 
 static int car_items(hp2_femenu *m, list *l)
 {
+    if (!m->ev_mode && !car_open(m, m->car)) m->car = step_car(m, m->car, 1);   /* a car not yet won is not offered */
     const hp2_fe_screen *s = m->carsel;
     int nr = roster_count(m);
     static char unl[48];
     int i;
     hp2_fe_item *it;
-    snprintf(unl, sizeof unl, "%s %d/%d", lang_or(m, 49071u, "Cars Unlocked:"), HP2_CARS, HP2_CARS);
+    {   int c, open = 0;
+        for (c = 0; c < HP2_CARS; c++) open += car_open(m, c);
+        snprintf(unl, sizeof unl, "%s %d/%d", lang_or(m, 49071u, "Cars Unlocked:"), open, HP2_CARS);
+    }
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
         const char *str = NULL;
@@ -1464,6 +1517,7 @@ static void fmt_laps(char *out, size_t cap, const char *fmt, int laps)
 
 static int track_items(hp2_femenu *m, list *l)
 {
+    if (!track_open(m, m->track)) m->track = step_track(m, m->track, 1);
     const hp2_fe_screen *s = m->tracksel;
     const track_entry *t = &TRACKS[m->track];
     static char len[48], diff[40], total[64], laps[8];

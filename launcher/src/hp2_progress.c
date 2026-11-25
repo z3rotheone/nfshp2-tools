@@ -46,6 +46,15 @@ int hp2_progress_complete(const hp2_progress *p, int kind, const hp2_tree_event 
     return hp2_progress_met(p, kind, &c);
 }
 
+int hp2_progress_reward_got(const hp2_progress *p, int kind, const hp2_tree_event *e, const hp2_tree_reward *r)
+{
+    hp2_tree_cond c;
+    c.event = e->number;
+    c.value = r->value;
+    c.kind = r->value >= 1 && r->value <= 8 ? 1 : r->value > 8 ? 2 : 0;
+    return hp2_progress_met(p, kind, &c);
+}
+
 size_t hp2_progress_write(const hp2_progress *p, char *buf, size_t cap)
 {
     size_t n = 0;
