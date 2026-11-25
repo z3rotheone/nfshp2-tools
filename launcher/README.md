@@ -326,7 +326,7 @@ race in `hp2track` (see "Races from the menus" below). With `--disc` the car is 
 the middle of the screen (hp2_fecar: its model from `CARS\<name>\GEOMETRY.BIN`, its skin from the
 colour column, projected and drawn far to near through SDL's 2D renderer, so it also works in
 the software renderer; the lighting is the port's own). The game's spotlit floor is not in the port.
-The swatch colours are those of the BMW M5 for every car; elevations and best times are not known, so
+The swatch colours are the car's own skins with `--disc` (the average paint of each skin texture), else those of the BMW M5; elevations and best times are not known, so
 they are left blank, and difficulty is Beginner / Advanced / Expert by the
 course's number within its location (a guess). Racing But With Pigs and Just Race (the game's Challenge) open the *Challenge*
 screen: Players, Race Type, Skill Level (left/right) and Setup, which opens *Customize*

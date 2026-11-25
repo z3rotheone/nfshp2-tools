@@ -236,3 +236,35 @@ done:
     c->work = list;
     c->work_cap = cap;
 }
+
+int hp2_fecar_skin_rgb(hp2_fecar *c, const char *name, int skin, uint8_t rgb[3])
+{
+    const hp2_carrec *rec;
+    const hp2_tex *t;
+    char buf[64];
+    uint8_t *px;
+    long i, np;
+    double sum[3] = { 0, 0, 0 }, wsum = 0;
+    if (!c->ok || !name || skin < 1 || skin > 9) return 0;
+    rec = hp2_cardb_find(c->recs, c->nrecs, name);
+    if (!rec) return 0;
+    snprintf(buf, sizeof buf, "%s_SKIN%d", rec->model, skin);
+    t = hp2_tex_find(&c->ts, hp2_geom_hash(buf));
+    if (!t || !t->bpp) return 0;
+    px = (uint8_t *)malloc((size_t)t->w * t->h * 4);
+    if (!px) return 0;
+    if (hp2_tex_decode(t, px) != 0) { free(px); return 0; }
+    np = (long)t->w * t->h;
+    for (i = 0; i < np; i += 3) {      /* every third pixel: paint dominates, coloured ones count more */
+        int r = px[4 * i], g = px[4 * i + 1], b = px[4 * i + 2], mx = r > g ? (r > b ? r : b) : (g > b ? g : b),
+            mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        double w;
+        if (px[4 * i + 3] < 128 || mx < 24) continue;
+        w = 8.0 + (double)(mx - mn);
+        sum[0] += w * r; sum[1] += w * g; sum[2] += w * b; wsum += w;
+    }
+    free(px);
+    if (wsum <= 0) return 0;
+    for (i = 0; i < 3; i++) { int v = (int)(sum[i] / wsum * 1.7); rgb[i] = (uint8_t)(v > 255 ? 255 : v); }
+    return 1;
+}

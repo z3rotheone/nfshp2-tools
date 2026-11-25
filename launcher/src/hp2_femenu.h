@@ -192,6 +192,8 @@ typedef struct {
     const hp2_lang      *lang;      /* may be NULL: placeholder text is used */
     hp2_settings        *cfg;
     hp2_progress        *prog;      /* what is done in the event trees; NULL = every event open, nothing kept */
+    uint8_t              swatch[8][3];   /* the colour column of car select, when the caller knows the car's own skins */
+    int                  swatch_set;
     int                  prog_dirty;/* prog changed: the caller saves it */
     hp2_fem_screen       screen;
     int                  sel;       /* OPTIONS: row 1..n; settings: hp2_row */

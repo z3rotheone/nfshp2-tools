@@ -287,6 +287,12 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, hp2_fecar *fc, SDL_
     hp2_fe_view v;
     int i, n;
     hp2_fe_view_make(&v, W, H, 640, 480, fit);
+    m->swatch_set = 0;
+    if (fc && fc->ok && m->screen == HP2_FEM_SELECT_CAR && hp2_femenu_car_model(m)) {   /* the swatches are this car's skins */
+        int s, ok = 0;
+        for (s = 0; s < 8; s++) ok += hp2_fecar_skin_rgb(fc, hp2_femenu_car_model(m), s + 1, m->swatch[s]);
+        m->swatch_set = ok == 8;
+    }
     n = hp2_femenu_items(m, items, MAX_ITEMS);
     for (i = 0; i < n; i++) items[i].extend = fit == HP2_FE_EXPAND;
     d->clip_canvas = fit != HP2_FE_EXPAND;

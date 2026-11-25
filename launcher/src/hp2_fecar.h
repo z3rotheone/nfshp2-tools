@@ -36,6 +36,9 @@ int  hp2_fecar_open(hp2_fecar *c, const char *disc, SDL_Renderer *r, const uint8
 void hp2_fecar_close(hp2_fecar *c);
 /* Draws the car named in the database (CORVETTE, 911TURBO ...) with skin
  * 1..8, turned `yaw` degrees, into the window rectangle. */
+/* The colour of skin 1..8 of a car (the paint of its skin texture), for the
+ * swatch column. 1 when found, 0 when not. */
+int  hp2_fecar_skin_rgb(hp2_fecar *c, const char *name, int skin, uint8_t rgb[3]);
 void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const SDL_Rect *area);
 
 #endif

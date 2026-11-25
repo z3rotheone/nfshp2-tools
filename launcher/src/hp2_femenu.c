@@ -1455,7 +1455,7 @@ static int car_items(hp2_femenu *m, list *l)
             it->w.visible = 1;
             it->w.sx = it->w.sy = 1.0f;
             for (k = 0; k < 4; k++) {
-                for (ch = 0; ch < 3; ch++) it->w.vcol[k][ch] = (uint8_t)(SWATCH_RGB[i][ch] * 128 / 255);
+                for (ch = 0; ch < 3; ch++) it->w.vcol[k][ch] = (uint8_t)((m->swatch_set ? m->swatch[i][ch] : SWATCH_RGB[i][ch]) * 128 / 255);
                 it->w.vcol[k][3] = 0x80;
             }
         }
