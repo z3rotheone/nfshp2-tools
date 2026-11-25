@@ -1115,7 +1115,7 @@ int main(int argc, char **argv)
     } else if (want_car && !w.has_coll) {
         fprintf(stderr, "no collision mesh in the scenery: no car\n");
     }
-    if (have_zdir) hp2_zdir_close(&zdir);
+    /* the disc stays open: the race's music, ambience and tyre sounds are read from it later */
     driving = w.has_car;
     /* the race display: the race screen of INGAMEB.BUN, its textures, the
      * gauge faces of HUDTEX.BIN and the fonts of GLOBALB and INGAMEB */
@@ -1243,6 +1243,7 @@ int main(int argc, char **argv)
             hp2_jbplay_init(&jbp, &jb, &cfg, zdir.data, base, (uint32_t)SDL_GetTicks() | 1u);
             hp2_jbplay_set_race(&jbp, 1);
             has_music = 1;
+            printf("race music: the jukebox's songs set to On, at %d%%\n", cfg.volume[HP2_VOL_RACE_MUSIC]);
         }
     }
     /* the course's ambient sounds: its zones from the track file, the location's sample bank */
@@ -1273,6 +1274,7 @@ int main(int argc, char **argv)
         if (bh && bb && hp2_sfx_load(&ingsfx, bh, hl, bb, bl) > 0) {
             hp2_tires_bind(&tires, &ingsfx);
             has_tires = 1;
+            printf("tyre sounds: %d samples\n", ingsfx.count);
         }
         free(bh);
         free(bb);
@@ -1466,6 +1468,7 @@ int main(int argc, char **argv)
     }
     if (audio) SDL_CloseAudioDevice(audio);
     if (has_music) hp2_jbplay_close(&jbp);
+    if (have_zdir) hp2_zdir_close(&zdir);
     free(jbhead);
     if (has_eng) hp2_engine_free(&eng);
     hp2_ambient_free(&amb);
