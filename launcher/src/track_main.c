@@ -130,7 +130,8 @@ typedef struct {
     /* the cars: 0 is the player's, then the opponents */
     int        has_car;
     carview    cv[HP2_MAX_CARS];
-    int        ncv;
+    int        ncv;             /* every car: the racers, then the police */
+    int        nrace;           /* the racers: the player and the opponents */
     hp2_coll   coll;
     int        has_coll;
     int        arcade;          /* --arcade: the first stand-in grip */
@@ -145,6 +146,9 @@ static hp2_speech speech;      /* the police radio of a Pursuit event */
 static int has_speech, pursuit_called;
 static hp2_oneshot cues;       /* crashes, horn, countdown beeps, finish line (the port's own triggers) */
 static int has_cues;
+static int ncops_req;          /* --cops: police cars that chase the player (the port's own) */
+static int busted;             /* the cops held the player: the race is lost */
+static float busted_t;
 static hp2_reverb verb;        /* the track's echo regions: caves, tunnels, mines, hangars, overpasses */
 static int has_verb;
 static void cue(const char *name, float gain) { if (has_cues) hp2_oneshot_play(&cues, name, gain); }
@@ -813,7 +817,10 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
             go.y = 183;
             hp2_hud_image(h, &go, 0, 0, NULL, 1 - r->clock);
         }
-        if (pur.on && pur.done) {
+        if (busted) {
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, "BUSTED!");
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, "The cops caught you");
+        } else if (pur.on && pur.done) {
             hp2_race_time(pur.time, t1, sizeof t1);
             if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, "All speeders arrested");
             snprintf(buf, sizeof buf, "Time %s", t1);
@@ -847,10 +854,19 @@ static void start_car(const world *w, int k, hp2_drive *d, const hp2_race *route
     float x = sc->start[0], y = sc->start[1], z = sc->start[2], hd = 0;
     if (sc->has_start) hd = atan2f(sc->ahead[1] - sc->start[1], sc->ahead[0] - sc->start[0]);
     if (w->ncv > 1 && route && route->n) {
-        /* the player at the back of the grid, the opponents ahead */
-        int slot = k == 0 ? w->ncv - 1 : k - 1, row = slot / 2, rows = (w->ncv + 1) / 2;
-        float p = (route->loop ? 0 : 6) + 8.0f * (rows - 1 - row) - (route->loop ? 4 : 0), xy[2], dir[2];
-        float side = (slot % 2 ? -1.8f : 1.8f);
+        /* the player at the back of the grid, the opponents ahead; the police behind them all (on a
+         * point-to-point course the racers move up to make room, the route does not run behind its start) */
+        int ncop = w->ncv - w->nrace, coprows = (ncop + 1) / 2, rows = (w->nrace + 1) / 2, slot, row;
+        float base = route->loop ? -4.0f : 6.0f + 8.0f * coprows, p, xy[2], dir[2], side;
+        if (k >= w->nrace) {
+            slot = k - w->nrace;
+            p = (route->loop ? -4.0f - 8.0f : 6.0f + 8.0f * (coprows - 1)) - 8.0f * (route->loop ? slot / 2 : slot / 2);
+        } else {
+            slot = k == 0 ? w->nrace - 1 : k - 1;
+            row = slot / 2;
+            p = base + 8.0f * (rows - 1 - row);
+        }
+        side = (slot % 2 ? -1.8f : 1.8f);
         hp2_race_point(route, p, xy, dir);
         x = xy[0] - dir[1] * side;
         y = xy[1] + dir[0] * side;
@@ -900,14 +916,16 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         prev_surf = sf;
         /* your siren in a Pursuit event: the long wail, repeated */
         siren_wait -= dt;
-        if (pur.on && races[0].state == HP2_RACE_RUNNING && !pur.done && siren_wait <= 0) { cue("CopSiren01", 0.5f); siren_wait = 5.3f; }
+        if ((pur.on ? !pur.done : (w->ncv > w->nrace && !busted)) && races[0].state == HP2_RACE_RUNNING && siren_wait <= 0) { cue("CopSiren01", 0.5f); siren_wait = 5.3f; }
     }
     for (i = 0; i < w->ncv; i++) {
         hp2_drive_in in;
         if (i > 0 && ko.out[i]) continue;                  /* knocked out: gone */
         if (i == 0) in = *player;
+        else if (i >= w->nrace) hp2_cop_drive(&ai[i], &races[i], &w->line, &drv[i], drv[0].pos[0], drv[0].pos[1], drv[0].pos[2],
+                                              drv[0].vel[0], drv[0].vel[1], dt, &in);
         else hp2_ai_drive(&ai[i], &races[i], &w->line, &drv[i], dt, &in);
-        if (i == 0 && ko.out[0]) {                          /* you are out: coast to a stop */
+        if (i == 0 && (ko.out[0] || busted)) {              /* you are out or busted: coast to a stop */
             memset(&in, 0, sizeof in);
             in.brake = drv[0].speed > 1 ? 0.4f : 0;
         }
@@ -943,11 +961,24 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         if (i > 0 && ko.out[i]) continue;
         hp2_race_step(&races[i], dt, drv[i].pos[0], drv[i].pos[1], drv[i].vel[0], drv[i].vel[1]);
     }
-    hp2_knockout_update(&ko, races, w->ncv);
+    hp2_knockout_update(&ko, races, w->nrace);
+    if (w->ncv > w->nrace && races[0].state == HP2_RACE_RUNNING && !busted) {
+        /* the port's own arrest: a police car within 9 m of you for 3 seconds (the time runs down at the same pace
+         * when you get away) and you are busted; the game's arrest rule is not decoded */
+        int near_cop = 0;
+        for (i = w->nrace; i < w->ncv; i++)
+            if (hypotf(drv[i].pos[0] - drv[0].pos[0], drv[i].pos[1] - drv[0].pos[1]) < 9.0f) near_cop = 1;
+        busted_t += near_cop ? dt : -dt;
+        if (busted_t < 0) busted_t = 0;
+        if (busted_t >= 3.0f) {
+            busted = 1;
+            if (has_speech) hp2_speech_say(&speech, "Arrest", 1);
+        }
+    }
     if (pur.on && races[0].state == HP2_RACE_RUNNING) {
         float px[HP2_MAX_CARS], py[HP2_MAX_CARS];
-        for (i = 0; i < w->ncv; i++) { px[i] = drv[i].pos[0]; py[i] = drv[i].pos[1]; }
-        {   int got = hp2_pursuit_step(&pur, dt, races[0].clock, w->ncv, px, py);
+        for (i = 0; i < w->nrace; i++) { px[i] = drv[i].pos[0]; py[i] = drv[i].pos[1]; }
+        {   int got = hp2_pursuit_step(&pur, dt, races[0].clock, w->nrace, px, py);
             /* the port's own radio triggers: the game's event rules are not decoded */
             if (has_speech && pursuit_called) {
                 /* more of the port's own radio: a speeder crashing, getting away, coming back, and chatter */
@@ -956,7 +987,7 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
                 float near = 1e9f;
                 int k;
                 crash_t -= dt; chat_t -= dt;
-                for (k = 1; k < w->ncv; k++) {
+                for (k = 1; k < w->nrace; k++) {
                     float d;
                     if (pur.arrested[k]) continue;
                     d = hypotf(px[k] - px[0], py[k] - py[0]);
@@ -1037,6 +1068,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--no-tires")) tiresnd = 0;
         else if (!strcmp(argv[i], "--no-speech")) speechsnd = 0;
         else if (!strcmp(argv[i], "--no-cues")) cuesnd = 0;
+        else if (!strcmp(argv[i], "--cops") && i + 1 < argc) ncops_req = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--no-echo")) reverbfx = 0;
         else if (!strcmp(argv[i], "--cam") && i + 1 < argc) cam = argv[++i];
         else if (!strcmp(argv[i], "--cam-road") && i + 1 < argc) camroad = argv[++i];
@@ -1148,7 +1180,7 @@ int main(int argc, char **argv)
             w.has_car = 1;
             w.cv[0].ok = 1;
             w.cv[0].skin = skin;
-            w.ncv = 1;
+            w.ncv = w.nrace = 1;
             if (f.cartex) hp2_tex_scan(&ts, f.cartex, f.cartex_len);
             hp2_tex_scan(&ts, f.globalb, f.globalb_len);
             printf("car %s (%s): %d body triangles\n", rec->name, rec->model, w.cv[0].car.body.nv / 3);
@@ -1191,6 +1223,29 @@ int main(int argc, char **argv)
                 printf("opponent %d: %s\n", w.ncv, orec->name);
                 w.ncv++;
             }
+            w.nrace = w.ncv;
+            /* the police: Hot Pursuit's cars chase the player from behind the grid */
+            {
+                static const char *const cop_cars[] = { "CROWNVIC", "BMWM5COP", "LAMBOCOP", "CORVETTECOP", "MUSTANGCOP" };
+                int nc = ncops_req;
+                if (nc > HP2_MAX_CARS - w.ncv) nc = HP2_MAX_CARS - w.ncv;
+                for (j = 0; j < nc; j++) {
+                    const char *name = cop_cars[j % 5];
+                    const hp2_carrec *orec = hp2_cardb_find(recs, n, name);
+                    uint8_t *g = NULL;
+                    size_t gl_len = 0;
+                    carview *ov = &w.cv[w.ncv];
+                    if (!orec) { fprintf(stderr, "no car '%s' for a cop\n", name); continue; }
+                    if (have_zdir) g = load_geometry(&zdir, orec, &gl_len);
+                    if (!g || hp2_car_build(&ov->car, g, gl_len, orec) != 0) { fprintf(stderr, "could not load %s's model for a cop\n", name); free(g); continue; }
+                    free(g);
+                    ov->ok = 1;
+                    ov->skin = 1;
+                    oskill[w.ncv] = -1;
+                    printf("cop %d: %s\n", w.ncv, orec->name);
+                    w.ncv++;
+                }
+            }
         }
     } else if (want_car && !w.has_coll) {
         fprintf(stderr, "no collision mesh in the scenery: no car\n");
@@ -1218,6 +1273,7 @@ int main(int argc, char **argv)
         /* skill 0-9 (the event tables'): 0.78 .. 0.96 of the tyres' grip */
         ai[i].skill = oskill[i] >= 0 ? 0.78f + 0.02f * (oskill[i] > 9 ? 9 : oskill[i]) : 0.95f - 0.03f * i;
         ai[i].at = -1;
+        ai[i].tat = -1;
         dptr[i] = &drv[i];
     }
     if (w.ncv > 1 && hp2_ai_line_build(&w.line, &races[0], w.has_coll ? &w.coll : NULL) == 0)
@@ -1294,7 +1350,7 @@ int main(int argc, char **argv)
         int dw, dh;
         SDL_GL_GetDrawableSize(win, &dw, &dh);
         draw(&w, &c, dw, dh, fog, w.has_car ? dptr : NULL);
-        if (w.has_car && !cam) draw_hud(&hs, &drv[0], races, w.ncv, dw, dh);
+        if (w.has_car && !cam) draw_hud(&hs, &drv[0], races, w.nrace, dw, dh);
         glFinish();
         if (save_shot(shot, dw, dh) != 0) { fprintf(stderr, "could not save %s\n", shot); return 1; }
         printf("wrote %s (%dx%d)\n", shot, dw, dh);
@@ -1360,7 +1416,7 @@ int main(int argc, char **argv)
         free(bb);
     }
     /* the police radio, for the Pursuit event only */
-    if (pur.on && sound && have_zdir && speechsnd) {
+    if ((pur.on || w.ncv > w.nrace) && sound && have_zdir && speechsnd) {
         size_t bl = 0, vl = 0;
         long long off = 0;
         uint32_t sz = 0;
@@ -1495,7 +1551,7 @@ int main(int argc, char **argv)
             }
             SDL_GL_GetDrawableSize(win, &dw, &dh);
             draw(&w, &c, dw, dh, fog, dptr);
-            draw_hud(&hs, &drv[0], races, w.ncv, dw, dh);
+            draw_hud(&hs, &drv[0], races, w.nrace, dw, dh);
             SDL_GL_SwapWindow(win);
             if (audio) {
                 static int16_t mixbuf[2 * 1024];
@@ -1569,7 +1625,7 @@ int main(int argc, char **argv)
             me.best = 0;
         }
         if (ko.on) {                  /* the order is the knockout's; the player is finished when it is decided */
-            hp2_knockout_order(&ko, races, w.ncv, ord);
+            hp2_knockout_order(&ko, races, w.nrace, ord);
             if (ko.done) {
                 me.state = HP2_RACE_FINISHED;
                 memset(me.lap_time, 0, sizeof me.lap_time);
@@ -1577,11 +1633,12 @@ int main(int argc, char **argv)
                 if (!ko.out[0]) { me.laps = 1; me.lap_time[0] = me.clock; }
             }
         } else {
-            for (ci = 0; ci < w.ncv; ci++) pr[ci] = &races[ci];
-            hp2_race_order(pr, w.ncv, ord);
+            for (ci = 0; ci < w.nrace; ci++) pr[ci] = &races[ci];
+            hp2_race_order(pr, w.nrace, ord);
         }
-        for (ci = 0; ci < w.ncv; ci++) if (ord[ci] == 0) place = ci + 1;
-        n = hp2_race_result_format(&me, w.ncv > 1 && !pur.on ? place : 0, ord, w.ncv, txt, sizeof txt);
+        for (ci = 0; ci < w.nrace; ci++) if (ord[ci] == 0) place = ci + 1;
+        if (busted) me.state = HP2_RACE_RUNNING;         /* busted: not finished */
+        n = hp2_race_result_format(&me, w.nrace > 1 && !pur.on ? place : 0, ord, w.nrace, txt, sizeof txt);
         FILE *rf = n > 0 ? fopen(resultf, "wb") : NULL;
         if (rf) { fwrite(txt, 1, (size_t)n, rf); fclose(rf); }
         else fprintf(stderr, "could not write %s\n", resultf);

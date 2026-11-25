@@ -704,3 +704,49 @@ void hp2_ai_drive(hp2_ai *ai, const hp2_race *r, const hp2_ai_line *l, const hp2
         if (slip > 0.12f && in->throttle > 0.2f) in->throttle = slip > 0.25f ? 0 : 0.2f;
     }
 }
+
+void hp2_cop_drive(hp2_ai *ai, const hp2_race *r, const hp2_ai_line *l, const hp2_drive *d, float tx, float ty, float tz,
+                   float tvx, float tvy, float dt, hp2_drive_in *in)
+{
+    float v = d->speed, dist = hypotf(tx - d->pos[0], ty - d->pos[1]), aimx, aimy, err, want, tspeed = hypotf(tvx, tvy), limit;
+    memset(in, 0, sizeof *in);
+    if (r->state != HP2_RACE_RUNNING) { in->brake = 1; return; }
+    if (ai->reverse > 0) {                              /* stuck: back out */
+        ai->reverse -= dt;
+        in->brake = 1;
+        aimx = tx; aimy = ty;
+        err = wrap_angle(atan2f(aimy - d->pos[1], aimx - d->pos[0]) - d->heading);
+        in->steer = err > 0 ? 1.0f : -1.0f;
+        return;
+    }
+    if (fabsf(v) < 1.0f) ai->stuck += dt; else ai->stuck = 0;
+    if (ai->stuck > 1.5f) { ai->stuck = 0; ai->reverse = 1.2f; }
+    aimx = tx + tvx * 0.6f; aimy = ty + tvy * 0.6f;      /* a little ahead of it */
+    if (l && l->n && dist > 40.0f) {
+        float xy[2], dir[2], look = 12 + 0.45f * fabsf(v), delta;
+        ai->at = hp2_ai_line_find(l, d->pos[0], d->pos[1], d->pos[2], ai->at);
+        ai->tat = hp2_ai_line_find(l, tx, ty, tz, ai->tat);
+        delta = ai->tat - ai->at;
+        if (l->loop && l->len > 0) { if (delta > l->len * 0.5f) delta -= l->len; else if (delta < -l->len * 0.5f) delta += l->len; }
+        if (delta > 0) {                                  /* the target is ahead along the line: follow it there */
+            float s = ai->at + (look < delta ? look : delta);
+            hp2_ai_line_point(l, s, xy, dir, NULL);
+            aimx = xy[0]; aimy = xy[1];
+        }
+    }
+    want = atan2f(aimy - d->pos[1], aimx - d->pos[0]);
+    err = wrap_angle(want - d->heading);
+    in->steer = -err * 2.5f;
+    if (in->steer > 1) in->steer = 1;
+    if (in->steer < -1) in->steer = -1;
+    limit = d->max_speed * 0.97f;                          /* flat out, a little under the racers */
+    if (dist < 25.0f) limit = tspeed + 6.0f + dist * 0.4f; /* close: keep with it, not past it */
+    if (fabsf(err) > 0.7f && limit > 18) limit = 18;
+    if (v < limit - 1) in->throttle = 1;
+    else if (v > limit + 3) in->brake = v > limit + 8 ? 1.0f : 0.5f;
+    else in->throttle = 0.3f;
+    if (fabsf(v) > 5) {
+        float slip = fabsf(wrap_angle(atan2f(d->vel[1], d->vel[0]) - d->heading));
+        if (slip > 0.12f && in->throttle > 0.2f) in->throttle = slip > 0.25f ? 0 : 0.2f;
+    }
+}

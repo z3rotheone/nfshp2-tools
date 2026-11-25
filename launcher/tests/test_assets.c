@@ -2448,6 +2448,28 @@ static void test_reverb(void)
     hp2_reverb_free(&r);
 }
 
+static void test_cop(void)
+{
+    hp2_drive d;
+    hp2_race r;
+    hp2_ai ai;
+    hp2_drive_in in;
+    printf("police driver (synthetic)\n");
+    memset(&d, 0, sizeof d); memset(&r, 0, sizeof r); memset(&ai, 0, sizeof ai);
+    d.max_speed = 80.0f; d.heading = 0; ai.at = ai.tat = -1;
+    r.state = HP2_RACE_COUNTDOWN;
+    hp2_cop_drive(&ai, &r, NULL, &d, 100, 0, 0, 0, 0, 0.05f, &in);
+    CHECK(in.brake == 1 && in.throttle == 0, "cop: held at the line before GO");
+    r.state = HP2_RACE_RUNNING;
+    hp2_cop_drive(&ai, &r, NULL, &d, 100, 0, 0, 0, 0, 0.05f, &in);
+    CHECK(in.throttle == 1 && fabsf(in.steer) < 0.01f, "cop: full throttle, straight at a target ahead");
+    hp2_cop_drive(&ai, &r, NULL, &d, 100, 30, 0, 0, 0, 0.05f, &in);
+    CHECK(in.steer != 0 && in.throttle == 1, "cop: steers towards a target off to the side (%.2f)", in.steer);
+    d.speed = 40; d.vel[0] = 40;
+    hp2_cop_drive(&ai, &r, NULL, &d, 10, 0, 0, 5, 0, 0.05f, &in);
+    CHECK(in.throttle < 1 && in.brake > 0, "cop: eases off when alongside a slower target");
+}
+
 static void test_tires(void)
 {
     static int16_t pcm[6][2 * 200], out[2 * 100];
@@ -2729,6 +2751,7 @@ int main(int argc, char **argv)
     test_speech();
     test_oneshot();
     test_reverb();
+    test_cop();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

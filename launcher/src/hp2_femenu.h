@@ -130,6 +130,7 @@ typedef struct {
     int  event;                      /* the event number, 0 for a quick or single race */
     int  tree_kind;                  /* with event: 0 Championship, 1 Hot Pursuit */
     int  race_type;                  /* with event: HP2_RT_* */
+    int  cops;                       /* police cars that chase the player (Hot Pursuit): the port's own count */
 } hp2_fem_race;
 
 #define HP2_FEM_VISIBLE  7    /* settings rows shown at once */

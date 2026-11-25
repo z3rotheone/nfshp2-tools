@@ -330,10 +330,18 @@ static int reward_open(const hp2_femenu *m, int kind, const char *car, int num, 
 }
 static int car_open(const hp2_femenu *m, int c) { return reward_open(m, 0, CARS[c % HP2_CARS].thumb, 0, 0); }
 
+/* You're The Pig offers the pursuit cars: the car database's Crown Victoria and the four police
+ * cars (CROWNVIC, BMWM5COP, LAMBOCOP, CORVETTECOP, MUSTANGCOP). All are open: no event's reward is one. */
+static const int COP_CARS[] = { 4, 31, 32, 33, 34 };
+#define COP_CARS_N ((int)(sizeof COP_CARS / sizeof COP_CARS[0]))
+static int cop_roster(const hp2_femenu *m) { return !m->ev_mode && !m->quick_mode && m->chal_cop; }
+static int own_roster(const hp2_femenu *m) { return m->ev_mode || cop_roster(m); }
+
 static int step_car(const hp2_femenu *m, int k, int dir)
 {
     int i;
     if (m->ev_mode) return (k + dir + m->ev_ncars) % m->ev_ncars;
+    if (cop_roster(m)) return (k + dir + COP_CARS_N) % COP_CARS_N;
     for (i = 1; i <= HP2_CARS; i++) {
         int c = (k + dir * i + HP2_CARS * 2) % HP2_CARS;
         if (car_open(m, c)) return c;
@@ -342,12 +350,13 @@ static int step_car(const hp2_femenu *m, int k, int dir)
 }
 
 /* The cars car select offers: the port's 23, or an event's own. */
-static int roster_count(const hp2_femenu *m) { return m->ev_mode ? m->ev_ncars : HP2_CARS; }
+static int roster_count(const hp2_femenu *m) { return m->ev_mode ? m->ev_ncars : cop_roster(m) ? COP_CARS_N : HP2_CARS; }
 
 /* The car's name in the car database and in the layout (THUMBNAIL_<x>,
  * CARLOGO_<x>). */
 static const char *roster_thumb(const hp2_femenu *m, int k)
 {
+    if (cop_roster(m)) return CARDB[COP_CARS[k % COP_CARS_N]];
     if (!m->ev_mode) return CARS[k].thumb;
     return m->ev_cars[k] >= 0 && m->ev_cars[k] < CARDB_N ? CARDB[m->ev_cars[k]] : "UNKNOWN";
 }
@@ -358,7 +367,7 @@ const char *hp2_femenu_car_name(const hp2_femenu *m, int k)
 {
     const char *s = NULL;
     if (k < 0 || k >= roster_count(m)) return NULL;
-    if (!m->ev_mode) {
+    if (!own_roster(m)) {
         if (m->lang) s = hp2_lang_by_id(m->lang, CARS[k].name);
         return s ? s : CARS[k].thumb;
     }
@@ -513,18 +522,19 @@ static void single_race(hp2_femenu *m)
     g->track = hp2_femenu_track_number(m);
     g->reverse = m->alt;
     g->laps = m->laps > 0 ? m->laps : 1;
-    copy_name(g->car, CARS[m->car % HP2_CARS].thumb);
+    copy_name(g->car, cop_roster(m) ? CARDB[COP_CARS[m->car % COP_CARS_N]] : CARS[m->car % HP2_CARS].thumb);
     g->skin = m->color + 1;
     if (m->quick_mode || m->race_type != 1) n = m->setup_val[SU_OPPONENTS] >= 6 ? HP2_FEM_MAX_OPP : m->setup_val[SU_OPPONENTS] + 1;
     for (k = 0; k < n; k++) {
-        int c = m->car % HP2_CARS;
+        int mine = cop_roster(m) ? -1 : m->car % HP2_CARS, c = mine < 0 ? 0 : mine;
         if (!m->setup_val[SU_OPPTYPE] || m->quick_mode)
-            do c = (int)(dice(m) % HP2_CARS); while (c == m->car % HP2_CARS);
+            do c = (int)(dice(m) % HP2_CARS); while (c == mine);
         copy_name(g->opp[k], CARS[c].thumb);
         g->opp_skill[k] = skill[m->setup_val[SU_AI] % 3];
         g->opp_skin[k] = -1;
     }
     g->nopp = n;
+    g->cops = !m->quick_mode && !m->chal_cop && m->chal_from == HP2_FEM_HOT_PURSUIT && m->setup_val[SU_COPS] ? 1 : 0;
     if (!m->quick_mode && m->race_type == 3) g->race_type = HP2_RT_LAP_KNOCKOUT;   /* the Challenge's Lap Knockout */
     if (!m->quick_mode && m->race_type == 2 && n >= 2) {     /* the Challenge's Race Knockout: a series, the last car out each race */
         int alive_n = 0, o;
@@ -970,6 +980,7 @@ static int event_race(hp2_femenu *m)
     g->event = e->number;
     g->tree_kind = m->tree_kind;
     g->race_type = e->race_type;
+    g->cops = e->race_type != HP2_RT_PURSUIT && e->cops > 0 ? (e->cops > 4 ? 4 : e->cops) : 0;     /* the port's: one police car per cop level */
     g->round = series ? m->ser.round : 0;
     return 1;
 }
@@ -1452,7 +1463,8 @@ static const uint8_t SWATCH_RGB[CAR_SWATCHES][3] = {
 
 static int car_items(hp2_femenu *m, list *l)
 {
-    if (!m->ev_mode && !car_open(m, m->car)) m->car = step_car(m, m->car, 1);   /* a car not yet won is not offered */
+    if (own_roster(m) && (m->car < 0 || m->car >= roster_count(m))) m->car = 0;
+    if (!own_roster(m) && !car_open(m, m->car)) m->car = step_car(m, m->car, 1);   /* a car not yet won is not offered */
     const hp2_fe_screen *s = m->carsel;
     int nr = roster_count(m);
     static char unl[48];
@@ -1476,7 +1488,7 @@ static int car_items(hp2_femenu *m, list *l)
         if (w->kind == HP2_FE_TEXT) {
             str = hp2_femenu_text(m, w);
             if (!strcmp(w->name, "CARSUNLOCKED")) {
-                if (m->ev_mode) continue;          /* an event's own cars: no count */
+                if (own_roster(m)) continue;       /* an event's or the cops' own cars: no count */
                 str = unl;
             }
         }
@@ -2025,6 +2037,7 @@ static int series_result(hp2_femenu *m, int race_type, const hp2_race_result *r)
 const char *hp2_femenu_car_model(const hp2_femenu *m)
 {
     if (m->ev_mode) return m->car >= 0 && m->car < m->ev_ncars ? cardb_name(m->ev_cars[m->car]) : NULL;
+    if (cop_roster(m)) return CARDB[COP_CARS[(m->car < 0 ? 0 : m->car) % COP_CARS_N]];
     return CARS[m->car % HP2_CARS].thumb;
 }
 
@@ -2456,6 +2469,7 @@ int hp2_femenu_race_args(const hp2_fem_race *g, char buf[][32], int cap)
     ARG("%d", g->skin);
     if (g->race_type == HP2_RT_LAP_KNOCKOUT) ARG("--lap-knockout");
     if (g->race_type == HP2_RT_PURSUIT) ARG("--pursuit");
+    if (g->cops > 0) { ARG("--cops"); ARG("%d", g->cops); }
     if (!g->nopp) {
         ARG("--opponents");
         ARG("0");

@@ -49,11 +49,18 @@ typedef struct {
     float stuck;                /* seconds spent barely moving */
     float reverse;              /* seconds left backing out */
     float at;                   /* where it is along the line; set < 0 to search */
+    float tat;                  /* a cop's target's place along the line; set < 0 to search */
 } hp2_ai;
 
 /* Sets the pedals and steering for one step. r is this car's race (it only
  * drives once the race is running). */
 void hp2_ai_drive(hp2_ai *ai, const hp2_race *r, const hp2_ai_line *l, const hp2_drive *d, float dt, hp2_drive_in *in);
+
+/* A police car's driver (the port's own stand-in: the game's cop AI is not decoded): it follows the
+ * driving line to where its target is along it, aims straight at the target once within 40 m, and
+ * eases to the target's pace when beside it. (tx, ty) and (tvx, tvy) are the target's place and velocity. */
+void hp2_cop_drive(hp2_ai *ai, const hp2_race *r, const hp2_ai_line *l, const hp2_drive *d, float tx, float ty, float tz,
+                   float tvx, float tvy, float dt, hp2_drive_in *in);
 
 #ifdef __cplusplus
 }
