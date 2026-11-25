@@ -1735,7 +1735,7 @@ static hp2_fe_item *rect(list *l, const hp2_fe_widget *tmpl, float x, float y, f
 /* The badge textures are 216 x 312 (card) and 272 x 272 (star) but the tree
  * draws them at half size: at full size the star covers the Status and
  * Reward text, and neighbouring events 130 apart would overlap. */
-#define TREE_BADGE_S 0.5f
+#define TREE_BADGE_S 0.4f
 static const float BADGE_OFF[2][2] = { { -108.0f * TREE_BADGE_S, -150.0f * TREE_BADGE_S }, { -136.0f * TREE_BADGE_S, -130.0f * TREE_BADGE_S } };
 static const float BADGE_SIZE[2][2] = { { 216.0f * TREE_BADGE_S, 312.0f * TREE_BADGE_S }, { 272.0f * TREE_BADGE_S, 272.0f * TREE_BADGE_S } };
 #define TREE_NUM_HALF 66.0f     /* half the number's height at full size: its top is this far above its centre */
@@ -1870,19 +1870,19 @@ static int tree_items(hp2_femenu *m, list *l)
     it = push(l, named(s, "EVENT_NUMBER"), num);
     if (it) { it->w.x = 320.0f; it->w.y = TREE_CY - TREE_NUM_HALF * TREE_BADGE_S; it->w.sx *= TREE_BADGE_S; it->w.sy *= TREE_BADGE_S; it->w.align = HP2_FE_ALIGN_CENTRE; it->w.visible = 1; it->w.layer = 1; }
     it = push(l, named(s, "EVENT_TITLE"), evn);
-    if (it) { it->w.sx = it->w.sy = 0.9f; it->w.x = 383.0f; it->w.y = 176.0f; it->w.visible = 1; it->w.layer = 0; }
+    if (it) { it->w.sx = it->w.sy = 0.6f; it->w.x = 385.0f; it->w.y = 179.0f; it->w.visible = 1; it->w.layer = 0; }
     for (i = 0; i < s->count; i++) {
         const hp2_fe_widget *w = &s->widgets[i];
         if (w->kind != HP2_FE_TEXT || strcmp(w->name, "NONAME") || w->y < 40.0f || w->y > 80.0f) continue;
         it = push(l, w, hp2_femenu_text(m, w));      /* the "Status:" and "Reward:" labels */
         if (it) {
-            it->w.x = 385.0f; it->w.y = w->y < 60.0f ? 206.0f : 247.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0;
+            it->w.x = 387.0f; it->w.y = w->y < 60.0f ? 207.0f : 248.0f; it->w.sx = it->w.sy = 0.42f; it->w.visible = 1; it->w.layer = 0;
         }
     }
     it = push(l, named(s, "OVERLAY_STATUSTITLE"), status);
-    if (it) { it->w.x = 385.0f; it->w.y = 222.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0; }
+    if (it) { it->w.x = 387.0f; it->w.y = 222.0f; it->w.sx = it->w.sy = 0.5f; it->w.visible = 1; it->w.layer = 0; }
     it = push(l, named(s, "OVERLAY_REWARDTITLE"), reward);
-    if (it) { it->w.x = 385.0f; it->w.y = 263.0f; it->w.sx = it->w.sy = 0.8f; it->w.visible = 1; it->w.layer = 0; }
+    if (it) { it->w.x = 387.0f; it->w.y = 263.0f; it->w.sx = it->w.sy = 0.5f; it->w.visible = 1; it->w.layer = 0; }
     if (tmpl) {
         it = push(l, named(s, "SCROLL_TEXT_CLIP"), NULL);     /* the title bar below the map */
         if (it) { it->w.x = 116.0f; it->w.y = 333.0f; it->w.sx = 1.03f; it->w.sy = 0.78f; it->w.visible = 1; it->w.layer = 9; }
