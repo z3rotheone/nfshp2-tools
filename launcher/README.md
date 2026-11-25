@@ -525,3 +525,5 @@ Back from a race with the objective met, hp2fe plays the game's RewardView sound
 **Race music and the speed readout.** hp2track now plays the jukebox in a race: songs whose status is On (not the Menu ones), one after another at random, at the Race Music volume, mixed with the engine. hp2fe passes its `--config` file so the Jukebox and volume settings apply; `--no-music` turns it off, `--no-sound` turns off all sound. The speed digits are right-aligned in a three-figure field against the gear (the layout gives only the left edge; the alignment is the port's reading).
 
 `hp2track` key B (or `--blend-opaque`) draws the blended pieces solid, to tell the ground and road edges from real glass and shadows.
+
+`hp2track --holes` paints the background magenta and skips the sky, so missing geometry stands out; `--cam-road X,Y,YAW,PITCH` puts the camera on the road at that point (for screenshots with `--shot`). Speeds of 100 and over are drawn at 80% so three figures stay in the gauge's box.

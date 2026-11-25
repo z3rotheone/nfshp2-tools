@@ -420,6 +420,7 @@ static void set_mode(int mode)
     }
 }
 
+static int holes;          /* --holes: magenta background, no sky, so missing geometry shows */
 static int blend_opaque;   /* B: draw the blended pieces as solid (finding which ones the ground is made of) */
 
 static void draw_groups(const world *w, const glgroup *g, int n, int pass)
@@ -510,6 +511,7 @@ static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_driv
         for (i = 0; i < 3; i++) fogc[i] = sc->fog_rgba[i] / 255.0f;
     }
     glViewport(0, 0, W, H);
+    if (holes) { fogc[0] = 1; fogc[1] = 0; fogc[2] = 1; }
     glClearColor(fogc[0], fogc[1], fogc[2], 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -545,7 +547,7 @@ static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_driv
     glDisable(GL_FOG);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
-    for (j = 0; j < sc->sky.ng; j++) {
+    for (j = 0; j < sc->sky.ng && !holes; j++) {
         set_mode(w->tex[w->skyg[j].tex].mode == MODE_BLEND ? MODE_BLEND : MODE_OPAQUE);
         glDepthMask(GL_FALSE);
         glBindTexture(GL_TEXTURE_2D, w->tex[w->skyg[j].tex].id);
@@ -714,6 +716,7 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
         const hp2_font *sf = hp2_font_find(h->fonts, x->font);
         snprintf(buf, sizeof buf, "%d", (int)(mph + 0.5f));
         if (sf) {
+            if (mph >= 99.5f) { sp.sx *= 0.8f; sp.sy *= 0.8f; }      /* three figures must stay inside the box */
             sp.x = x->x + hp2_text_width(sf, "000") * x->sx;
             sp.align = HP2_FE_ALIGN_RIGHT;
         }
@@ -867,7 +870,7 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
 
 int main(int argc, char **argv)
 {
-    const char *disc = NULL, *scen = NULL, *texf[4], *shot = NULL, *cam = NULL, *carname = "911TURBO";
+    const char *disc = NULL, *scen = NULL, *texf[4], *shot = NULL, *cam = NULL, *camroad = NULL, *carname = "911TURBO";
     const char *gbf = NULL, *ctf = NULL, *geof = NULL, *sim = NULL, *resultf = NULL;
     int ntexf = 0, track = 0, W = 1280, H = 720, i, quit = 0, fog = 1, grab = 0, shots = 0;
     int want_car = 1, driving = 0, skin = 1, have_zdir = 0, titled = 0, laps = 3, sound = 1;
@@ -916,6 +919,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--tex") && i + 1 < argc && ntexf < 4) texf[ntexf++] = argv[++i];
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--cam") && i + 1 < argc) cam = argv[++i];
+        else if (!strcmp(argv[i], "--cam-road") && i + 1 < argc) camroad = argv[++i];
         else if (!strcmp(argv[i], "--no-fog")) fog = 0;
         else if (!strcmp(argv[i], "--car") && i + 1 < argc) carname = argv[++i];
         else if (!strcmp(argv[i], "--no-car")) want_car = 0;
@@ -934,6 +938,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
         else if (!strcmp(argv[i], "--blend-opaque")) blend_opaque = 1;
+        else if (!strcmp(argv[i], "--holes")) holes = 1;
         else if (!strcmp(argv[i], "--no-scenery-shadows")) scene_flags = HP2_SCENE_NO_SHADOWS;
         else if (!strcmp(argv[i], "--opponents") && i + 1 < argc) nopp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--opponent") && i + 1 < argc && nopp_named < HP2_MAX_CARS - 1) {
@@ -1150,7 +1155,17 @@ int main(int argc, char **argv)
         float v[5];
         if (sscanf(cam, "%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4]) == 5) {
             c.pos[0] = v[0]; c.pos[1] = v[1]; c.pos[2] = v[2]; c.yaw = v[3]; c.pitch = v[4];
+            /* --cam X,Y,Z,... with Z given as "g" height is not parsed; see --cam-road */
         }
+    }
+
+    if (camroad) {                 /* --cam-road X,Y,YAW,PITCH: on the road there, 2.5 above the ground */
+        float v[4], z = 0;
+        if (sscanf(camroad, "%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3]) == 4 && w.has_coll
+            && hp2_coll_ground(&w.coll, v[0], v[1], 10000.0f, 20000.0f, &z, NULL, NULL)) {
+            driving = 0;
+            c.pos[0] = v[0]; c.pos[1] = v[1]; c.pos[2] = z + 2.5f; c.yaw = v[2]; c.pitch = v[3];
+        } else fprintf(stderr, "--cam-road: no ground there\n");
     }
 
     if (shot) {
