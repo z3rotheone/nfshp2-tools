@@ -1732,8 +1732,13 @@ static hp2_fe_item *rect(list *l, const hp2_fe_widget *tmpl, float x, float y, f
 #define TREE_CX 320.0f
 #define TREE_CY 282.0f
 #define TREE_LINE 6.0f
-static const float BADGE_OFF[2][2] = { { -108.0f, -150.0f }, { -136.0f, -130.0f } };
-static const float BADGE_SIZE[2][2] = { { 216.0f, 312.0f }, { 272.0f, 272.0f } };
+/* The badge textures are 216 x 312 (card) and 272 x 272 (star) but the tree
+ * draws them at half size: at full size the star covers the Status and
+ * Reward text, and neighbouring events 130 apart would overlap. */
+#define TREE_BADGE_S 0.5f
+static const float BADGE_OFF[2][2] = { { -108.0f * TREE_BADGE_S, -150.0f * TREE_BADGE_S }, { -136.0f * TREE_BADGE_S, -130.0f * TREE_BADGE_S } };
+static const float BADGE_SIZE[2][2] = { { 216.0f * TREE_BADGE_S, 312.0f * TREE_BADGE_S }, { 272.0f * TREE_BADGE_S, 272.0f * TREE_BADGE_S } };
+#define TREE_NUM_HALF 66.0f     /* half the number's height at full size: its top is this far above its centre */
 
 static int panel_hits(float x, float y, float w, float h)
 {
@@ -1833,14 +1838,14 @@ static int tree_items(hp2_femenu *m, list *l)
                 it = push(l, tmpl, NULL);
                 if (it) {
                     it->w.texture = panel_texture(m, k);
-                    it->w.x = bx; it->w.y = by; it->w.sx = it->w.sy = 1.0f; it->w.visible = 1; it->w.layer = 14;
+                    it->w.x = bx; it->w.y = by; it->w.sx = it->w.sy = TREE_BADGE_S; it->w.visible = 1; it->w.layer = 14;
                     set_vcol(it, 0x80, 0x80, 0x80, 0x80);
                     panel_clip(it);
                 }
                 snprintf(nnum[k - 1], sizeof nnum[k - 1], "%d", k);
                 it = push(l, named(s, "EVENT_NUMBER"), nnum[k - 1]);
                 if (it) {
-                    it->w.x = x; it->w.y = y - (TREE_CY - 216.0f); it->w.align = HP2_FE_ALIGN_CENTRE;
+                    it->w.x = x; it->w.y = y - TREE_NUM_HALF * TREE_BADGE_S; it->w.sx *= TREE_BADGE_S; it->w.sy *= TREE_BADGE_S; it->w.align = HP2_FE_ALIGN_CENTRE;
                     it->w.visible = 1; it->w.layer = 13;
                     panel_clip(it);
                 }
@@ -1855,7 +1860,7 @@ static int tree_items(hp2_femenu *m, list *l)
         if (it) {
             it->w.texture = panel_texture(m, ev + 1);
             it->w.x = TREE_CX + BADGE_OFF[m->tree_kind][0]; it->w.y = TREE_CY + BADGE_OFF[m->tree_kind][1];
-            it->w.sx = it->w.sy = 1.0f; it->w.visible = 1; it->w.layer = 10;
+            it->w.sx = it->w.sy = TREE_BADGE_S; it->w.visible = 1; it->w.layer = 10;
             set_vcol(it, 0x80, 0x80, 0x80, 0x80);
         }
         rect(l, tmpl, 383.0f, 205.0f, 257.0f, 35.0f, 20, 20, 20, 0x50, 8);         /* Status */
@@ -1863,7 +1868,7 @@ static int tree_items(hp2_femenu *m, list *l)
         rect(l, tmpl, 383.0f, 201.0f, 257.0f, 2.0f, 240, 240, 240, 0x80, 7);       /* under "Event n" */
     }
     it = push(l, named(s, "EVENT_NUMBER"), num);
-    if (it) { it->w.x = 320.0f; it->w.y = 216.0f; it->w.align = HP2_FE_ALIGN_CENTRE; it->w.visible = 1; it->w.layer = 1; }
+    if (it) { it->w.x = 320.0f; it->w.y = TREE_CY - TREE_NUM_HALF * TREE_BADGE_S; it->w.sx *= TREE_BADGE_S; it->w.sy *= TREE_BADGE_S; it->w.align = HP2_FE_ALIGN_CENTRE; it->w.visible = 1; it->w.layer = 1; }
     it = push(l, named(s, "EVENT_TITLE"), evn);
     if (it) { it->w.sx = it->w.sy = 0.9f; it->w.x = 383.0f; it->w.y = 176.0f; it->w.visible = 1; it->w.layer = 0; }
     for (i = 0; i < s->count; i++) {
