@@ -517,3 +517,5 @@ pad in your hands.
 In Challenge mode a plain Knockout (race type 2) is a series, as the tree events are: after each race the last car out is dropped and the rest race again. Setup "Tracks: Same" keeps the course; "Random" picks another open course each round. Coming last yourself ends the series, and the next Knockout starts afresh. The round-by-round elimination order is the port's own stand-in until the game's rule is decoded.
 
 Back from a race with the objective met, hp2fe plays the game's RewardView sound (menu sound volume).
+
+**Other way round.** In the lap popup on the course screen, Up/Down switches the course to its "II" direction once that is won (the port's own control; the game's is not decoded). The strip shows the R thumbnail and the race gets --reverse. Choosing another course resets it.

@@ -566,6 +566,10 @@ static int track_input(hp2_femenu *m, hp2_fem_input in)
         case HP2_IN_LEFT:  if (m->laps > 1) m->laps--; return HP2_FEM_REDRAW;
         case HP2_IN_RIGHT: if (m->laps < 10) m->laps++; return HP2_FEM_REDRAW;
         case HP2_IN_BACK:  m->lap_popup = 0; return HP2_FEM_REDRAW;
+        case HP2_IN_UP: case HP2_IN_DOWN:     /* the course the other way round, once it is won (the port's own control) */
+            if (!m->alt && !reward_open(m, 1, NULL, TRACKS[m->track].num, 1)) return 0;
+            m->alt = !m->alt;
+            return HP2_FEM_REDRAW;
         case HP2_IN_ACCEPT: single_race(m); m->lap_popup = 0; return HP2_FEM_RACE | HP2_FEM_REDRAW;
         default: return 0;
         }
@@ -573,8 +577,8 @@ static int track_input(hp2_femenu *m, hp2_fem_input in)
     switch (in) {
     case HP2_IN_UP:
     case HP2_IN_DOWN:  m->tod = !m->tod; return HP2_FEM_REDRAW;       /* the Time of Day column */
-    case HP2_IN_LEFT:  m->track = step_track(m, m->track, -1); return HP2_FEM_REDRAW;
-    case HP2_IN_RIGHT: m->track = step_track(m, m->track, 1); return HP2_FEM_REDRAW;
+    case HP2_IN_LEFT:  m->track = step_track(m, m->track, -1); m->alt = 0; return HP2_FEM_REDRAW;
+    case HP2_IN_RIGHT: m->track = step_track(m, m->track, 1); m->alt = 0; return HP2_FEM_REDRAW;
     case HP2_IN_ACCEPT: m->lap_popup = 1; return HP2_FEM_REDRAW;
     case HP2_IN_BACK:
         m->screen = HP2_FEM_SELECT_CAR;
@@ -742,6 +746,8 @@ static void refresh(hp2_femenu *m)
     } else if (m->screen == HP2_FEM_EVENT_INFO) {
         /* the bar shows the event's title, as the game's EVENT_TITLE_BAR */
         snprintf(m->help, sizeof m->help, "%s", lang_or(m, TREES[m->tree_kind].title + (uint32_t)m->tree_ev, ""));
+    } else if (m->screen == HP2_FEM_SELECT_TRACK && m->lap_popup && reward_open(m, 1, NULL, TRACKS[m->track].num, 1)) {
+        snprintf(m->help, sizeof m->help, "Up/Down: %s", m->alt ? "back to the course's usual direction" : "run the course the other way round");
     } else if (m->screen == HP2_FEM_TITLE || m->screen == HP2_FEM_SELECT_CAR || m->screen == HP2_FEM_SELECT_TRACK || m->screen == HP2_FEM_TREE) {
         /* no ticker */
     } else if (m->screen == HP2_FEM_OPTIONS && m->sel >= 1 && m->sel <= m->orows
@@ -1611,7 +1617,7 @@ static int track_items(hp2_femenu *m, list *l)
     if (it) it->w.visible = 1;
     for (k = 0; k < 8; k++) {   /* the strip: the selected course in the frame, the next seven after it */
         int idx = (m->track + k) % HP2_TRACKS;
-        snprintf(nm, sizeof nm, "TN_TRACK%d", TRACKS[idx].num);
+        snprintf(nm, sizeof nm, "TN_TRACK%d%s", TRACKS[idx].num, k == 0 && m->alt ? "R" : "");
         it = push(l, named(s, nm), NULL);
         if (it) {
             it->w.x = k == 0 ? 242.0f : 285.0f + 40.0f * (float)(k - 1);

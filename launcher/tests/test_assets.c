@@ -1250,6 +1250,18 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
                   && !strcmp(m.result[1], "Objective not met"), "last in the first race: knocked out, 4th, not met");
             hp2_femenu_input(&m, HP2_IN_ACCEPT);
         }
+        {   /* the course the other way round: Up/Down in the lap popup, once it is open */
+            static hp2_femenu ta;
+            ta = m;
+            ta.prog = NULL; ta.quick_mode = HP2_QUICK_NONE; ta.alt = 0; ta.lap_popup = 1; ta.screen = HP2_FEM_SELECT_TRACK;
+            CHECK(hp2_femenu_input(&ta, HP2_IN_DOWN) && ta.alt == 1, "lap popup: Down runs the course the other way round");
+            hp2_femenu_input(&ta, HP2_IN_ACCEPT); ta.lap_popup = 1;
+            CHECK(ta.go.reverse == 1, "and the race asks for it");
+            hp2_femenu_input(&ta, HP2_IN_UP);
+            CHECK(ta.alt == 0, "Up turns it off again");
+            ta.lap_popup = 0; ta.alt = 1; hp2_femenu_input(&ta, HP2_IN_RIGHT);
+            CHECK(ta.alt == 0, "another course starts in its usual direction");
+        }
         {   /* the Challenge's Race Knockout: a series, the last car out each race */
             static hp2_femenu tk;
             hp2_race_result rr;
