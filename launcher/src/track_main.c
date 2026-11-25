@@ -50,6 +50,7 @@
 #include "hp2_engine.h"
 #include "hp2_ambient.h"
 #include "hp2_tires.h"
+#include "hp2_speech.h"
 #include "hp2_sfx.h"
 #include "hp2_fe.h"
 #include "hp2_font.h"
@@ -138,6 +139,8 @@ typedef struct {
 static hp2_knockout ko;
 /* Pursuit (--pursuit): you are the cop; the others are speeders to arrest. */
 static hp2_pursuit pur;
+static hp2_speech speech;      /* the police radio of a Pursuit event */
+static int has_speech, pursuit_called;
 
 typedef struct {
     float pos[3], yaw, pitch;   /* degrees; yaw 0 looks along +x, z is up */
@@ -898,7 +901,13 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
     if (pur.on && races[0].state == HP2_RACE_RUNNING) {
         float px[HP2_MAX_CARS], py[HP2_MAX_CARS];
         for (i = 0; i < w->ncv; i++) { px[i] = drv[i].pos[0]; py[i] = drv[i].pos[1]; }
-        hp2_pursuit_step(&pur, dt, races[0].clock, w->ncv, px, py);
+        {   int got = hp2_pursuit_step(&pur, dt, races[0].clock, w->ncv, px, py);
+            /* the port's own radio triggers: the game's event rules are not decoded */
+            if (has_speech) {
+                if (!pursuit_called) { pursuit_called = 1; hp2_speech_say(&speech, "BPaGeneral", 0); }
+                else if (got) hp2_speech_say(&speech, pur.done ? "TermPursuit" : "Arrest", 1);
+            }
+        }
     }
 }
 
@@ -923,7 +932,7 @@ int main(int argc, char **argv)
     uint8_t *jbhead = NULL;
     size_t jbhead_len = 0;
     const char *config = NULL;
-    int music = 1, has_music = 0, ambient = 1, has_amb = 0, tiresnd = 1;
+    int music = 1, has_music = 0, ambient = 1, has_amb = 0, tiresnd = 1, speechsnd = 1;
     hp2_ambient amb;
     hp2_sfx ambsfx, ingsfx;
     hp2_tires tires;
@@ -958,6 +967,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
         else if (!strcmp(argv[i], "--no-ambient")) ambient = 0;
         else if (!strcmp(argv[i], "--no-tires")) tiresnd = 0;
+        else if (!strcmp(argv[i], "--no-speech")) speechsnd = 0;
         else if (!strcmp(argv[i], "--cam") && i + 1 < argc) cam = argv[++i];
         else if (!strcmp(argv[i], "--cam-road") && i + 1 < argc) camroad = argv[++i];
         else if (!strcmp(argv[i], "--no-fog")) fog = 0;
@@ -1279,7 +1289,21 @@ int main(int argc, char **argv)
         free(bh);
         free(bb);
     }
-    if ((has_eng || has_music || has_amb || has_tires) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+    /* the police radio, for the Pursuit event only */
+    if (pur.on && sound && have_zdir && speechsnd) {
+        size_t bl = 0, vl = 0;
+        long long off = 0;
+        uint32_t sz = 0;
+        uint8_t *bb = hp2_zdir_load(&zdir, "SOUND\\SPEECH\\ENGLISHBAN.PCK", &bl), *vb = hp2_zdir_load_id(&zdir, 0xcea9f930u, &vl);
+        if (bb && vb && !hp2_zdir_locate(&zdir, "SOUND\\SPEECH\\ENGLISHDAT.PCK", &off, &sz)
+            && hp2_speech_open(&speech, bb, bl, vb, vl, zdir.data, off) == 0) {
+            has_speech = 1;
+            printf("police radio: %d clips\n", speech.nclips);
+        }
+        free(bb);
+        free(vb);
+    }
+    if ((has_eng || has_music || has_amb || has_tires || has_speech) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
         SDL_AudioSpec want, have;
         memset(&want, 0, sizeof want);
         want.freq = 44100;
@@ -1310,7 +1334,7 @@ int main(int argc, char **argv)
                 case SDLK_r:
                     if (driving) {
                         hp2_knockout_reset(&ko);
-                        hp2_pursuit_reset(&pur);
+                        hp2_pursuit_reset(&pur); pursuit_called = 0;
                         for (i = 0; i < w.ncv; i++) {
                             hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
                             start_car(&w, i, &drv[i], &races[0]);
@@ -1408,6 +1432,7 @@ int main(int argc, char **argv)
                         ti.steer = drv[0].steer_angle; ti.throttle = drv[0].load;
                         hp2_tires_mix(&tires, &ti, (float)cfg.volume[HP2_VOL_TIRES] / 100.0f, mixbuf, 512);
                     }
+                    if (has_speech) hp2_speech_mix(&speech, (float)cfg.volume[HP2_VOL_SPEECH] / 100.0f, mixbuf, 512);
                     SDL_QueueAudio(audio, mixbuf, 512 * 4);
                 }
             }
@@ -1468,6 +1493,7 @@ int main(int argc, char **argv)
     }
     if (audio) SDL_CloseAudioDevice(audio);
     if (has_music) hp2_jbplay_close(&jbp);
+    if (has_speech) hp2_speech_close(&speech);
     if (have_zdir) hp2_zdir_close(&zdir);
     free(jbhead);
     if (has_eng) hp2_engine_free(&eng);

@@ -28,6 +28,7 @@
 #include "../src/hp2_sfx.h"
 #include "../src/hp2_ambient.h"
 #include "../src/hp2_tires.h"
+#include "../src/hp2_speech.h"
 #include "../src/hp2_race.h"
 #include "../src/hp2_ai.h"
 #include "../src/hp2_geom.h"
@@ -2347,6 +2348,45 @@ static void test_ambient(void)
 }
 
 /* The tyre sounds: each of the six samples a constant, so what plays shows in the sum. */
+static void test_speech(void)
+{
+    /* a two-line vocabulary and bank, one VAG clip of one block */
+    static uint8_t voc[0x40 + 72 * 2], ban[8 + 16 * 3 + 64], dat[256 + 64];
+    hp2_speech sp;
+    const char *path = "test_speech.tmp";
+    FILE *f;
+    int i;
+    printf("police radio (synthetic)\n");
+    memset(voc, 0, sizeof voc); memset(ban, 0, sizeof ban); memset(dat, 0, sizeof dat);
+    voc[0x18] = 0x40;                                   /* line names at 0x40 */
+    for (i = 0; i < 2; i++) {
+        uint8_t *r = voc + 0x40 + 72 * i;
+        r[0] = (uint8_t)(0x10 + i);
+        memcpy(r + 40, i ? "27Arrest" : "19Arrest", 8);
+    }
+    ban[0] = 3;
+    for (i = 0; i < 3; i++) {                           /* records: two lines, then the closing one */
+        uint8_t *r = ban + 8 + 16 * i;
+        r[4] = (uint8_t)(i * 0x80); r[12] = (uint8_t)(8 + 48 + 8 * i);
+        ban[8 + 48 + 8 * i] = i < 2 ? (uint8_t)(0x10 + i) : 0x99; ban[8 + 48 + 8 * i + 1] = 0; ban[8 + 48 + 8 * i + 2] = 0xFF; ban[8 + 48 + 8 * i + 3] = 0xFF;
+    }
+    memcpy(dat, "VAGp", 4);                             /* a VAG: size (big-endian) 32, rate 24,000 */
+    dat[12 + 3] = 32; dat[16 + 2] = 0x5D; dat[16 + 3] = 0xC0;
+    for (i = 0; i < 16; i++) dat[48 + 1 + i] = (uint8_t)(i == 0 ? 0 : 0x12);
+    dat[48 + 16 + 1] = 7;                               /* the second block ends the sound */
+    f = fopen(path, "wb"); if (f) { fwrite(dat, 1, sizeof dat, f); fclose(f); }
+    CHECK(hp2_speech_open(&sp, ban, sizeof ban, voc, sizeof voc, path, 0) == 0 && sp.nclips == 2 && sp.nnames == 2, "speech: opens, the closing record is skipped (%d clips)", sp.nclips);
+    CHECK(hp2_speech_has(&sp, "Arrest") && !hp2_speech_has(&sp, "Crash"), "speech: lines found by name");
+    CHECK(hp2_speech_say(&sp, "Arrest", 0) == 1 && hp2_speech_busy(&sp), "speech: a line starts");
+    CHECK(hp2_speech_say(&sp, "Arrest", 0) == 0, "speech: a second waits for the first");
+    {   static int16_t out[2 * 4000];
+        hp2_speech_mix(&sp, 1.0f, out, 4000);
+        CHECK(!hp2_speech_busy(&sp), "speech: the line plays out (%d frames)", sp.frames);
+    }
+    hp2_speech_close(&sp);
+    remove(path);
+}
+
 static void test_tires(void)
 {
     static int16_t pcm[6][2 * 200], out[2 * 100];
@@ -2625,6 +2665,7 @@ int main(int argc, char **argv)
     test_sfx();
     test_ambient();
     test_tires();
+    test_speech();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
