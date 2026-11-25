@@ -646,6 +646,8 @@ int main(int argc, char **argv)
                         SDL_HideWindow(win);
                         if (run_race(race_args) != 0) fprintf(stderr, "could not run %s (give --hp2track PATH)\n", prog);
                         take_result(&menu, result_path);
+                        if (menu.result[1][0] && !strstr(menu.result[1], "not met") && menu.result[0][0])
+                            sfx_play(sfxdev, &sfx, &cfg, "RewardView");     /* an objective met */
                         if (menu.prog_dirty) { hp2_progress_save(&progress, prog_path); menu.prog_dirty = 0; }
                         SDL_ShowWindow(win);
                         SDL_RaiseWindow(win);
