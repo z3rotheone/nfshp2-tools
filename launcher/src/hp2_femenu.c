@@ -554,6 +554,7 @@ static void single_race(hp2_femenu *m)
                 if (track_open(m, t2)) break;
             }
             g->track = TRACKS[t2].num + (m->tod ? 3 : 0);
+            g->reverse = 0;                                  /* a new course runs its usual way */
         }
         (void)alive_n;
     }
