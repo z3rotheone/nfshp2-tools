@@ -52,7 +52,8 @@ static int start_next(hp2_jbplay *p)
     if (p->song >= 0) p->last = p->song;
     p->song = -1;
     for (i = 0; i < p->jb->count; i++)
-        if (hp2_jbplay_in_menus(hp2_jbplay_status(p->jb, p->cfg, i))) cand[n++] = i;
+        if (p->race ? hp2_jbplay_status(p->jb, p->cfg, i) == HP2_PLAY_ON : hp2_jbplay_in_menus(hp2_jbplay_status(p->jb, p->cfg, i)))
+            cand[n++] = i;
     for (tries = 0; tries < n; tries++) {
         int k = cand[next_rand(p) % (uint32_t)n];
         if (k == p->last && n > 1) continue;
@@ -76,11 +77,13 @@ int hp2_jbplay_fill(hp2_jbplay *p, int16_t *out, int frames)
         k = hp2_stream_read(&p->st, out + 2 * got, frames - got);
         got += k;
     }
-    vol = p->cfg->volume[HP2_VOL_MENU_MUSIC];
+    vol = p->cfg->volume[p->race ? HP2_VOL_RACE_MUSIC : HP2_VOL_MENU_MUSIC];
     if (vol < 100)
         for (i = 0; i < 2 * got; i++) out[i] = (int16_t)(out[i] * vol / 100);
     return got;
 }
+
+void hp2_jbplay_set_race(hp2_jbplay *p, int race) { p->race = race; }
 
 int hp2_jbplay_now(const hp2_jbplay *p) { return p->st.done ? -1 : p->song; }
 

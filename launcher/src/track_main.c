@@ -51,6 +51,8 @@
 #include "hp2_fe.h"
 #include "hp2_font.h"
 #include "hp2_hud.h"
+#include "hp2_jbplay.h"
+#include "hp2_settings.h"
 #include "hp2_race.h"
 #include "hp2_scene.h"
 #include "hp2_tex.h"
@@ -704,8 +706,15 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
         hp2_hud_image(h, x, 0, a, pivot, 1);
     }
     if ((x = hp2_hud_widget(hs->race, "SPEED_STRING3"))) {
+        /* the digits end at the right of a three-figure field, so 53 sits against the gear, not at the box's left edge */
+        hp2_fe_widget sp = *x;
+        const hp2_font *sf = hp2_font_find(h->fonts, x->font);
         snprintf(buf, sizeof buf, "%d", (int)(mph + 0.5f));
-        hp2_hud_text(h, x, buf);
+        if (sf) {
+            sp.x = x->x + hp2_text_width(sf, "000") * x->sx;
+            sp.align = HP2_FE_ALIGN_RIGHT;
+        }
+        hp2_hud_text(h, &sp, buf);
     }
     if ((x = hp2_hud_widget(hs->race, "GEAR_STRING3"))) {
         snprintf(buf, sizeof buf, "%s", d->gear < 0 ? "R" : d->gear == 0 ? "N" : "");
@@ -868,6 +877,13 @@ int main(int argc, char **argv)
     int has_eng = 0;
     SDL_AudioDeviceID audio = 0;
     hp2_zdir zdir;
+    hp2_settings cfg;                 /* from --config: the race music's volume and song list */
+    static hp2_jukebox jb;
+    hp2_jbplay jbp;
+    uint8_t *jbhead = NULL;
+    size_t jbhead_len = 0;
+    const char *config = NULL;
+    int music = 1, has_music = 0;
     hp2_drive drv[HP2_MAX_CARS];
     const hp2_drive *dptr[HP2_MAX_CARS];
     hp2_race races[HP2_MAX_CARS];
@@ -910,6 +926,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--lap-knockout")) ko.on = 1;
         else if (!strcmp(argv[i], "--pursuit")) pur.on = 1;
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
+        else if (!strcmp(argv[i], "--no-music")) music = 0;
+        else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
         else if (!strcmp(argv[i], "--no-scenery-shadows")) scene_flags = HP2_SCENE_NO_SHADOWS;
@@ -1148,7 +1166,20 @@ int main(int argc, char **argv)
     printf("Car: W/Up accelerate, S/Down brake/reverse, A/D or Left/Right steer, Space handbrake;\n"
            "C switches to the free camera: WASD/arrows move, Q/E down/up, right mouse or M to look,\n"
            "Shift fast, Ctrl slow, wheel speed. F fog, R start, P print camera, F12 screenshot, Esc quit\n");
-    if (has_eng && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+    /* the race's music: the jukebox songs set to On, at the Race Music volume */
+    hp2_settings_defaults(&cfg);
+    if (config) hp2_settings_load(&cfg, config);
+    if (music && sound && have_zdir) {
+        long long base = 0;
+        uint32_t size = 0;
+        jbhead = hp2_zdir_load_part(&zdir, "SOUND\\JUKEBOXM.JBC", hp2_jukebox_header_size(), &jbhead_len);
+        if (jbhead && hp2_jukebox_parse(&jb, jbhead, jbhead_len) == 0 && hp2_zdir_locate(&zdir, "SOUND\\JUKEBOXM.JBC", &base, &size) == 0) {
+            hp2_jbplay_init(&jbp, &jb, &cfg, zdir.data, base, (uint32_t)SDL_GetTicks() | 1u);
+            hp2_jbplay_set_race(&jbp, 1);
+            has_music = 1;
+        }
+    }
+    if ((has_eng || has_music) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
         SDL_AudioSpec want, have;
         memset(&want, 0, sizeof want);
         want.freq = 44100;
@@ -1255,7 +1286,16 @@ int main(int argc, char **argv)
                 static int16_t mixbuf[2 * 1024];
                 /* keep about 60 ms queued: enough to never run dry, little enough to answer the throttle */
                 while (SDL_GetQueuedAudioSize(audio) < 44100 * 4 * 6 / 100) {
-                    hp2_engine_mix(&eng, drv[0].rpm, drv[0].load, 0.6f, mixbuf, 512, 44100);
+                    if (has_eng) hp2_engine_mix(&eng, drv[0].rpm, drv[0].load, 0.6f, mixbuf, 512, 44100);
+                    else memset(mixbuf, 0, sizeof mixbuf);
+                    if (has_music) {
+                        static int16_t mus[2 * 512];
+                        int got = hp2_jbplay_fill(&jbp, mus, 512), q;
+                        for (q = 0; q < 2 * got; q++) {
+                            int v = mixbuf[q] + mus[q];
+                            mixbuf[q] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+                        }
+                    }
                     SDL_QueueAudio(audio, mixbuf, 512 * 4);
                 }
             }
@@ -1315,6 +1355,8 @@ int main(int argc, char **argv)
         else fprintf(stderr, "could not write %s\n", resultf);
     }
     if (audio) SDL_CloseAudioDevice(audio);
+    if (has_music) hp2_jbplay_close(&jbp);
+    free(jbhead);
     if (has_eng) hp2_engine_free(&eng);
     hp2_ai_line_free(&w.line);
     if (pad) SDL_GameControllerClose(pad);

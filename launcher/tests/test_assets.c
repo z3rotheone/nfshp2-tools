@@ -422,6 +422,22 @@ static void test_stream(void)
         ok |= hp2_jbplay_now(&p) == 1;
     }
     CHECK(ok, "with two in the menus, the other one comes up");
+    {   /* the race's music: only the songs set to On, at the Race Music volume */
+        hp2_jbplay rp;
+        int saved0 = cfg.song[0], saved1 = cfg.song[1], vol = cfg.volume[HP2_VOL_RACE_MUSIC];
+        cfg.song[0] = HP2_PLAY_ON; cfg.song[1] = HP2_PLAY_MENU; cfg.volume[HP2_VOL_RACE_MUSIC] = 50;
+        hp2_jbplay_init(&rp, &jb, &cfg, path, 0, 777);
+        hp2_jbplay_set_race(&rp, 1);
+        CHECK(hp2_jbplay_fill(&rp, buf, 100) == 100 && hp2_jbplay_now(&rp) == 0 && buf[0] == 1 * 50 / 100 + (1 * 50 % 100 ? 0 : 0),
+              "race mode: song 1 (On) plays, a Menu song does not, at the race volume (%d)", buf[0]);
+        hp2_jbplay_close(&rp);
+        cfg.song[0] = HP2_PLAY_MENU;
+        hp2_jbplay_init(&rp, &jb, &cfg, path, 0, 777);
+        hp2_jbplay_set_race(&rp, 1);
+        CHECK(hp2_jbplay_fill(&rp, buf, 100) == 0, "race mode: no song is On, so no music");
+        hp2_jbplay_close(&rp);
+        cfg.song[0] = saved0; cfg.song[1] = saved1; cfg.volume[HP2_VOL_RACE_MUSIC] = vol;
+    }
     CHECK(hp2_jbplay_play(&p, 1) == 1 && hp2_jbplay_now(&p) == 1, "play song 2 now (as the Jukebox does when it is set to Menu)");
     hp2_jbplay_fill(&p, buf, 10);
     CHECK(buf[0] == 2 && hp2_jbplay_now(&p) == 1, "and it is what plays, from its start");

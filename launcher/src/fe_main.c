@@ -148,9 +148,9 @@ static void track_path(char *out, size_t cap, const char *given, const char *arg
  * DIR, the race. Returns the argument count (args NULL-terminated). */
 #define RACE_ARGS 48
 static int race_command(const hp2_femenu *m, const char *prog, const char *disc, int W, int H,
-                        const char *result, char buf[][32], const char **args)
+                        const char *result, const char *config, char buf[][32], const char **args)
 {
-    int n = 0, k, r = hp2_femenu_race_args(&m->go, buf, RACE_ARGS - 8);
+    int n = 0, k, r = hp2_femenu_race_args(&m->go, buf, RACE_ARGS - 12);
     args[n++] = prog;
     args[n++] = "--disc";
     args[n++] = disc;
@@ -160,6 +160,7 @@ static int race_command(const hp2_femenu *m, const char *prog, const char *disc,
     args[n++] = buf[r];
     args[n++] = buf[r + 1];
     if (result) { args[n++] = "--result"; args[n++] = result; }
+    if (config) { args[n++] = "--config"; args[n++] = config; }       /* the race music and its volume */
     args[n] = NULL;
     return n;
 }
@@ -460,7 +461,7 @@ int main(int argc, char **argv)
                 int res = hp2_femenu_input(&menu, in);
                 dirty |= res & HP2_FEM_CHANGED;
                 if (res & HP2_FEM_RACE) {   /* scripted: say what would run */
-                    race_command(&menu, "hp2track", disc ? disc : "DIR", W, H, NULL, race_buf, race_args);
+                    race_command(&menu, "hp2track", disc ? disc : "DIR", W, H, NULL, NULL, race_buf, race_args);
                     print_command(race_args);
                 }
             }
@@ -635,7 +636,7 @@ int main(int argc, char **argv)
                     int ww, wh;
                     SDL_GetWindowSize(win, &ww, &wh);
                     snprintf(result_path, sizeof result_path, "%s.race", config);
-                    race_command(&menu, prog, disc ? disc : "", ww, wh, result_path, race_buf, race_args);
+                    race_command(&menu, prog, disc ? disc : "", ww, wh, result_path, config, race_buf, race_args);
                     print_command(race_args);
                     if (!disc) {
                         fprintf(stderr, "a race needs your disc: start hp2fe with --disc\n");

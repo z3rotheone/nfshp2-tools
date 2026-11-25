@@ -29,6 +29,7 @@ typedef struct {
     int                 last;           /* the one before, not repeated if avoidable */
     int                 stopped;        /* silent until play, skip or resume */
     uint32_t            rng;
+    int                 race;           /* 1: the race's music: songs set to On, Race Music volume */
 } hp2_jbplay;
 
 /* The bank's song table must outlive the player. seed picks the order. */
@@ -45,6 +46,10 @@ int      hp2_jbplay_in_menus(hp2_play p);
  * Starts the next song when one ends. Returns 0 when no song may play in
  * the menus (out untouched). */
 int hp2_jbplay_fill(hp2_jbplay *p, int16_t *out, int frames);
+
+/* Race mode: only songs whose status is On play (Menu ones are for the
+ * menus), at the Race Music volume. Set it before the first fill. */
+void hp2_jbplay_set_race(hp2_jbplay *p, int race);
 
 /* The song playing, or -1. */
 int hp2_jbplay_now(const hp2_jbplay *p);

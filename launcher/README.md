@@ -521,3 +521,5 @@ Back from a race with the objective met, hp2fe plays the game's RewardView sound
 **Other way round.** In the lap popup on the course screen, Up/Down switches the course to its "II" direction once that is won (the port's own control; the game's is not decoded). The strip shows the R thumbnail and the race gets --reverse. Choosing another course resets it.
 
 **Scenery shadows.** `hp2track --no-scenery-shadows` skips the scenery's own shadow pieces (instance kind 1), to tell them apart from other road artefacts.
+
+**Race music and the speed readout.** hp2track now plays the jukebox in a race: songs whose status is On (not the Menu ones), one after another at random, at the Race Music volume, mixed with the engine. hp2fe passes its `--config` file so the Jukebox and volume settings apply; `--no-music` turns it off, `--no-sound` turns off all sound. The speed digits are right-aligned in a three-figure field against the gear (the layout gives only the left edge; the alignment is the port's reading).
