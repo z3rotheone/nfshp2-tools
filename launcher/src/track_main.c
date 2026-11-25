@@ -51,6 +51,7 @@
 #include "hp2_ambient.h"
 #include "hp2_tires.h"
 #include "hp2_speech.h"
+#include "hp2_oneshot.h"
 #include "hp2_sfx.h"
 #include "hp2_fe.h"
 #include "hp2_font.h"
@@ -141,6 +142,9 @@ static hp2_knockout ko;
 static hp2_pursuit pur;
 static hp2_speech speech;      /* the police radio of a Pursuit event */
 static int has_speech, pursuit_called;
+static hp2_oneshot cues;       /* crashes, horn, countdown beeps, finish line (the port's own triggers) */
+static int has_cues;
+static void cue(const char *name, float gain) { if (has_cues) hp2_oneshot_play(&cues, name, gain); }
 
 typedef struct {
     float pos[3], yaw, pitch;   /* degrees; yaw 0 looks along +x, z is up */
@@ -868,6 +872,17 @@ static float axis(SDL_GameController *p, SDL_GameControllerAxis a)
 static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *ai, const hp2_drive_in *player, float dt)
 {
     int i, j;
+    static float prev_speed, hit_wait, prev_cd = 99;
+    static int prev_state = HP2_RACE_COUNTDOWN;
+    if (has_cues) {
+        hit_wait -= dt;
+        if (races[0].state == HP2_RACE_COUNTDOWN) {          /* a beep each second, a high one at GO */
+            if ((int)ceilf(races[0].countdown) != (int)ceilf(prev_cd) && races[0].countdown > 0) cue("CountDownLow", 0.8f);
+            prev_cd = races[0].countdown;
+        } else if (prev_state == HP2_RACE_COUNTDOWN) cue("CountDownHigh", 0.8f);
+        if (races[0].state == HP2_RACE_FINISHED && prev_state != HP2_RACE_FINISHED) cue("FinishLine", 1.0f);
+        prev_state = races[0].state;
+    }
     for (i = 0; i < w->ncv; i++) {
         hp2_drive_in in;
         if (i > 0 && ko.out[i]) continue;                  /* knocked out: gone */
@@ -890,9 +905,21 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
             hp2_drive_step(&drv[i], &w->coll, &in, dt);
         }
     }
+    if (has_cues && drv[0].hit == 0 && hit_wait <= 0 && fabsf(prev_speed) > 3.0f) {   /* a wall: by how fast you were going */
+        float v = fabsf(prev_speed);
+        char nm[24];
+        snprintf(nm, sizeof nm, "CrashMetal%s0%d", v < 10 ? "Small" : v < 25 ? "Medium" : "Hard", 1 + (int)(v * 7) % 3);
+        cue(nm, 1.0f);
+        hit_wait = 0.4f;
+    }
+    prev_speed = drv[0].speed;
     for (i = 0; i < w->ncv; i++)
         for (j = i + 1; j < w->ncv; j++)
-            if (!ko.out[i] && !ko.out[j]) hp2_drive_collide(&drv[i], &drv[j]);
+            if (!ko.out[i] && !ko.out[j] && hp2_drive_collide(&drv[i], &drv[j]) && i == 0 && hit_wait <= 0) {
+                cue("CrashMetalMedium02", 0.9f);
+                if (has_speech && pur.on) hp2_speech_say(&speech, "CopHit", 0);
+                hit_wait = 0.4f;
+            }
     for (i = 0; i < w->ncv; i++) {
         if (i > 0 && ko.out[i]) continue;
         hp2_race_step(&races[i], dt, drv[i].pos[0], drv[i].pos[1], drv[i].vel[0], drv[i].vel[1]);
@@ -932,7 +959,7 @@ int main(int argc, char **argv)
     uint8_t *jbhead = NULL;
     size_t jbhead_len = 0;
     const char *config = NULL;
-    int music = 1, has_music = 0, ambient = 1, has_amb = 0, tiresnd = 1, speechsnd = 1;
+    int music = 1, has_music = 0, ambient = 1, has_amb = 0, tiresnd = 1, speechsnd = 1, cuesnd = 1;
     hp2_ambient amb;
     hp2_sfx ambsfx, ingsfx;
     hp2_tires tires;
@@ -968,6 +995,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--no-ambient")) ambient = 0;
         else if (!strcmp(argv[i], "--no-tires")) tiresnd = 0;
         else if (!strcmp(argv[i], "--no-speech")) speechsnd = 0;
+        else if (!strcmp(argv[i], "--no-cues")) cuesnd = 0;
         else if (!strcmp(argv[i], "--cam") && i + 1 < argc) cam = argv[++i];
         else if (!strcmp(argv[i], "--cam-road") && i + 1 < argc) camroad = argv[++i];
         else if (!strcmp(argv[i], "--no-fog")) fog = 0;
@@ -1303,7 +1331,17 @@ int main(int argc, char **argv)
         free(bb);
         free(vb);
     }
-    if ((has_eng || has_music || has_amb || has_tires || has_speech) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+    /* crashes, horn, countdown and finish sounds, from the race bank (INGAME) */
+    if (cuesnd && sound && have_zdir && w.has_car) {
+        if (!has_tires) {                   /* the tyre block loads INGAME only for itself */
+            size_t hl = 0, bl = 0;
+            uint8_t *bh = hp2_zdir_load(&zdir, "SOUND\\INGAME.MSH", &hl), *bb = hp2_zdir_load(&zdir, "SOUND\\INGAME.MSB", &bl);
+            if (bh && bb) hp2_sfx_load(&ingsfx, bh, hl, bb, bl);
+            free(bh); free(bb);
+        }
+        if (ingsfx.count > 0) { hp2_oneshot_bind(&cues, &ingsfx); has_cues = 1; }
+    }
+    if ((has_eng || has_music || has_amb || has_tires || has_speech || has_cues) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
         SDL_AudioSpec want, have;
         memset(&want, 0, sizeof want);
         want.freq = 44100;
@@ -1393,6 +1431,10 @@ int main(int argc, char **argv)
             in.brake = (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]) ? 1.0f : lt;
             in.steer = (float)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]))
                        + axis(pad, SDL_CONTROLLER_AXIS_LEFTX);
+            {   static int horn_was;
+                if (k[SDL_SCANCODE_H] && !horn_was) cue("Horn01", 0.9f);
+                horn_was = k[SDL_SCANCODE_H];
+            }
             in.handbrake = k[SDL_SCANCODE_SPACE] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A));
             race_tick(&w, drv, races, ai, &in, dt);
             chase_camera(&drv[0], &c, 1 - expf(-8 * dt));
@@ -1432,6 +1474,7 @@ int main(int argc, char **argv)
                         ti.steer = drv[0].steer_angle; ti.throttle = drv[0].load;
                         hp2_tires_mix(&tires, &ti, (float)cfg.volume[HP2_VOL_TIRES] / 100.0f, mixbuf, 512);
                     }
+                    if (has_cues) hp2_oneshot_mix(&cues, (float)cfg.volume[HP2_VOL_AMBIENT] / 100.0f, mixbuf, 512);
                     if (has_speech) hp2_speech_mix(&speech, (float)cfg.volume[HP2_VOL_SPEECH] / 100.0f, mixbuf, 512);
                     SDL_QueueAudio(audio, mixbuf, 512 * 4);
                 }

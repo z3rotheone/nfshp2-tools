@@ -29,6 +29,7 @@
 #include "../src/hp2_ambient.h"
 #include "../src/hp2_tires.h"
 #include "../src/hp2_speech.h"
+#include "../src/hp2_oneshot.h"
 #include "../src/hp2_race.h"
 #include "../src/hp2_ai.h"
 #include "../src/hp2_geom.h"
@@ -2387,6 +2388,28 @@ static void test_speech(void)
     remove(path);
 }
 
+static void test_oneshot(void)
+{
+    static int16_t a[2 * 10], out[2 * 8];
+    hp2_sfx_sample smp;
+    hp2_sfx bank;
+    hp2_oneshot o;
+    int i;
+    printf("one-shot sounds (synthetic)\n");
+    memset(&smp, 0, sizeof smp); memset(&bank, 0, sizeof bank);
+    for (i = 0; i < 20; i++) a[i] = 1000;
+    memcpy(smp.name, "Horn01", 6); smp.pcm = a; smp.frames = 10;
+    bank.s = &smp; bank.count = bank.cap = 1;
+    hp2_oneshot_bind(&o, &bank);
+    CHECK(!hp2_oneshot_play(&o, "Nope", 1.0f) && hp2_oneshot_play(&o, "Horn01", 1.0f), "one-shot: found by name");
+    memset(out, 0, sizeof out);
+    hp2_oneshot_mix(&o, 1.0f, out, 8);
+    CHECK(out[0] == 500 && out[15] == 500 && o.smp[0] != NULL, "one-shot: plays at half headroom (%d)", out[0]);
+    memset(out, 0, sizeof out);
+    hp2_oneshot_mix(&o, 1.0f, out, 8);
+    CHECK(out[2 * 1] == 500 && out[2 * 2] == 0 && o.smp[0] == NULL, "one-shot: ends and frees its voice");
+}
+
 static void test_tires(void)
 {
     static int16_t pcm[6][2 * 200], out[2 * 100];
@@ -2666,6 +2689,7 @@ int main(int argc, char **argv)
     test_ambient();
     test_tires();
     test_speech();
+    test_oneshot();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
