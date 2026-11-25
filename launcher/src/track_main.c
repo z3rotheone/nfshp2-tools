@@ -1339,7 +1339,7 @@ int main(int argc, char **argv)
                 static int16_t mixbuf[2 * 1024];
                 /* keep about 60 ms queued: enough to never run dry, little enough to answer the throttle */
                 while (SDL_GetQueuedAudioSize(audio) < 44100 * 4 * 6 / 100) {
-                    if (has_eng) hp2_engine_mix(&eng, drv[0].rpm, drv[0].load, 0.6f, mixbuf, 512, 44100);
+                    if (has_eng) hp2_engine_mix(&eng, drv[0].rpm, drv[0].load, 0.6f * (float)cfg.volume[HP2_VOL_ENGINE] / 80.0f, mixbuf, 512, 44100);
                     else memset(mixbuf, 0, sizeof mixbuf);
                     if (has_music) {
                         static int16_t mus[2 * 512];
