@@ -294,6 +294,9 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, SDL_Renderer *r, in
 
 int main(int argc, char **argv)
 {
+    int open_all = 0;
+    char prog_path[1100];
+    static hp2_progress progress;
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     const char *trackprog = NULL, *race_args[RACE_ARGS + 1];
     char prog[1024], result_path[1100], race_buf[RACE_ARGS][32];
@@ -326,6 +329,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--options")) start_options = 1;
         else if (!strcmp(argv[i], "--songbox") && i + 1 < argc) shot_song = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
+        else if (!strcmp(argv[i], "--open")) open_all = 1;
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
         else if (!strcmp(argv[i], "--fit") && i + 1 < argc) {
             const char *s = argv[++i];
@@ -336,7 +340,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--hp2track") && i + 1 < argc) trackprog = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
-                            "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--config PATH] [--size WxH]\n"
+                            "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--config PATH] [--size WxH] [--open]\n"
                             "       [--fit fit|stretch|expand]\n"
                             "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back,help] [--hp2track PATH]\n", argv[0]);
             return 2;
@@ -356,10 +360,14 @@ int main(int argc, char **argv)
     }
     if (!f.lang || hp2_lang_open(&lang, f.lang, f.lang_len) != 0) memset(&lang, 0, sizeof lang);
     hp2_settings_load(&cfg, config);       /* 1 = read; defaults either way first */
+    snprintf(prog_path, sizeof prog_path, "%s.save", config);
+    if (shot) open_all = 1;                /* screenshots show every event open */
+    if (!open_all) hp2_progress_load(&progress, prog_path);
     if (hp2_femenu_init(&menu, &layout, lang.count ? &lang : NULL, &cfg) != 0) {
         fprintf(stderr, "FRONTB.BUN lacks the OPTIONS / DISPLAY_OPTIONS screens\n");
         return 1;
     }
+    if (!open_all) menu.prog = &progress;
     if (hp2_tree_parse(f.frontb, f.frontb_len, trees) == 2) menu.trees = trees;   /* the career events */
     if (!start_options && !hp2_femenu_start(&menu, HP2_FEM_TITLE)) hp2_femenu_start(&menu, HP2_FEM_MAIN);
     menu.seed = (uint32_t)time(NULL) ^ (uint32_t)SDL_GetTicks() * 2654435761u;   /* Quick Race's dice */
@@ -549,6 +557,7 @@ int main(int argc, char **argv)
                         SDL_HideWindow(win);
                         if (run_race(race_args) != 0) fprintf(stderr, "could not run %s (give --hp2track PATH)\n", prog);
                         take_result(&menu, result_path);
+                        if (menu.prog_dirty) { hp2_progress_save(&progress, prog_path); menu.prog_dirty = 0; }
                         SDL_ShowWindow(win);
                         SDL_RaiseWindow(win);
                         if (audio) SDL_PauseAudioDevice(audio, 0);

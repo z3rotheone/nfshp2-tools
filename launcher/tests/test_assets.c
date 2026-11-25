@@ -1562,6 +1562,36 @@ static void test_real(const char *fb, const char *gb, const char *lf, const char
     CHECK(real_trees[0].ev[27].nlinks == 4 && real_trees[0].ev[27].links[0] == 22 && real_trees[0].ev[27].links[3] == 25,
           "Championship event 28 needs events 22, 23, 24 and 25");
     CHECK(real_trees[1].ev[31].depth == 9 && real_trees[1].ev[0].depth == 0 && real_trees[1].ev[10].nlinks == 3, "Hot Pursuit: depths 0 to 9, event 11 has three links");
+    {   /* progress: an event opens when a link's condition has been met */
+        static hp2_progress pg;
+        char pbuf[2048];
+        hp2_progress q;
+        int ev, locked = 0, opened = 0, first = 0;
+        hp2_progress_reset(&pg);
+        CHECK(hp2_progress_open(&pg, 0, &real_trees[0], 1), "progress: event 1 is open at the start");
+        for (ev = 2; ev <= 32; ev++) if (!hp2_progress_open(&pg, 0, &real_trees[0], ev)) locked++;
+        CHECK(locked > 20, "progress: most Championship events start locked");
+        for (ev = 2; ev <= 32 && !first; ev++) {
+            const hp2_tree_event *e = &real_trees[0].ev[ev - 1];
+            if (e->nlinks == 1 && e->links[0] == 1) first = ev;
+        }
+        CHECK(first > 0, "progress: some event hangs off event 1");
+        if (first) {
+            const hp2_tree_cond *c = &real_trees[0].ev[first - 1].need[0];
+            int pl = c->kind == 1 ? (int)c->value : 8;
+            long tk = c->kind == 2 ? (long)c->value : 0;
+            CHECK(!hp2_progress_open(&pg, 0, &real_trees[0], first), "progress: it is locked before event 1");
+            hp2_progress_record(&pg, 0, 1, pl + 1 > 8 ? 8 : pl + 1, tk ? tk + 1 : 0);
+            if (c->kind) CHECK(!hp2_progress_open(&pg, 0, &real_trees[0], first), "progress: a worse result leaves it locked");
+            hp2_progress_record(&pg, 0, 1, pl, tk);
+            opened = hp2_progress_open(&pg, 0, &real_trees[0], first);
+            CHECK(opened, "progress: meeting the link's condition opens it");
+            CHECK(!hp2_progress_open(&pg, 1, &real_trees[1], first) || real_trees[1].ev[first - 1].nlinks != 1,
+                  "progress: the two careers are kept apart");
+        }
+        CHECK(hp2_progress_write(&pg, pbuf, sizeof pbuf) < sizeof pbuf && hp2_progress_parse(&q, pbuf) == 1 &&
+              q.played[0][0] && q.place[0][0] == pg.place[0][0] && q.ticks[0][0] == pg.ticks[0][0], "progress: the save text round trips");
+    }
     {
         const hp2_tree_event *w2 = &real_trees[0].ev[1], *w9 = &real_trees[0].ev[8], *w30 = &real_trees[0].ev[29], *h1 = &real_trees[1].ev[0];
         CHECK(w2->race_type == HP2_RT_TIME_TRIAL && w2->ncars == 1 && w2->cars[0] == 43 && w2->nraces == 1 && w2->races[0].track == 32

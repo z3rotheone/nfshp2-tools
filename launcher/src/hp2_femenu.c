@@ -815,6 +815,7 @@ static int tree_input(hp2_femenu *m, hp2_fem_input in)
         if (!t || !t->present || m->tree_ev >= t->count || !m->carsel) return 0;
         e = &t->ev[m->tree_ev];
         if (e->ncars < 1) return 0;
+        if (m->prog && !hp2_progress_open(m->prog, m->tree_kind, t, m->tree_ev + 1)) return 0;   /* locked */
         m->ev_ncars = 0;
         for (k = 0; k < e->ncars && k < HP2_TREE_MAX_CARS; k++) m->ev_cars[m->ev_ncars++] = e->cars[k];
         m->ev_mode = 1;
@@ -1584,6 +1585,15 @@ static void chal_backdrop(hp2_femenu *m, list *l)
     }
 }
 
+/* An event row's grey: dim while locked, brighter once its objective is done. */
+static uint8_t ev_shade(const hp2_femenu *m, int ev)
+{
+    const hp2_tree *t = m->trees ? &m->trees[m->tree_kind] : NULL;
+    if (!m->prog || !t || ev >= t->count) return 0x50;
+    if (!hp2_progress_open(m->prog, m->tree_kind, t, ev + 1)) return 0x28;
+    return hp2_progress_complete(m->prog, m->tree_kind, &t->ev[ev]) ? 0x90 : 0x50;
+}
+
 static int tree_items(hp2_femenu *m, list *l)
 {
     const hp2_fe_screen *c = m->chal, *s = m->tree;
@@ -1604,14 +1614,14 @@ static int tree_items(hp2_femenu *m, list *l)
         it = push(l, row, num[k]);
         if (it) {
             it->w.x = EVL_NUM_X; it->w.y = y; it->w.align = HP2_FE_ALIGN_RIGHT; it->w.visible = 1;
-            if (on) memcpy(it->w.rgba, ORANGE, 4); else grey(it, 0x50);
+            if (on) memcpy(it->w.rgba, ORANGE, 4); else grey(it, ev_shade(m, ev));
         }
         it = push(l, row, title[k]);
         if (it) {
             size_t len = strlen(title[k]);
             float sc = len > 30 ? 0.8f * 30.0f / (float)len : 0.8f;    /* about 30 characters fit before the arrows */
             it->w.x = EVL_TXT_X; it->w.y = y + 4.0f + (0.8f - sc) * 20.0f; it->w.sx = it->w.sy = sc; it->w.visible = 1;
-            if (on) { memcpy(it->w.rgba, ORANGE, 4); sel_y = y; } else grey(it, 0x50);
+            if (on) { memcpy(it->w.rgba, ORANGE, 4); sel_y = y; } else grey(it, ev_shade(m, ev));
             it->clip = 1; it->clip_rect[0] = 141.0f; it->clip_rect[1] = y - 10.0f; it->clip_rect[2] = 499.0f; it->clip_rect[3] = EVL_PITCH + 10.0f;
         }
         if (band && !on && (it = push(l, band, NULL)) != NULL) it->w.y = band->y + EVL_PITCH * (float)k;   /* the chosen row's band lifts */
@@ -1786,6 +1796,10 @@ int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r)
         met = t2 > 0 && (uint32_t)t2 <= g->value;
     }
     if (g && g->kind) snprintf(m->result[1], sizeof m->result[1], "%s", met ? "Objective complete" : "Objective not met");
+    if (m->prog && e && decided) {      /* kept: best place, best time (the whole race for Delivery and Pursuit, else the best lap) */
+        int whole = e->race_type == HP2_RT_DELIVERY || e->race_type == HP2_RT_PURSUIT;
+        if (hp2_progress_record(m->prog, m->go.tree_kind, m->go.event, place, whole ? r->ticks : r->best)) m->prog_dirty = 1;
+    }
     return met;
 }
 

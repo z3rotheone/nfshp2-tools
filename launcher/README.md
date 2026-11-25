@@ -121,6 +121,17 @@ controller it finds, prints which pad it detected and the bindings in that
 pad's own button names, then shows live steering, throttle, brake and the
 actions currently held. Escape or Ctrl+C to quit.
 
+### Progress and unlocks
+
+hp2fe keeps what you have done in `<config>.save` (default `hp2.ini.save`): per
+event the best place and best time, for each of the two event trees. An event
+is open when it has no prerequisite or when the condition of one of its links
+(34A03) has been met by what is kept; locked events are dimmed in the list and
+cannot be started, finished ones are brighter. The "any one link" rule is the
+port's own stand-in, since the game's rule is not decoded. Race Knockouts and
+Tournaments are kept when the whole series is decided. `--open` opens every
+event and keeps nothing; screenshots (`--shot`) always do.
+
 ### Races from the menus
 
 `hp2fe --disc DIR` starts races in `hp2track` (beside it, or `--hp2track

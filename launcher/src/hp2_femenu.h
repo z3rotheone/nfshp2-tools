@@ -80,6 +80,7 @@
 #include "hp2_menu.h"
 #include "hp2_tree.h"
 #include "hp2_race.h"
+#include "hp2_progress.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -190,6 +191,8 @@ typedef struct {
     int                  first, rows;   /* settings: the page's hp2_menu rows */
     const hp2_lang      *lang;      /* may be NULL: placeholder text is used */
     hp2_settings        *cfg;
+    hp2_progress        *prog;      /* what is done in the event trees; NULL = every event open, nothing kept */
+    int                  prog_dirty;/* prog changed: the caller saves it */
     hp2_fem_screen       screen;
     int                  sel;       /* OPTIONS: row 1..n; settings: hp2_row */
     int                  options_sel;
