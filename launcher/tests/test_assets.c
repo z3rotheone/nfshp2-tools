@@ -1142,6 +1142,15 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
         CHECK(m.screen == HP2_FEM_TREE && m.tree_ev == 0 && m.tree_scroll == 0, "opened again: on event 1");
         m.trees = NULL;
         CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == 0 && m.screen == HP2_FEM_TREE, "no event data: accept does nothing");
+        {   /* a fresh save: Quick Race still has cars and courses to pick */
+            hp2_progress fresh;
+            hp2_progress_reset(&fresh);
+            m.trees = real_trees;
+            m.prog = &fresh;
+            printf("fresh save: %d cars, %d courses open\n", hp2_femenu_open_cars(&m), hp2_femenu_open_tracks(&m));
+            CHECK(hp2_femenu_open_cars(&m) >= 1 && hp2_femenu_open_tracks(&m) >= 1, "a fresh save has a car and a course open");
+            m.prog = NULL;
+        }
         m.trees = real_trees;
         CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_REDRAW && m.screen == HP2_FEM_SELECT_CAR && m.ev_mode && m.ev_ncars == 1,
               "accept on event 1: car select with its one car");

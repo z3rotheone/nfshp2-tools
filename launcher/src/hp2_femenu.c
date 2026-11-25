@@ -307,8 +307,9 @@ static const struct { const char *db; uint32_t sid; const char *own; } MORE_NAME
 /* Cars and courses are won as events' rewards. One that no event gives is
  * there from the start; one that some event gives is open once it is earned
  * (without a progress record everything is open). kind 0 car (by its car
- * database name), 1 course (by its number). */
-static int reward_open(const hp2_femenu *m, int kind, const char *car, int num)
+ * database name), 1 course (by its number; the course itself, its "II" way
+ * round is a reward of its own). */
+static int reward_open(const hp2_femenu *m, int kind, const char *car, int num, int ii)
 {
     int t, k, j, given = 0;
     if (!m->prog || !m->trees) return 1;
@@ -319,7 +320,7 @@ static int reward_open(const hp2_femenu *m, int kind, const char *car, int num)
             for (j = 0; j < e->nrewards; j++) {
                 const hp2_tree_reward *r = &e->rewards[j];
                 if (r->kind != kind) continue;
-                if (kind == 0 ? !(r->id >= 0 && r->id < CARDB_N && !strcmp(CARDB[r->id], car)) : r->id != num) continue;
+                if (kind == 0 ? !(r->id >= 0 && r->id < CARDB_N && !strcmp(CARDB[r->id], car)) : r->id != num || (r->ii != 0) != (ii != 0)) continue;
                 given = 1;
                 if (hp2_progress_reward_got(m->prog, t, e, r)) return 1;
             }
@@ -327,7 +328,7 @@ static int reward_open(const hp2_femenu *m, int kind, const char *car, int num)
     }
     return !given;
 }
-static int car_open(const hp2_femenu *m, int c) { return reward_open(m, 0, CARS[c % HP2_CARS].thumb, 0); }
+static int car_open(const hp2_femenu *m, int c) { return reward_open(m, 0, CARS[c % HP2_CARS].thumb, 0, 0); }
 
 static int step_car(const hp2_femenu *m, int k, int dir)
 {
@@ -455,7 +456,7 @@ static const track_entry TRACKS[HP2_TRACKS] = {
     { 42, 5.67f }, { 43, 10.98f }, { 61, 5.50f }, { 62, 7.50f }, { 63, 13.25f },
 };
 
-static int track_open(const hp2_femenu *m, int k) { return reward_open(m, 1, NULL, TRACKS[k % HP2_TRACKS].num); }
+static int track_open(const hp2_femenu *m, int k) { return reward_open(m, 1, NULL, TRACKS[k % HP2_TRACKS].num, 0); }
 
 /* The next open course from k, stepping dir (+1 / -1); k itself if none is. */
 static int step_track(const hp2_femenu *m, int k, int dir)
@@ -1820,6 +1821,9 @@ static int series_result(hp2_femenu *m, const hp2_tree_event *e, const hp2_race_
     snprintf(m->result[0], sizeof m->result[0], "Tournament over: %s with %d points", ord_name(m, sp), s->points[0]);
     return sp;
 }
+
+int hp2_femenu_open_cars(const hp2_femenu *m) { int c, n = 0; for (c = 0; c < HP2_CARS; c++) n += car_open(m, c); return n; }
+int hp2_femenu_open_tracks(const hp2_femenu *m) { int c, n = 0; for (c = 0; c < HP2_TRACKS; c++) n += track_open(m, c); return n; }
 
 int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r)
 {

@@ -263,6 +263,9 @@ int hp2_femenu_songbox(const hp2_fe_screen *box, const hp2_jb_track *t, char *qu
  * show on the event's details until the next race. Returns 1 when the
  * objective was met, 0 when not or when the event has none or the race was
  * not finished. */
+/* How many of the 23 cars / 15 courses Quick Race offers now. */
+int hp2_femenu_open_cars(const hp2_femenu *m);
+int hp2_femenu_open_tracks(const hp2_femenu *m);
 int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r);
 
 /* The command-line arguments that start go's race in hp2track (after the
