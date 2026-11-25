@@ -809,7 +809,7 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
 int main(int argc, char **argv)
 {
     const char *disc = NULL, *scen = NULL, *texf[4], *shot = NULL, *cam = NULL, *carname = "911TURBO";
-    const char *gbf = NULL, *ctf = NULL, *geof = NULL, *sim = NULL;
+    const char *gbf = NULL, *ctf = NULL, *geof = NULL, *sim = NULL, *resultf = NULL;
     int ntexf = 0, track = 0, W = 1280, H = 720, i, quit = 0, fog = 1, grab = 0, shots = 0;
     int want_car = 1, driving = 0, skin = 1, have_zdir = 0, titled = 0, laps = 3, sound = 1;
     const char *igf = NULL, *htf = NULL, *mshf = NULL, *msbf = NULL;
@@ -859,6 +859,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--geometry") && i + 1 < argc) geof = argv[++i];
         else if (!strcmp(argv[i], "--sim") && i + 1 < argc) sim = argv[++i];
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--result") && i + 1 < argc) resultf = argv[++i];
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
@@ -1229,6 +1230,13 @@ int main(int argc, char **argv)
         SDL_GL_GetDrawableSize(win, &dw, &dh);
         draw(&w, &c, dw, dh, fog, w.has_car ? dptr : NULL);
         SDL_GL_SwapWindow(win);
+    }
+    if (resultf && w.has_car) {      /* how the race ended, for the menus */
+        char txt[160];
+        int n = hp2_race_result_format(&races[0], w.ncv > 1 ? player_place(races, w.ncv) : 0, txt, sizeof txt);
+        FILE *rf = n > 0 ? fopen(resultf, "wb") : NULL;
+        if (rf) { fwrite(txt, 1, (size_t)n, rf); fclose(rf); }
+        else fprintf(stderr, "could not write %s\n", resultf);
     }
     if (audio) SDL_CloseAudioDevice(audio);
     if (has_eng) hp2_engine_free(&eng);

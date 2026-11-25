@@ -200,3 +200,44 @@ void hp2_race_time(float t, char *buf, int size)
     if (cs < 0) cs = 0;
     snprintf(buf, (size_t)size, "%d:%02d.%02d", cs / 6000, cs / 100 % 60, cs % 100);
 }
+
+int hp2_race_result_format(const hp2_race *r, int place, char *out, size_t cap)
+{
+    long ticks = 0, best = 0;
+    int fin = r->state == HP2_RACE_FINISHED, i, n;
+    if (fin) {
+        float total = 0;
+        for (i = 0; i < r->laps && i < HP2_RACE_MAX_LAPS; i++) total += r->lap_time[i];
+        ticks = (long)(total * 4000.0f + 0.5f);
+        best = (long)(r->best * 4000.0f + 0.5f);
+    }
+    n = snprintf(out, cap, "hp2result 1\nfinished %d\nplace %d\nticks %ld\nbest %ld\n", fin, place < 0 ? 0 : place, ticks, best);
+    return n < 0 || (size_t)n >= cap ? -1 : n;
+}
+
+int hp2_race_result_parse(const char *text, hp2_race_result *out)
+{
+    const char *p = text;
+    int ok = 0;
+    memset(out, 0, sizeof *out);
+    if (!text) return 0;
+    while (*p) {
+        const char *e = strchr(p, '\n');
+        size_t n = e ? (size_t)(e - p) : strlen(p);
+        char line[64];
+        long v;
+        if (n < sizeof line) {
+            memcpy(line, p, n);
+            line[n] = 0;
+            if (!strcmp(line, "hp2result 1")) ok = 1;
+            else if (sscanf(line, "finished %ld", &v) == 1) out->finished = v != 0;
+            else if (sscanf(line, "place %ld", &v) == 1) out->place = v < 0 || v > 99 ? 0 : (int)v;
+            else if (sscanf(line, "ticks %ld", &v) == 1) out->ticks = v < 0 ? 0 : v;
+            else if (sscanf(line, "best %ld", &v) == 1) out->best = v < 0 ? 0 : v;
+        }
+        if (!e) break;
+        p = e + 1;
+    }
+    if (!ok) memset(out, 0, sizeof *out);
+    return ok;
+}

@@ -43,6 +43,7 @@
 #include "hp2_fedraw.h"
 #include "hp2_input.h"
 #include "hp2_jbplay.h"
+#include "hp2_race.h"
 #include "hp2_femenu.h"
 #include "hp2_font.h"
 #include "hp2_lang.h"
@@ -133,9 +134,9 @@ static void track_path(char *out, size_t cap, const char *given, const char *arg
  * DIR, the race. Returns the argument count (args NULL-terminated). */
 #define RACE_ARGS 48
 static int race_command(const hp2_femenu *m, const char *prog, const char *disc, int W, int H,
-                        char buf[][32], const char **args)
+                        const char *result, char buf[][32], const char **args)
 {
-    int n = 0, k, r = hp2_femenu_race_args(&m->go, buf, RACE_ARGS - 6);
+    int n = 0, k, r = hp2_femenu_race_args(&m->go, buf, RACE_ARGS - 8);
     args[n++] = prog;
     args[n++] = "--disc";
     args[n++] = disc;
@@ -144,6 +145,7 @@ static int race_command(const hp2_femenu *m, const char *prog, const char *disc,
     snprintf(buf[r + 1], 32, "%dx%d", W, H);
     args[n++] = buf[r];
     args[n++] = buf[r + 1];
+    if (result) { args[n++] = "--result"; args[n++] = result; }
     args[n] = NULL;
     return n;
 }
@@ -154,6 +156,25 @@ static void print_command(const char *const *args)
     printf("race:");
     for (k = 0; args[k]; k++) printf(" %s", args[k]);
     printf("\n");
+    fflush(stdout);
+}
+
+/* Reads the file hp2track wrote when it closed, scores it (the event's
+ * objective) and removes it. */
+static void take_result(hp2_femenu *m, const char *path)
+{
+    char txt[256];
+    hp2_race_result r;
+    FILE *f = fopen(path, "rb");
+    size_t n;
+    if (!f) return;
+    n = fread(txt, 1, sizeof txt - 1, f);
+    fclose(f);
+    remove(path);
+    txt[n] = 0;
+    if (!hp2_race_result_parse(txt, &r)) return;
+    printf("result: finished %d place %d ticks %ld best %ld objective %s\n", r.finished, r.place, r.ticks, r.best,
+           hp2_femenu_result(m, &r) ? "met" : "not met");
     fflush(stdout);
 }
 
@@ -275,7 +296,7 @@ int main(int argc, char **argv)
 {
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     const char *trackprog = NULL, *race_args[RACE_ARGS + 1];
-    char prog[1024], race_buf[RACE_ARGS][32];
+    char prog[1024], result_path[1100], race_buf[RACE_ARGS][32];
     static hp2_jukebox jb;
     static hp2_tree trees[2];
     char *loose[3] = { NULL, NULL, NULL };
@@ -363,7 +384,7 @@ int main(int argc, char **argv)
                 int res = hp2_femenu_input(&menu, in);
                 dirty |= res & HP2_FEM_CHANGED;
                 if (res & HP2_FEM_RACE) {   /* scripted: say what would run */
-                    race_command(&menu, "hp2track", disc ? disc : "DIR", W, H, race_buf, race_args);
+                    race_command(&menu, "hp2track", disc ? disc : "DIR", W, H, NULL, race_buf, race_args);
                     print_command(race_args);
                 }
             }
@@ -516,14 +537,18 @@ int main(int argc, char **argv)
                      * hidden and their music paused until it closes */
                     int ww, wh;
                     SDL_GetWindowSize(win, &ww, &wh);
-                    race_command(&menu, prog, disc ? disc : "", ww, wh, race_buf, race_args);
+                    snprintf(result_path, sizeof result_path, "%s.race", config);
+                    race_command(&menu, prog, disc ? disc : "", ww, wh, result_path, race_buf, race_args);
                     print_command(race_args);
                     if (!disc) {
                         fprintf(stderr, "a race needs your disc: start hp2fe with --disc\n");
                     } else {
                         if (audio) SDL_PauseAudioDevice(audio, 1);
+                        hp2_femenu_result(&menu, NULL);        /* the last race is forgotten */
+                        remove(result_path);
                         SDL_HideWindow(win);
                         if (run_race(race_args) != 0) fprintf(stderr, "could not run %s (give --hp2track PATH)\n", prog);
+                        take_result(&menu, result_path);
                         SDL_ShowWindow(win);
                         SDL_RaiseWindow(win);
                         if (audio) SDL_PauseAudioDevice(audio, 0);

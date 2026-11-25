@@ -139,6 +139,16 @@ closes. Two ways in:
   skill 2, 5 or 8); Quick Race uses a full grid of seven random cars, a Free
   Run none.
 
+**The result.** When the race window closes, `hp2track` leaves how it
+ended (`--result FILE`: finished or not, your place, total time and best lap
+in the game's 4000 ticks a second) beside `hp2.ini` as `hp2.ini.race`; `hp2fe`
+reads it, deletes it and shows it on the event's details: "You finished 2nd,
+1:23.00" and, for an event, "Objective complete" or "Objective not met".
+The objective is the event's own (34A03): a place at or better than the
+given one, or a time: the whole race for a Delivery, the best lap for the
+others. A Pursuit's goal is never met until there are cops. A race closed
+before the finish shows nothing. Nothing is kept: no unlocks or points.
+
 `--keys` (scripted inputs) prints the race's command line instead, e.g.
 `race: hp2track --disc DIR --track 21 --laps 2 --car OPEL --skin 1
 --opponent OPEL:5 --opponent TS50:4 --opponent CL55AMG:3`.

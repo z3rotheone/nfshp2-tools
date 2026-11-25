@@ -1182,6 +1182,25 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
             for (k2 = 0; ok2 && k2 < m.go.nopp; k2++) ok2 = m.go.opp_skill[k2] == e4->opponents[k2].skill;
             CHECK(ok2, "its track, laps, direction and opponents are the event's own");
         }
+        {   /* a race of event 4 ("Finish 2nd or better") ends: place, objective */
+            hp2_race_result rr = { 1, 2, 4000L * 83, 4000L * 83 };
+            int met2, n2;
+            hp2_fe_item it2[160];
+            met2 = hp2_femenu_result(&m, &rr);
+            n2 = hp2_femenu_items(&m, it2, 160);
+            CHECK(met2 == 1 && find_text(it2, n2, "You finished 2nd, 1:23.00") == 1 && find_text(it2, n2, "Objective complete") == 1,
+                  "2nd in event 4: the finish and the objective met are on the details");
+            rr.place = 3;
+            met2 = hp2_femenu_result(&m, &rr);
+            n2 = hp2_femenu_items(&m, it2, 160);
+            CHECK(met2 == 0 && find_text(it2, n2, "You finished 3rd, 1:23.00") == 1 && find_text(it2, n2, "Objective not met") == 1
+                  && find_text(it2, n2, "Objective complete") == 0, "3rd: not met");
+            rr.finished = 0;
+            met2 = hp2_femenu_result(&m, &rr);
+            n2 = hp2_femenu_items(&m, it2, 160);
+            CHECK(met2 == 0 && !m.result[0][0] && !m.result[1][0] && find_text(it2, n2, "Objective not met") == 0,
+                  "a race left unfinished leaves no result lines");
+        }
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_SELECT_CAR && m.car_popup == 2 && m.ev_mode, "back: Handling again");
         hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK);
@@ -1853,6 +1872,21 @@ static void test_race(void)
     CHECK(r.state == HP2_RACE_FINISHED && r.clock > 24 && r.clock < 26, "finished at %g s", r.clock);
     hp2_race_time(83.456f, buf, sizeof buf);
     CHECK(!strcmp(buf, "1:23.46"), "time %s", buf);
+    {   /* how a race ended: written by hp2track, read back by the menus */
+        char txt[160];
+        hp2_race_result rr;
+        int n = hp2_race_result_format(&r, 3, txt, sizeof txt);
+        CHECK(n > 0 && hp2_race_result_parse(txt, &rr) && rr.finished == 1 && rr.place == 3
+              && rr.ticks == (long)(r.lap_time[0] * 4000.0f + 0.5f) && rr.best == rr.ticks,
+              "result text: finished, 3rd, %ld ticks", rr.ticks);
+        r.state = HP2_RACE_RUNNING;
+        hp2_race_result_format(&r, 0, txt, sizeof txt);
+        CHECK(hp2_race_result_parse(txt, &rr) && !rr.finished && !rr.place && !rr.ticks && !rr.best, "unfinished: no times");
+        CHECK(!hp2_race_result_parse("place 2\nticks 5\n", &rr) && !rr.place && !rr.ticks, "no header: not a result");
+        CHECK(!hp2_race_result_parse(NULL, &rr) && hp2_race_result_format(&r, 1, txt, 8) < 0, "NULL and a short buffer are safe");
+        hp2_race_result_parse("hp2result 1\nfinished 1\nplace 500\nticks -4\nbest zz\nstuff\n", &rr);
+        CHECK(rr.finished == 1 && rr.place == 0 && rr.ticks == 0 && rr.best == 0, "out-of-range values are dropped");
+    }
 
     /* the route as a curve through its points: on the square it bulges
      * 12.5 m out between corners (Catmull-Rom) */

@@ -79,6 +79,7 @@
 #include "hp2_lang.h"
 #include "hp2_menu.h"
 #include "hp2_tree.h"
+#include "hp2_race.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -192,6 +193,7 @@ typedef struct {
     int                  capture;   /* bind row waiting for a button press, or -1 */
     int                  changed_song;  /* song whose status the last input changed, or -1 */
     char                 help[96];
+    char                 result[2][96];  /* the last race, on the event's details: how you finished, the objective */
 } hp2_femenu;
 
 /* -1 when the layout lacks OPTIONS or DISPLAY_OPTIONS. Starts on OPTIONS;
@@ -235,6 +237,15 @@ hp2_play hp2_femenu_play(const hp2_femenu *m, int song);
 #define HP2_SONGBOX_LINE  "NFS:HP2 Remixx"
 int hp2_femenu_songbox(const hp2_fe_screen *box, const hp2_jb_track *t, char *quoted, size_t qcap,
                        hp2_fe_item *items, int cap);
+
+/* Takes how the race m->go started ended (hp2track's --result file, parsed
+ * by hp2_race_result_parse). An event's objective is checked: place <= value,
+ * or a time (a Delivery counts the whole race, other events the best lap;
+ * a Pursuit has no cops here, so its goal is never met). The two lines
+ * show on the event's details until the next race. Returns 1 when the
+ * objective was met, 0 when not or when the event has none or the race was
+ * not finished. */
+int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r);
 
 /* The command-line arguments that start go's race in hp2track (after the
  * program name and --disc DIR): --track, --reverse, --laps, --car, --skin,

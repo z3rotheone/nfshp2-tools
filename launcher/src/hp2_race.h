@@ -14,6 +14,8 @@
 #ifndef HP2_RACE_H
 #define HP2_RACE_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -63,6 +65,18 @@ void hp2_race_point(const hp2_race *r, float progress, float xy[2], float dir[2]
 
 /* "1:23.45" (minutes, seconds, hundredths) into buf. */
 void hp2_race_time(float t, char *buf, int size);
+
+/* How a race ended, as hp2track hands it to the menus (--result FILE): a
+ * few "key value" lines. Times are in the game's ticks, 4000 a second.
+ * place 0 = no opponents; ticks and best are 0 unless finished. */
+typedef struct { int finished, place; long ticks, best; } hp2_race_result;
+
+/* Writes the text for race r (the player) and the player's place; returns
+ * its length, or -1 when cap is too small. */
+int hp2_race_result_format(const hp2_race *r, int place, char *out, size_t cap);
+/* Reads that text back. Returns 1 when it is a result file, else 0 and
+ * *out is zeroed. Unknown lines are ignored. */
+int hp2_race_result_parse(const char *text, hp2_race_result *out);
 
 #ifdef __cplusplus
 }

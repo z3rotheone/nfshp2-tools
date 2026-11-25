@@ -1650,6 +1650,33 @@ static void objective(const hp2_femenu *m, const hp2_tree_event *e, char *out, s
     }
 }
 
+static void result_time(long ticks, char *out, size_t cap)
+{
+    long cs = ticks * 100 / HP2_TREE_TICKS;
+    snprintf(out, cap, "%ld:%02ld.%02ld", cs / 6000, cs / 100 % 60, cs % 100);
+}
+
+int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r)
+{
+    const hp2_tree *t = m->trees && m->go.event > 0 ? &m->trees[m->go.tree_kind & 1] : NULL;
+    const hp2_tree_event *e = t && m->go.event <= t->count ? &t->ev[m->go.event - 1] : NULL;
+    const hp2_tree_cond *g = e ? &e->target : NULL;
+    char tm[24];
+    int met = 0;
+    m->result[0][0] = m->result[1][0] = 0;
+    if (!r || !r->finished) return 0;
+    result_time(r->ticks, tm, sizeof tm);
+    if (r->place >= 1 && r->place <= 8)
+        snprintf(m->result[0], sizeof m->result[0], "You finished %s, %s", lang_or(m, 61000u + (uint32_t)r->place, "1st"), tm);
+    else
+        snprintf(m->result[0], sizeof m->result[0], "Race time %s", tm);
+    if (g && g->kind == 1) met = r->place >= 1 && (uint32_t)r->place <= g->value;
+    else if (g && g->kind == 2 && e->race_type != HP2_RT_PURSUIT)
+        met = (uint32_t)(e->race_type == HP2_RT_DELIVERY ? r->ticks : r->best) <= g->value && (e->race_type == HP2_RT_DELIVERY ? r->ticks : r->best) > 0;
+    if (g && g->kind) snprintf(m->result[1], sizeof m->result[1], "%s", met ? "Objective complete" : "Objective not met");
+    return met;
+}
+
 /* The event's details on the game's event information panel (BLURB_BOX,
  * labels and lines in its fonts): the objective, the tracks, laps,
  * opponents, the car chosen and the reward; the bar below shows the
@@ -1664,7 +1691,7 @@ static int evinfo_items(hp2_femenu *m, list *l)
     static const char *labels[5];
     const char *values[5];
     hp2_fe_item *it;
-    int k;
+    int k, has_result = m->result[0][0] != 0;
     chal_backdrop(m, l);
     if (!s || !e || !lab || !val) return l->n;
     it = push(l, named(s, "BLURB_BOX"), NULL);
@@ -1710,7 +1737,7 @@ static int evinfo_items(hp2_femenu *m, list *l)
         it->w.y = 104.0f; it->w.sx *= sc; it->w.sy *= sc; it->w.visible = 1;
     }
     for (k = 0; k < 5; k++) {
-        float y = 148.0f + 36.0f * (float)k;
+        float y = has_result ? 140.0f + 28.0f * (float)k : 148.0f + 36.0f * (float)k;   /* closer together to leave room for the result */
         it = push(l, lab, labels[k]);
         if (it) { it->w.y = y; it->w.visible = 1; }
         it = push(l, val, values[k] ? values[k] : "");
@@ -1720,6 +1747,11 @@ static int evinfo_items(hp2_femenu *m, list *l)
             it->w.x = 290.0f; it->w.y = y + 4.0f + (1.0f - sc) * 10.0f; it->w.sx *= sc; it->w.sy *= sc; it->w.visible = 1;
             it->clip = 1; it->clip_rect[0] = 140.0f; it->clip_rect[1] = y - 8.0f; it->clip_rect[2] = 478.0f; it->clip_rect[3] = 44.0f;
         }
+    }
+    for (k = 0; k < 2; k++) {       /* the last race of this event */
+        if (!m->result[k][0]) continue;
+        it = push(l, lab, m->result[k]);
+        if (it) { it->w.y = 284.0f + 26.0f * (float)k; it->w.visible = 1; }
     }
     if (m->chal) help_bar(m, l, m->chal);
     return l->n;
