@@ -874,7 +874,7 @@ int main(int argc, char **argv)
     hp2_ai ai[HP2_MAX_CARS];
     const char *oppname[HP2_MAX_CARS], *oppfile[HP2_MAX_CARS];
     int oskill[HP2_MAX_CARS];
-    int nopp = -1, nopp_named = 0, oppskill[HP2_MAX_CARS], oppskin[HP2_MAX_CARS], reverse = 0;
+    int nopp = -1, nopp_named = 0, oppskill[HP2_MAX_CARS], oppskin[HP2_MAX_CARS], reverse = 0, scene_flags = 0;
     hp2_carrec recs[HP2_CARDB_MAX];
     files f;
     hp2_texset ts;
@@ -912,6 +912,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
+        else if (!strcmp(argv[i], "--no-scenery-shadows")) scene_flags = HP2_SCENE_NO_SHADOWS;
         else if (!strcmp(argv[i], "--opponents") && i + 1 < argc) nopp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--opponent") && i + 1 < argc && nopp_named < HP2_MAX_CARS - 1) {
             /* NAME[:SKILL[:SKIN]][=GEOMETRY.BIN]: skill 0-9 as the game's
@@ -971,7 +972,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "give --disc DIR --track NN (DIR = your disc's NFSHP2 folder), or --scenery FILE\n");
         return 2;
     }
-    if (hp2_scene_build(&w.sc, f.scen, f.scen_len, 0) != 0) { fprintf(stderr, "no track scenery in that file\n"); return 1; }
+    if (hp2_scene_build(&w.sc, f.scen, f.scen_len, scene_flags) != 0) { fprintf(stderr, "no track scenery in that file\n"); return 1; }
     if (reverse) hp2_scene_reverse_route(&w.sc);   /* the course's II: the other way round */
     for (i = 0; i < f.ntex; i++)
         if (hp2_tex_scan(&ts, f.tex[i], f.tex_len[i]) < 0) { fprintf(stderr, "out of memory\n"); return 1; }

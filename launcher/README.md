@@ -519,3 +519,5 @@ In Challenge mode a plain Knockout (race type 2) is a series, as the tree events
 Back from a race with the objective met, hp2fe plays the game's RewardView sound (menu sound volume).
 
 **Other way round.** In the lap popup on the course screen, Up/Down switches the course to its "II" direction once that is won (the port's own control; the game's is not decoded). The strip shows the R thumbnail and the race gets --reverse. Choosing another course resets it.
+
+**Scenery shadows.** `hp2track --no-scenery-shadows` skips the scenery's own shadow pieces (instance kind 1), to tell them apart from other road artefacts.
