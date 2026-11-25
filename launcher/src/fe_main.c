@@ -189,6 +189,7 @@ static void take_result(hp2_femenu *m, const char *path)
     if (!hp2_race_result_parse(txt, &r)) return;
     printf("result: finished %d place %d ticks %ld best %ld objective %s\n", r.finished, r.place, r.ticks, r.best,
            hp2_femenu_result(m, &r) ? "met" : "not met");
+    if (m->result[0][0]) printf("        %s\n", m->result[0]);
     fflush(stdout);
 }
 

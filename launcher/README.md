@@ -511,3 +511,7 @@ The two launcher SDL files compile cleanly but have **never been run**, because 
 machine they were written on has no SDL. The first real run is the test: plug
 in a controller and check that the detected name and button labels match the
 pad in your hands.
+
+## Challenge Race Knockout
+
+In Challenge mode a plain Knockout (race type 2) is a series, as the tree events are: after each race the last car out is dropped and the rest race again. Setup "Tracks: Same" keeps the course; "Random" picks another open course each round. Coming last yourself ends the series, and the next Knockout starts afresh. The round-by-round elimination order is the port's own stand-in until the game's rule is decoded.

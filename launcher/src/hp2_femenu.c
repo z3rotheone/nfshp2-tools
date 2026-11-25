@@ -527,6 +527,36 @@ static void single_race(hp2_femenu *m)
     }
     g->nopp = n;
     if (!m->quick_mode && m->race_type == 3) g->race_type = HP2_RT_LAP_KNOCKOUT;   /* the Challenge's Lap Knockout */
+    if (!m->quick_mode && m->race_type == 2 && n >= 2) {     /* the Challenge's Race Knockout: a series, the last car out each race */
+        int alive_n = 0, o;
+        hp2_fem_race all = *g;
+        if (m->ser.done || m->ser.nrounds != -n) {           /* a fresh one (its size is kept as -n) */
+            series_reset(m);
+            m->ser.nrounds = -n;
+            for (o = n + 1; o <= HP2_FEM_MAX_OPP; o++) m->ser.alive[o] = 0;
+        }
+        g->nopp = 0;
+        for (o = 1; o <= n; o++) {
+            if (!m->ser.alive[o]) continue;
+            copy_name(g->opp[g->nopp], all.opp[o - 1]);
+            g->opp_skill[g->nopp] = all.opp_skill[o - 1];
+            g->opp_skin[g->nopp] = -1;
+            g->opp_id[g->nopp] = o;
+            g->nopp++;
+            alive_n++;
+        }
+        g->race_type = HP2_RT_KNOCKOUT;
+        g->round = m->ser.round;
+        if (m->ser.round > 0 && !m->setup_val[SU_TRACKS]) {   /* Random: another course each race */
+            int tries, t2 = m->track;
+            for (tries = 0; tries < 20; tries++) {
+                t2 = (int)(dice(m) % HP2_TRACKS);
+                if (track_open(m, t2)) break;
+            }
+            g->track = TRACKS[t2].num + (m->tod ? 3 : 0);
+        }
+        (void)alive_n;
+    }
 }
 
 static int track_input(hp2_femenu *m, hp2_fem_input in)
@@ -910,7 +940,7 @@ static int event_race(hp2_femenu *m)
     e = &t->ev[m->tree_ev];
     if (e->nraces < 1 || m->car < 0 || m->car >= m->ev_ncars || !(car = cardb_name(m->ev_cars[m->car]))) return 0;
     series = e->race_type == HP2_RT_TOURNAMENT || e->race_type == HP2_RT_KNOCKOUT;
-    if (!series || m->ser.done) series_reset(m);
+    if (!series || m->ser.done || m->ser.nrounds < 0) series_reset(m);   /* (a Challenge Knockout leaves nrounds below 0) */
     for (k = 0; k < e->nopponents && k < HP2_FEM_MAX_OPP; k++) if (cardb_name(e->opponents[k].car)) full++;
     for (k = full + 1; k <= HP2_FEM_MAX_OPP; k++) m->ser.alive[k] = 0;      /* cars the event has not */
     full = 0;
@@ -968,6 +998,7 @@ static int setup_input(hp2_femenu *m, hp2_fem_input in)
     case HP2_IN_ACCEPT:
         if (!m->carsel) return 0;
         m->setup_sel = m->sel;
+        m->ser.done = 1;                          /* a new pass through Customize starts a Knockout afresh */
         m->screen = HP2_FEM_SELECT_CAR;
         m->car_popup = 0;
         return HP2_FEM_REDRAW;
@@ -1612,6 +1643,11 @@ static int track_items(hp2_femenu *m, list *l)
         it = push(l, named(s, "DOWN_ARROW"), NULL);
         if (it) it->w.visible = 1;
     }
+    if (!m->lap_popup && m->result[0][0] && m->go.race_type == HP2_RT_KNOCKOUT && m->go.event == 0) {   /* the Knockout's last race */
+        const hp2_fe_widget *w = named(s, "POPUP_LINE_1");
+        it = push(l, w, m->result[0]);
+        if (it) { it->w.x = 320.0f; it->w.y = 70.0f; it->w.align = HP2_FE_ALIGN_CENTRE; it->w.visible = 1; memcpy(it->w.rgba, ORANGE, 4); }
+    }
     if (m->lap_popup) {
         static const char *pop[] = { "SELECTLAP_TOP", "SELECTLAP_BG", "SELECTLAP_TOPBAR", "SELECTLAP_LOWERBAR", "POPUP_LINE_1", "LAP_COUNT",
                                      "LAP_LEFT_ARROW", "LAP_RIGHT_ARROW" };
@@ -1789,13 +1825,13 @@ static int series_car_id(const hp2_femenu *m, int car)
 
 /* A Tournament or Race Knockout race ended; fills the two lines and returns
  * the player's final place when the event is decided, else 0. */
-static int series_result(hp2_femenu *m, const hp2_tree_event *e, const hp2_race_result *r)
+static int series_result(hp2_femenu *m, int race_type, const hp2_race_result *r)
 {
     int n = r->norder, k, pl = 0, sp = 0;
     hp2_fem_series *s = &m->ser;
     for (k = 0; k < n; k++) if (r->order[k] == 0) pl = k + 1;
     if (!pl) return 0;
-    if (e->race_type == HP2_RT_KNOCKOUT) {
+    if (race_type == HP2_RT_KNOCKOUT) {
         int last = series_car_id(m, r->order[n - 1]), left = 0;
         s->alive[last] = 0;
         for (k = 0; k <= HP2_FEM_MAX_OPP; k++) left += s->alive[k];
@@ -1857,8 +1893,9 @@ int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r)
     m->result[0][0] = m->result[1][0] = 0;
     if (!r || !r->finished) return 0;
     result_time(r->ticks, tm, sizeof tm);
-    if (e && (e->race_type == HP2_RT_TOURNAMENT || e->race_type == HP2_RT_KNOCKOUT) && r->norder >= 2) {
-        place = series_result(m, e, r);
+    if (((e && (e->race_type == HP2_RT_TOURNAMENT || e->race_type == HP2_RT_KNOCKOUT)) || (!e && m->go.race_type == HP2_RT_KNOCKOUT))
+        && r->norder >= 2) {
+        place = series_result(m, e ? e->race_type : HP2_RT_KNOCKOUT, r);
         decided = place > 0;
         if (!decided) return 0;
     } else if (e && e->race_type == HP2_RT_PURSUIT)

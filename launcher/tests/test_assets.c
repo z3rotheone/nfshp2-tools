@@ -1250,6 +1250,31 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
                   && !strcmp(m.result[1], "Objective not met"), "last in the first race: knocked out, 4th, not met");
             hp2_femenu_input(&m, HP2_IN_ACCEPT);
         }
+        {   /* the Challenge's Race Knockout: a series, the last car out each race */
+            static hp2_femenu tk;
+            hp2_race_result rr;
+            tk = m;
+            tk.prog = NULL; tk.quick_mode = 0; tk.race_type = 2; tk.setup_val[1] = 3; tk.car = 0; tk.ser.done = 1; tk.ser.nrounds = 0;
+            tk.screen = HP2_FEM_SELECT_TRACK; tk.lap_popup = 0; tk.laps = 2; tk.setup_val[7] = 1;
+            hp2_femenu_input(&tk, HP2_IN_ACCEPT);
+            CHECK(hp2_femenu_input(&tk, HP2_IN_ACCEPT) == (HP2_FEM_RACE | HP2_FEM_REDRAW) && tk.go.race_type == HP2_RT_KNOCKOUT && tk.go.nopp == 4
+                  && tk.go.opp_id[0] == 1 && tk.go.opp_id[3] == 4 && tk.go.event == 0, "Challenge Knockout: a series of four opponents");
+            memset(&rr, 0, sizeof rr);
+            rr.finished = 1; rr.place = 2; rr.norder = 5; rr.ticks = 1; rr.best = 1;
+            rr.order[0] = 1; rr.order[1] = 0; rr.order[2] = 2; rr.order[3] = 3; rr.order[4] = 4;
+            hp2_femenu_result(&tk, &rr);
+            CHECK(tk.ser.round == 1 && !tk.ser.done && !tk.ser.alive[4] && tk.ser.alive[3] && strstr(tk.result[0], "advance"), "the last car is out, you advance");
+            hp2_femenu_input(&tk, HP2_IN_ACCEPT);
+            hp2_femenu_input(&tk, HP2_IN_ACCEPT);
+            CHECK(tk.go.nopp == 3 && tk.go.opp_id[2] == 3, "the next race has the cars still in");
+            rr.norder = 4; rr.place = 4;
+            rr.order[0] = 1; rr.order[1] = 2; rr.order[2] = 3; rr.order[3] = 0;
+            hp2_femenu_result(&tk, &rr);
+            CHECK(tk.ser.done && strstr(tk.result[0], "knocked out"), "last yourself: knocked out, the series is over");
+            hp2_femenu_input(&tk, HP2_IN_ACCEPT);
+            hp2_femenu_input(&tk, HP2_IN_ACCEPT);
+            CHECK(tk.go.nopp == 4 && tk.ser.round == 0, "and the next one starts afresh");
+        }
         {   /* a Lap Knockout event asks hp2track for the knockout; a plain one does not */
             static hp2_femenu t3;
             char ab3[48][32];
