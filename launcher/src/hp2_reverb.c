@@ -120,11 +120,11 @@ void hp2_reverb_apply(hp2_reverb *r, float x, float y, int16_t *out, int frames)
             float *l = r->line[c];
             float d = l[r->pos[c]];
             sum += d;
-            l[r->pos[c]] = in * 0.5f + d * r->feedback;
+            l[r->pos[c]] = in * 0.8f + d * r->feedback;
             if (++r->pos[c] >= r->comb_len[c]) r->pos[c] = 0;
         }
         r->lp += (sum * 0.25f - r->lp) * 0.5f;                  /* darken the tail */
-        o = r->lp * r->level * 2.0f;
+        o = r->lp * r->level * 5.0f;      /* about 2.5 times the first setting, which was too faint */
         {   int a = out[2 * i] + (int)o, b = out[2 * i + 1] + (int)o;
             out[2 * i] = (int16_t)(a > 32767 ? 32767 : a < -32768 ? -32768 : a);
             out[2 * i + 1] = (int16_t)(b > 32767 ? 32767 : b < -32768 ? -32768 : b);
