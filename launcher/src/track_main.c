@@ -1225,7 +1225,11 @@ int main(int argc, char **argv)
            "Shift fast, Ctrl slow, wheel speed. F fog, R start, P print camera, F12 screenshot, Esc quit\n");
     /* the race's music: the jukebox songs set to On, at the Race Music volume */
     hp2_settings_defaults(&cfg);
-    if (config) hp2_settings_load(&cfg, config);
+    if (config) {
+        int got = hp2_settings_load(&cfg, config);
+        printf("settings: %s %s; volumes: race music %d, ambient %d, engine %d\n", config, got ? "read" : "NOT FOUND (defaults)",
+               cfg.volume[HP2_VOL_RACE_MUSIC], cfg.volume[HP2_VOL_AMBIENT], cfg.volume[HP2_VOL_ENGINE]);
+    } else printf("settings: no --config given, default volumes\n");
     if (music && sound && have_zdir) {
         long long base = 0;
         uint32_t size = 0;

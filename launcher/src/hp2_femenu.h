@@ -169,7 +169,7 @@ typedef struct {
     int                  tree_kind; /* event list: 0 Ultimate Racer (Championship), 1 Ultimate Fugitive (Hot Pursuit) */
     int                  tree_ev;   /* event list: the chosen event, 0-based */
     int                  tree_from; /* the screen the event list was opened from */
-    int                  tree_scroll;   /* event list: first event on view, 0-based */
+    int                  tree_scroll;   /* unused since the list went back to the tree */
     const hp2_tree      *trees;     /* [0] Championship, [1] Hot Pursuit (hp2_tree_parse),
                                        or NULL: accept on an event then does nothing */
     int                  ev_mode;   /* car select shows an event's own cars */

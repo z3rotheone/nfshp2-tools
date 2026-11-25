@@ -10,6 +10,10 @@
  *                      the Jukebox and the menu music, e.g. one you modded
  *                      with hp2_music.py. Without it, --disc uses the
  *                      archive's own bank.
+ *   --exe PATH         the disc's executable (SLUS_203.62) for the event
+ *                      trees' layout; with --disc it is looked for in DIR
+ *                      and the folder above. Without it the tree view shows
+ *                      one event at a time with no connectors.
  *   --config PATH      settings file (default hp2.ini, shared with the
  *                      launcher; saved when you leave the settings list)
  *   --size WxH         window size (default 1280x720)
@@ -370,6 +374,7 @@ int main(int argc, char **argv)
     char prog[1024], result_path[1100], race_buf[RACE_ARGS][32];
     static hp2_jukebox jb;
     static hp2_tree trees[2];
+    const char *exepath = NULL;
     char *loose[3] = { NULL, NULL, NULL };
     int W = 1280, H = 720, forced_fit = -1, i, quit = 0, dirty = 0, music = 1, shot_song = -1, start_options = 0;
     hp2_fe_layout glayout;
@@ -393,6 +398,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--files") && i + 3 < argc) { loose[0] = argv[++i]; loose[1] = argv[++i]; loose[2] = argv[++i]; }
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
         else if (!strcmp(argv[i], "--jukebox") && i + 1 < argc) bankpath = argv[++i];
+        else if (!strcmp(argv[i], "--exe") && i + 1 < argc) exepath = argv[++i];
         else if (!strcmp(argv[i], "--no-music")) music = 0;
         else if (!strcmp(argv[i], "--options")) start_options = 1;
         else if (!strcmp(argv[i], "--songbox") && i + 1 < argc) shot_song = atoi(argv[++i]);
@@ -409,7 +415,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--hp2track") && i + 1 < argc) trackprog = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
-                            "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--no-sfx] [--config PATH] [--size WxH] [--open]\n"
+                            "       [--language NAME] [--jukebox BANK] [--exe SLUS_203.62] [--options] [--no-music] [--no-sfx] [--config PATH] [--size WxH] [--open]\n"
                             "       [--fit fit|stretch|expand]\n"
                             "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back,help] [--hp2track PATH]\n", argv[0]);
             return 2;
@@ -437,7 +443,26 @@ int main(int argc, char **argv)
         return 1;
     }
     if (!open_all) menu.prog = &progress;
-    if (hp2_tree_parse(f.frontb, f.frontb_len, trees) == 2) menu.trees = trees;   /* the career events */
+    if (hp2_tree_parse(f.frontb, f.frontb_len, trees) == 2) {   /* the career events; the trees' layout is in the executable */
+        char path[1100];
+        const char *tries[3];
+        int t, nt = 0;
+        size_t xl = 0;
+        uint8_t *x = NULL;
+        if (exepath) tries[nt++] = exepath;
+        else if (disc) {
+            static char a[1100], b[1100];
+            snprintf(a, sizeof a, "%s/SLUS_203.62", disc);
+            snprintf(b, sizeof b, "%s/../SLUS_203.62", disc);
+            tries[nt++] = a; tries[nt++] = b;
+        }
+        path[0] = 0;
+        for (t = 0; t < nt && !x; t++) { x = hp2_read_file(tries[t], &xl); snprintf(path, sizeof path, "%s", tries[t]); }
+        if (x && !hp2_tree_grid(trees, x, xl)) fprintf(stderr, "%s: no event tree layout found\n", path);
+        else if (!x && exepath) fprintf(stderr, "could not read %s\n", exepath);
+        free(x);
+        menu.trees = trees;
+    }
     if (!start_options && !hp2_femenu_start(&menu, HP2_FEM_TITLE)) hp2_femenu_start(&menu, HP2_FEM_MAIN);
     menu.seed = (uint32_t)time(NULL) ^ (uint32_t)SDL_GetTicks() * 2654435761u;   /* Quick Race's dice */
     if (f.bank && hp2_jukebox_parse(&jb, f.bank, f.bank_len) == 0) hp2_femenu_set_jukebox(&menu, &jb);

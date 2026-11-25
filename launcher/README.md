@@ -344,16 +344,22 @@ the software renderer; the lighting is the port's own). The game's spotlit floor
 The swatch colours are the car's own skins with `--disc` (the average paint of each skin texture), else those of the BMW M5; elevations and best times are not known, so
 they are left blank, and difficulty is Beginner / Advanced / Expert by the
 course's number within its location (a guess). Racing But With Pigs and Just Race (the game's Challenge) open the *Challenge*
-screen: Players, Race Type, Skill Level (left/right) and Setup, which opens *Customize*
+screen: Players, Race Type, Skill Level (left/right); accept on any of them opens *Customize*
 (Cops, Opponents, Opponent Type, Opponent AI, Catch-up, Traffic, Damage, by mode;
 its value sets are a best guess from the game's strings) and then car select (the screen is titled with the row's name). You're The Pig opens the same
-screen without Race Type (Players, Skill Level, Setup). Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
+screen without Race Type (Players, Skill Level; there is no Setup row, accept opens Customize). Hot Pursuit opens Ultimate Fugitive, Racing But With Pigs and You're The
 Pig (the game's Ultimate Racer, Challenge and You're The Cop); World Racing
 opens Ultimate Racer and Just Race (the game's Championship and Challenge).
-Ultimate Fugitive and Ultimate Racer open their events as a list in event
-order, 1 at the top (the game shows them as a branching tree; the port lists
-them instead): number and title in the game's row style, five on view;
-up/down move (wrapping), left/right page by five, back returns. Every event
+Ultimate Fugitive and Ultimate Racer open the event tree (TREE_VIEW): one event
+at a time on its map (PURSUIT_TREE_BG / SPEED_TREE_BG) with its badge (a star
+for Hot Pursuit, a card for World Racing; green tab open, chequered won, red
+locked), number, title, Status and Reward; left/right (or up/down) step through
+the events. The tree's layout (each event's column) is in the game's
+executable, not in the data files: with `--exe SLUS_203.62` (or `--disc DIR`,
+which looks for it in DIR and the folder above) the neighbouring events and
+the red connectors show round the event at the game's spacing, and the map
+scrolls with it. Without it the view shows the event alone. (Until 7506648
+these were a plain list; the list is gone.) Every event
 is open. Accept on an event opens car select with that event's own cars only
 (the pursuit cars too, with their logos; the strip shows each car once), then
 Transmission and Handling; the event sets the track, so accepting Handling
