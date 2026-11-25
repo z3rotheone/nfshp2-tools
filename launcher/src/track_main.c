@@ -254,7 +254,7 @@ static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
             for (k = 0; k < n; k++) {
                 uint8_t a = px[4 * k + 3];
                 if (a < 16) { clear++; lum += (px[4 * k] + px[4 * k + 1] + px[4 * k + 2]) / 3; }
-                else if (a < 240) mid++;
+                else if (a < 200) mid++;      /* 232-254 (PS2 0x74-0x7F) is opaque with noise; the road and the sea sit there */
             }
             g->clear = (float)clear / (float)n;
             g->clearlum = clear ? (float)lum / (float)clear : 0;
@@ -439,6 +439,7 @@ static void set_mode(int mode)
     }
 }
 
+static uint32_t hide_tex;      /* --hide-tex HASH: skip a texture's pieces (finding what draws a stray surface) */
 static int keep_cuts;      /* --keep-cuts: flat pieces keep their alpha cut too (the old look) */
 static int holes;          /* --holes: magenta background, no sky, so missing geometry shows */
 static int blend_opaque;   /* B: draw the blended pieces as solid (finding which ones the ground is made of) */
@@ -449,6 +450,7 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
     for (j = 0; j < n; j++) {
         const gltex *t = &w->tex[g[j].tex];
         int mode = t->mode == MODE_BLEND && blend_opaque ? MODE_OPAQUE : t->mode;
+        if (hide_tex && t->hash == hide_tex) continue;
         if (g[j].flat && !keep_cuts && t->clear > 0.02f && t->clear < 0.5f && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
         set_mode(mode);
@@ -738,7 +740,7 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
         snprintf(buf, sizeof buf, "%d", (int)(mph + 0.5f));
         if (sf) {
             if (mph >= 99.5f) { sp.sx *= 0.8f; sp.sy *= 0.8f; }      /* three figures must stay inside the box */
-            sp.x = x->x + hp2_text_width(sf, "000") * x->sx;
+            sp.x = x->x + hp2_text_width(sf, "000") * x->sx + 6.0f;
             sp.align = HP2_FE_ALIGN_RIGHT;
         }
         hp2_hud_text(h, &sp, buf);
@@ -961,6 +963,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--blend-opaque")) blend_opaque = 1;
         else if (!strcmp(argv[i], "--holes")) holes = 1;
         else if (!strcmp(argv[i], "--keep-cuts")) keep_cuts = 1;
+        else if (!strcmp(argv[i], "--hide-tex") && i + 1 < argc) hide_tex = (uint32_t)strtoul(argv[++i], NULL, 16);
         else if (!strcmp(argv[i], "--no-scenery-shadows")) scene_flags = HP2_SCENE_NO_SHADOWS;
         else if (!strcmp(argv[i], "--opponents") && i + 1 < argc) nopp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--opponent") && i + 1 < argc && nopp_named < HP2_MAX_CARS - 1) {

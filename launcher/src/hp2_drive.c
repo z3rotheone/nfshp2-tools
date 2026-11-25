@@ -393,9 +393,11 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
             d->heave += d->heave_v * h;
             d->body_pitch += d->body_pitch_v * h;
             d->body_roll += d->body_roll_v * h;
-            d->heave = clampf(d->heave, -0.2f, 0.2f);
-            d->body_pitch = clampf(d->body_pitch, -0.12f, 0.12f);
-            d->body_roll = clampf(d->body_roll, -0.15f, 0.15f);
+            /* the port's own limits: the rear squats on full throttle without the body
+             * sinking into the road (the springs' real travel is not decoded) */
+            d->heave = clampf(d->heave, -0.08f, 0.08f);
+            d->body_pitch = clampf(d->body_pitch, -0.04f, 0.04f);
+            d->body_roll = clampf(d->body_roll, -0.06f, 0.06f);
         }
         vf += (a + d->yawrate * vl) * h;
         vl += (fsum[1] / d->mass - d->yawrate * vf) * h;
