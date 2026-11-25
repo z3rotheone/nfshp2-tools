@@ -41,6 +41,7 @@
  */
 #include "hp2_fe.h"
 #include "hp2_fedraw.h"
+#include "hp2_fecar.h"
 #include "hp2_input.h"
 #include "hp2_jbplay.h"
 #include "hp2_race.h"
@@ -66,6 +67,12 @@ extern char **environ;
 #endif
 
 #define MAX_ITEMS 160
+static unsigned fc_fixed = 0xFFFFFFFFu;     /* --shot: a fixed turn */
+static unsigned fc_clock(void) { return fc_fixed != 0xFFFFFFFFu ? fc_fixed : (unsigned)(SDL_GetTicks() / 4u); }
+#define CAR_AREA_X 140.0f      /* the 3D car on car select, in canvas units */
+#define CAR_AREA_Y 95.0f
+#define CAR_AREA_W 360.0f
+#define CAR_AREA_H 215.0f
 
 typedef struct {
     uint8_t *frontb, *globalb, *lang, *bank;
@@ -274,7 +281,7 @@ static int songbox_update(songbox *b, int now_playing, Uint32 ticks)
     return redraw;
 }
 
-static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, SDL_Renderer *r, int W, int H, hp2_fe_fit fit)
+static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, hp2_fecar *fc, SDL_Renderer *r, int W, int H, hp2_fe_fit fit)
 {
     static hp2_fe_item items[MAX_ITEMS];
     hp2_fe_view v;
@@ -286,6 +293,14 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, SDL_Renderer *r, in
     SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
     SDL_RenderClear(r);
     hp2_fedraw_items(d, &v, items, n);
+    if (fc && fc->ok && m->screen == HP2_FEM_SELECT_CAR && !m->car_popup) {   /* the car turning on its floor */
+        float x0, y0, x1, y1;
+        SDL_Rect a;
+        hp2_fe_to_window(&v, CAR_AREA_X, CAR_AREA_Y, &x0, &y0);
+        hp2_fe_to_window(&v, CAR_AREA_X + CAR_AREA_W, CAR_AREA_Y + CAR_AREA_H, &x1, &y1);
+        a.x = (int)x0; a.y = (int)y0; a.w = (int)(x1 - x0); a.h = (int)(y1 - y0);
+        hp2_fecar_draw(fc, hp2_femenu_car_model(m), m->color + 1, (float)(fc_clock() % 36000) * 0.01f, &a);
+    }
     if (box->song >= 0 && box->jb) {   /* on top of the menu */
         n = hp2_femenu_songbox(box->screen, &box->jb->track[box->song], box->quoted, sizeof box->quoted, items, MAX_ITEMS);
         hp2_fedraw_items(d, &v, items, n);
@@ -297,6 +312,7 @@ int main(int argc, char **argv)
     int open_all = 0;
     char prog_path[1100];
     static hp2_progress progress;
+    static hp2_fecar fcar;
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     const char *trackprog = NULL, *race_args[RACE_ARGS + 1];
     char prog[1024], result_path[1100], race_buf[RACE_ARGS][32];
@@ -411,11 +427,13 @@ int main(int argc, char **argv)
     ren = win ? SDL_CreateRenderer(win, -1, shot ? SDL_RENDERER_SOFTWARE : SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC) : NULL;
     if (!ren) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     hp2_fedraw_init(&d, ren, &tex, &fonts);
+    if (disc) hp2_fecar_open(&fcar, disc, ren, f.globalb, f.globalb_len);   /* the 3D car; not without a disc */
+    if (shot) fc_fixed = 3000u;
     update_glyphs(&menu, &cfg, pad);           /* button names: the settings, then the pad in hand */
 
     if (shot) {
         SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_RGBA32);
-        draw(&d, &menu, &box, ren, W, H, fit_for(&cfg, forced_fit));
+        draw(&d, &menu, &box, &fcar, ren, W, H, fit_for(&cfg, forced_fit));
         if (!s || SDL_RenderReadPixels(ren, NULL, SDL_PIXELFORMAT_RGBA32, s->pixels, s->pitch) != 0 || SDL_SaveBMP(s, shot) != 0) {
             fprintf(stderr, "could not save %s: %s\n", shot, SDL_GetError());
             return 1;
@@ -447,6 +465,7 @@ int main(int argc, char **argv)
     while (!quit) {
         SDL_Event e;
         int ow, oh, got = 1, redraw = 0;
+        int animate = fcar.ok && menu.screen == HP2_FEM_SELECT_CAR && !menu.car_popup;   /* the car turns */
         if (audio) {
             /* keep about half a second queued: a volume change or a song
              * switched off is heard within that */
@@ -457,8 +476,10 @@ int main(int argc, char **argv)
                 SDL_QueueAudio(audio, pcm, (Uint32)n * 4);
             }
             redraw = songbox_update(&box, hp2_jbplay_now(&player), SDL_GetTicks());
-            got = SDL_WaitEventTimeout(&e, 40);
-            if (!got && !redraw) continue;
+            got = SDL_WaitEventTimeout(&e, animate ? 25 : 40);
+            if (!got && !redraw && !animate) continue;
+        } else if (animate) {
+            got = SDL_WaitEventTimeout(&e, 25);
         } else if (!SDL_WaitEvent(&e)) {
             break;
         }
@@ -572,11 +593,12 @@ int main(int argc, char **argv)
         } while (!quit && SDL_PollEvent(&e));
         if (quit) break;
         SDL_GetRendererOutputSize(ren, &ow, &oh);
-        draw(&d, &menu, &box, ren, ow, oh, fit_for(&cfg, forced_fit));
+        draw(&d, &menu, &box, &fcar, ren, ow, oh, fit_for(&cfg, forced_fit));
         SDL_RenderPresent(ren);
     }
     if (dirty && !hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);   /* 1 = saved */
 
+    hp2_fecar_close(&fcar);
     hp2_fedraw_free(&d);
     if (audio) {
         SDL_CloseAudioDevice(audio);

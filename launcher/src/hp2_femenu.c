@@ -1822,6 +1822,12 @@ static int series_result(hp2_femenu *m, const hp2_tree_event *e, const hp2_race_
     return sp;
 }
 
+const char *hp2_femenu_car_model(const hp2_femenu *m)
+{
+    if (m->ev_mode) return m->car >= 0 && m->car < m->ev_ncars ? cardb_name(m->ev_cars[m->car]) : NULL;
+    return CARS[m->car % HP2_CARS].thumb;
+}
+
 int hp2_femenu_open_cars(const hp2_femenu *m) { int c, n = 0; for (c = 0; c < HP2_CARS; c++) n += car_open(m, c); return n; }
 int hp2_femenu_open_tracks(const hp2_femenu *m) { int c, n = 0; for (c = 0; c < HP2_TRACKS; c++) n += track_open(m, c); return n; }
 

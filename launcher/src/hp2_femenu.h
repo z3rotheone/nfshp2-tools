@@ -264,6 +264,8 @@ int hp2_femenu_songbox(const hp2_fe_screen *box, const hp2_jb_track *t, char *qu
  * objective was met, 0 when not or when the event has none or the race was
  * not finished. */
 /* How many of the 23 cars / 15 courses Quick Race offers now. */
+/* The car on car select as the car database names it (CORVETTE ...), or NULL. */
+const char *hp2_femenu_car_model(const hp2_femenu *m);
 int hp2_femenu_open_cars(const hp2_femenu *m);
 int hp2_femenu_open_tracks(const hp2_femenu *m);
 int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r);
