@@ -946,6 +946,28 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         for (i = 0; i < w->ncv; i++) { px[i] = drv[i].pos[0]; py[i] = drv[i].pos[1]; }
         {   int got = hp2_pursuit_step(&pur, dt, races[0].clock, w->ncv, px, py);
             /* the port's own radio triggers: the game's event rules are not decoded */
+            if (has_speech && pursuit_called) {
+                /* more of the port's own radio: a speeder crashing, getting away, coming back, and chatter */
+                static float lost_t, chat_t, crash_t;
+                static int lost;
+                float near = 1e9f;
+                int k;
+                crash_t -= dt; chat_t -= dt;
+                for (k = 1; k < w->ncv; k++) {
+                    float d;
+                    if (pur.arrested[k]) continue;
+                    d = hypotf(px[k] - px[0], py[k] - py[0]);
+                    if (d < near) near = d;
+                    if (drv[k].hit == 0 && crash_t <= 0 && fabsf(drv[k].speed) > 8.0f) {
+                        hp2_speech_say(&speech, "SusCrash", 0);
+                        crash_t = 12.0f;
+                    }
+                }
+                if (near > 150.0f) lost_t += dt; else lost_t = 0;
+                if (!lost && lost_t > 5.0f) { lost = 1; hp2_speech_say(&speech, "SusLost", 0); }
+                else if (lost && near < 80.0f) { lost = 0; hp2_speech_say(&speech, "SusFnd", 0); }
+                if (chat_t <= 0) { hp2_speech_say(&speech, "chat", 0); chat_t = 25.0f + (float)(rand() % 20); }
+            }
             if (has_speech) {
                 if (!pursuit_called) { pursuit_called = 1; hp2_speech_say(&speech, "BPaGeneral", 0); }
                 else if (got) hp2_speech_say(&speech, pur.done ? "TermPursuit" : "Arrest", 1);
