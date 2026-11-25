@@ -77,6 +77,19 @@ typedef struct {
                                              opponents in the order they were named */
 } hp2_race_result;
 
+/* Lap Knockout ("Last place on each lap eliminated"): each time the leader
+ * completes a lap, the car furthest behind (least travelled) is out. It is
+ * decided when the player (car 0) is out or one car is left. */
+typedef struct {
+    int on, lap, done, nout;
+    int out[HP2_RESULT_CARS], elim[HP2_RESULT_CARS];   /* out[i]: car i is out; elim: in the order they went */
+} hp2_knockout;
+void hp2_knockout_reset(hp2_knockout *k);                         /* keeps on */
+void hp2_knockout_update(hp2_knockout *k, const hp2_race *races, int n);
+/* The cars from the first down: those still in by their race order, then the
+ * knocked-out ones, the last to go first. */
+void hp2_knockout_order(const hp2_knockout *k, const hp2_race *races, int n, int *order);
+
 /* Writes the text for race r (the player), the player's place and the
  * order of the norder cars (may be NULL / 0); returns its length, or -1 when
  * cap is too small. */

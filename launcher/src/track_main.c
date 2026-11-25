@@ -124,6 +124,9 @@ typedef struct {
     hp2_ai_line line;           /* the opponents' driving line */
 } world;
 
+/* Lap Knockout (--lap-knockout): see hp2_knockout. Out cars vanish. */
+static hp2_knockout ko;
+
 typedef struct {
     float pos[3], yaw, pitch;   /* degrees; yaw 0 looks along +x, z is up */
 } camera;
@@ -560,7 +563,7 @@ static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_driv
             for (k = 0; k < w->ncv; k++) {
                 const float b[6] = { cars[k]->pos[0] - 3, cars[k]->pos[1] - 3, cars[k]->pos[2] - 1,
                                      cars[k]->pos[0] + 3, cars[k]->pos[1] + 3, cars[k]->pos[2] + 3 };
-                if (!w->cv[k].ok || !box_visible(clip, b)) continue;
+                if (!w->cv[k].ok || (k > 0 && ko.out[k]) || !box_visible(clip, b)) continue;
                 draw_shadow(w, &w->cv[k], cars[k]);
                 draw_car(w, &w->cv[k], cars[k], 0);
                 draw_car(w, &w->cv[k], cars[k], 1);
@@ -650,6 +653,7 @@ static const char *ordinal(int n)
     return n % 10 == 1 ? "st" : n % 10 == 2 ? "nd" : n % 10 == 3 ? "rd" : "th";
 }
 
+static int current_place(const hp2_race *races, int n);
 /* The player's place among the n cars (1-based). */
 static int player_place(const hp2_race *races, int n)
 {
@@ -662,10 +666,20 @@ static int player_place(const hp2_race *races, int n)
     return 1;
 }
 
+static int current_place(const hp2_race *races, int n)
+{
+    if (ko.on) {
+        int order[HP2_MAX_CARS], i;
+        hp2_knockout_order(&ko, races, n, order);
+        for (i = 0; i < n; i++) if (order[i] == 0) return i + 1;
+    }
+    return player_place(races, n);
+}
+
 static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, int ncars, int W, int H)
 {
     const hp2_race *r = &races[0];
-    int place = ncars > 1 ? player_place(races, ncars) : 0;
+    int place = ncars > 1 ? current_place(races, ncars) : 0;
     static const float pivot[2] = { 12, 56 };   /* the needle's hub in its texture */
     hp2_hud *h = &hs->hud;
     const hp2_fe_widget *x;
@@ -731,7 +745,11 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
             go.y = 183;
             hp2_hud_image(h, &go, 0, 0, NULL, 1 - r->clock);
         }
-        if (r->state == HP2_RACE_FINISHED) {
+        if (ko.on && ko.done) {
+            snprintf(buf, sizeof buf, "You finished %d%s", place, ordinal(place));
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, buf);
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, ko.out[0] ? "You were knocked out!" : "Last car standing");
+        } else if (r->state == HP2_RACE_FINISHED) {
             float total = 0;
             for (i = 0; i < r->laps; i++) total += r->lap_time[i];
             if (place) snprintf(buf, sizeof buf, "You finished %d%s", place, ordinal(place));
@@ -786,8 +804,13 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
     int i, j;
     for (i = 0; i < w->ncv; i++) {
         hp2_drive_in in;
+        if (i > 0 && ko.out[i]) continue;                  /* knocked out: gone */
         if (i == 0) in = *player;
         else hp2_ai_drive(&ai[i], &races[i], &w->line, &drv[i], dt, &in);
+        if (i == 0 && ko.out[0]) {                          /* you are out: coast to a stop */
+            memset(&in, 0, sizeof in);
+            in.brake = drv[0].speed > 1 ? 0.4f : 0;
+        }
         if (races[i].state == HP2_RACE_FINISHED && i > 0) {
             memset(&in, 0, sizeof in);              /* opponents coast to a stop after the line */
             in.brake = drv[i].speed > 1 ? 0.4f : 0;
@@ -802,8 +825,13 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         }
     }
     for (i = 0; i < w->ncv; i++)
-        for (j = i + 1; j < w->ncv; j++) hp2_drive_collide(&drv[i], &drv[j]);
-    for (i = 0; i < w->ncv; i++) hp2_race_step(&races[i], dt, drv[i].pos[0], drv[i].pos[1], drv[i].vel[0], drv[i].vel[1]);
+        for (j = i + 1; j < w->ncv; j++)
+            if (!ko.out[i] && !ko.out[j]) hp2_drive_collide(&drv[i], &drv[j]);
+    for (i = 0; i < w->ncv; i++) {
+        if (i > 0 && ko.out[i]) continue;
+        hp2_race_step(&races[i], dt, drv[i].pos[0], drv[i].pos[1], drv[i].vel[0], drv[i].vel[1]);
+    }
+    hp2_knockout_update(&ko, races, w->ncv);
 }
 
 int main(int argc, char **argv)
@@ -860,6 +888,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--sim") && i + 1 < argc) sim = argv[++i];
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--result") && i + 1 < argc) resultf = argv[++i];
+        else if (!strcmp(argv[i], "--lap-knockout")) ko.on = 1;
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
@@ -1126,6 +1155,7 @@ int main(int argc, char **argv)
                 case SDLK_f: fog = !fog; break;
                 case SDLK_r:
                     if (driving) {
+                        hp2_knockout_reset(&ko);
                         for (i = 0; i < w.ncv; i++) {
                             hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
                             start_car(&w, i, &drv[i], &races[0]);
@@ -1234,10 +1264,22 @@ int main(int argc, char **argv)
     if (resultf && w.has_car) {      /* how the race ended, for the menus */
         char txt[256];
         const hp2_race *pr[HP2_MAX_CARS];
-        int ord[HP2_MAX_CARS], ci, n;
-        for (ci = 0; ci < w.ncv; ci++) pr[ci] = &races[ci];
-        hp2_race_order(pr, w.ncv, ord);
-        n = hp2_race_result_format(&races[0], w.ncv > 1 ? player_place(races, w.ncv) : 0, ord, w.ncv, txt, sizeof txt);
+        int ord[HP2_MAX_CARS], ci, n, place = 0;
+        hp2_race me = races[0];
+        if (ko.on) {                  /* the order is the knockout's; the player is finished when it is decided */
+            hp2_knockout_order(&ko, races, w.ncv, ord);
+            if (ko.done) {
+                me.state = HP2_RACE_FINISHED;
+                memset(me.lap_time, 0, sizeof me.lap_time);
+                me.best = 0;
+                if (!ko.out[0]) { me.laps = 1; me.lap_time[0] = me.clock; }
+            }
+        } else {
+            for (ci = 0; ci < w.ncv; ci++) pr[ci] = &races[ci];
+            hp2_race_order(pr, w.ncv, ord);
+        }
+        for (ci = 0; ci < w.ncv; ci++) if (ord[ci] == 0) place = ci + 1;
+        n = hp2_race_result_format(&me, w.ncv > 1 ? place : 0, ord, w.ncv, txt, sizeof txt);
         FILE *rf = n > 0 ? fopen(resultf, "wb") : NULL;
         if (rf) { fwrite(txt, 1, (size_t)n, rf); fclose(rf); }
         else fprintf(stderr, "could not write %s\n", resultf);

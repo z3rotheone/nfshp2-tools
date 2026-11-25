@@ -137,8 +137,11 @@ closes. Two ways in:
   home is out (you included: "You were knocked out!", your place the number
   of cars left). A **Tournament** runs all its races in order for points
   (10, 8, 6, 5, 4, 3, 2, 1 by place: the port's table, the game's scoring is
-  not decoded); after the last the most points wins. A **Lap Knockout** runs
-  as a plain race for now (no one is dropped each lap). Pursuit and Delivery
+  not decoded); after the last the most points wins. In a **Lap Knockout** (`--lap-knockout` in
+  `hp2track`; also the Challenge's Lap Knockout) the car furthest behind is
+  out each time the leader completes a lap ("Last place on each lap
+  eliminated"): it vanishes, and you are told if it is you; one race, your
+  place being your standing when it was decided. Pursuit and Delivery
   events race the same way: there are no cops yet.
 * **Quick Race or a Challenge** (car, course, Time of Day, laps): opponents
   as Customize sets them (how many, Same or Random cars, Opponent AI as

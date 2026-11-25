@@ -269,3 +269,46 @@ int hp2_race_result_parse(const char *text, hp2_race_result *out)
     if (!ok) memset(out, 0, sizeof *out);
     return ok;
 }
+
+void hp2_knockout_reset(hp2_knockout *k)
+{
+    int on = k->on;
+    memset(k, 0, sizeof *k);
+    k->on = on;
+}
+
+void hp2_knockout_update(hp2_knockout *k, const hp2_race *races, int n)
+{
+    int i, alive = 0, done_laps = 0;
+    if (!k->on || k->done) return;
+    if (n > HP2_RESULT_CARS) n = HP2_RESULT_CARS;
+    for (i = 0; i < n; i++) {
+        int d = races[i].lap - 1;
+        if (k->out[i]) continue;
+        alive++;
+        if (d > races[i].laps) d = races[i].laps;
+        if (d > done_laps) done_laps = d;
+    }
+    while (k->lap < done_laps && alive > 1 && !k->done) {
+        int worst = -1;
+        for (i = 0; i < n; i++)
+            if (!k->out[i] && (worst < 0 || races[i].travelled < races[worst].travelled)) worst = i;
+        k->out[worst] = 1;
+        k->elim[k->nout++] = worst;
+        alive--;
+        k->lap++;
+        if (worst == 0 || alive == 1) k->done = 1;
+    }
+}
+
+void hp2_knockout_order(const hp2_knockout *k, const hp2_race *races, int n, int *order)
+{
+    const hp2_race *p[HP2_RESULT_CARS];
+    int idx[HP2_RESULT_CARS], ord[HP2_RESULT_CARS], m = 0, i, c = 0;
+    if (n > HP2_RESULT_CARS) n = HP2_RESULT_CARS;
+    for (i = 0; i < n; i++)
+        if (!k->out[i]) { idx[m] = i; p[m] = &races[i]; m++; }
+    hp2_race_order(p, m, ord);
+    for (i = 0; i < m; i++) order[c++] = idx[ord[i]];
+    for (i = k->nout - 1; i >= 0; i--) order[c++] = k->elim[i];
+}

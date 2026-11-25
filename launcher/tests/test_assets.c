@@ -1227,6 +1227,29 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
                   && !strcmp(m.result[1], "Objective not met"), "last in the first race: knocked out, 4th, not met");
             hp2_femenu_input(&m, HP2_IN_ACCEPT);
         }
+        {   /* a Lap Knockout event asks hp2track for the knockout; a plain one does not */
+            static hp2_femenu t3;
+            char ab3[48][32];
+            const hp2_tree_event *e3 = &m.trees[0].ev[2];
+            int na3, k3, has3 = 0;
+            t3 = m;
+            t3.tree_kind = 0; t3.tree_ev = 2; t3.ev_ncars = 1; t3.ev_cars[0] = e3->cars[0]; t3.car = 0; t3.ser.done = 1;
+            t3.screen = HP2_FEM_EVENT_INFO;
+            CHECK(e3->race_type == HP2_RT_LAP_KNOCKOUT && hp2_femenu_input(&t3, HP2_IN_ACCEPT) == HP2_FEM_RACE, "Championship event 3: a Lap Knockout");
+            na3 = hp2_femenu_race_args(&t3.go, ab3, 48);
+            for (k3 = 0; k3 < na3; k3++) has3 |= !strcmp(ab3[k3], "--lap-knockout");
+            CHECK(has3, "its hp2track arguments include --lap-knockout");
+            t3.tree_ev = 0; t3.ev_cars[0] = m.trees[0].ev[0].cars[0];
+            hp2_femenu_input(&t3, HP2_IN_ACCEPT);
+            na3 = hp2_femenu_race_args(&t3.go, ab3, 48);
+            has3 = 0;
+            for (k3 = 0; k3 < na3; k3++) has3 |= !strcmp(ab3[k3], "--lap-knockout");
+            CHECK(!has3, "a Single Race does not");
+            {   hp2_race_result ko = { 1, 3, 0, 0, 5, { 1, 2, 0, 3, 4 } };
+                hp2_femenu_result(&t3, &ko);
+                CHECK(!strcmp(t3.result[0], "You finished 3rd"), "knocked out of a Lap Knockout: place, no time");
+            }
+        }
         {   /* Championship event 6 is a Tournament of three races and eight cars: points */
             static hp2_femenu t2;
             const hp2_tree_event *e6 = &m.trees[0].ev[5];
@@ -1921,6 +1944,36 @@ static void test_race(void)
     CHECK(r.state == HP2_RACE_FINISHED && r.clock > 24 && r.clock < 26, "finished at %g s", r.clock);
     hp2_race_time(83.456f, buf, sizeof buf);
     CHECK(!strcmp(buf, "1:23.46"), "time %s", buf);
+    {   /* Lap Knockout: the car furthest behind goes each time the leader finishes a lap */
+        hp2_race rs[4];
+        hp2_knockout ko;
+        int ordk[4], ik;
+        memset(rs, 0, sizeof rs);
+        memset(&ko, 0, sizeof ko);
+        ko.on = 1;
+        for (ik = 0; ik < 4; ik++) { rs[ik].laps = 3; rs[ik].lap = 1; rs[ik].travelled = 100.0f - 10.0f * (float)ik; }  /* 0 leads, 3 last */
+        hp2_knockout_update(&ko, rs, 4);
+        CHECK(ko.nout == 0, "lap 1 not done: nobody out");
+        rs[0].lap = 2; rs[0].travelled = 400;                 /* the leader completes lap 1 */
+        hp2_knockout_update(&ko, rs, 4);
+        CHECK(ko.nout == 1 && ko.out[3] && !ko.done, "lap 1 done: the last car (3) is out");
+        hp2_knockout_update(&ko, rs, 4);
+        CHECK(ko.nout == 1, "the same lap does not drop a second car");
+        rs[1].lap = 2; rs[1].travelled = 390; rs[0].lap = 3; rs[0].travelled = 800;   /* the leader completes lap 2 */
+        rs[2].travelled = 90; rs[1].travelled = 700;
+        hp2_knockout_update(&ko, rs, 4);
+        CHECK(ko.nout == 2 && ko.out[2] && !ko.done, "lap 2 done: car 2 is out");
+        hp2_knockout_order(&ko, rs, 4, ordk);
+        CHECK(ordk[0] == 0 && ordk[1] == 1 && ordk[2] == 2 && ordk[3] == 3, "order: 0, 1, then the knocked out, last to go first");
+        rs[0].lap = 4; rs[0].travelled = 1200;                   /* lap 3: the player (car 0) is the one behind */
+        rs[1].lap = 4; rs[1].travelled = 1300;
+        hp2_knockout_update(&ko, rs, 4);
+        CHECK(ko.done && ko.out[0] && ko.nout == 3, "lap 3: the player is last of two and out, the Knockout is decided");
+        hp2_knockout_order(&ko, rs, 4, ordk);
+        CHECK(ordk[0] == 1 && ordk[1] == 0 && ordk[2] == 2 && ordk[3] == 3, "final order 1, 0, 2, 3");
+        hp2_knockout_reset(&ko);
+        CHECK(ko.on && !ko.done && ko.nout == 0 && !ko.out[0], "reset keeps it on and clears the rest");
+    }
     {   /* how a race ended: written by hp2track, read back by the menus */
         char txt[160];
         hp2_race_result rr;
