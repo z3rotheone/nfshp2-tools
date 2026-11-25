@@ -950,9 +950,41 @@ the ground between the two roads of a fork and through walls. In entries
 the collision mesh has no ground at all (in entry 196, points 8 to 11 are
 40–50 m from the nearest collision polygon, between the two roads that
 fork at point 7). The game's AI must follow something else (the `34121`
-"RAGNAR" records are a candidate, not read). `launcher/hp2track` finds a
+"RAGNAR" recordings are a candidate: read, see "Recorded drives" below, but not
+yet understood well enough to drive by). `launcher/hp2track` finds a
 line for its stand-in opponents by searching the collision ground
 (`launcher/src/hp2_ai.c`).
+
+### Recorded drives: `0x34121`
+
+A top-level chunk of every decompressed `TRACKBnn` file (412,048 bytes in
+TRACKB24); `tools/hp2_ragnar.py FILE [--csv OUT] [--check]` reads it. A list of
+recordings of a driver, "RAGNAR", driving the track, with nothing between them,
+ending exactly at the chunk's end (checked on all 30 tracks). One recording:
+
+| Size | What |
+|---|---|
+| 40 | header: u32 0x036xxxxx and u32 (both look like addresses or ids, they differ per recording), u32 id (`n << 16 \| 1`, n = 1, 2, 3 ..), u32 0, u32 N, u32 N, u32 1, three words of 0 |
+| 1024 | the entries: up to 20 of 48 bytes: u32 (1 = a time, 2 = an empty slot), f32 seconds (999.0 when empty), 40-byte name ("RAGNAR" padded with spaces); then zeros |
+| N x 112 | samples |
+
+A sample: f32 x, y, z (the collision's world units), f32 heading x, y (a unit
+vector), f32 step (the distance to the next sample, 5 to 13 units: close to it
+in every case checked), f32 stepped 5.0 to 6.0 by 0.5, f32 smooth 5 to 9, f32
+about -0.13 to 0.09, f32 about -0.1 to 0.09, then words that read as
+uninitialised memory (garbage floats; 3.016 at +0x5C). Samples are at a fixed
+interval, so the step is a speed in some unit; which unit is not worked out.
+
+TRACKB24 has 26 recordings of 21 to 156 samples (240 to 1,587 m). Many chain:
+a recording ends within 50 units of where the next begins (0 to 1 to 2 ..), and
+the two longest start at the start line. They total 35 km on a 5.19 km track,
+and some ends are 1 to 2 km from the next start, so they are not one lap:
+they probably cover the route graph's edges (the main route, its shortcuts
+and loops; `34149` points link to other points) one recording each. The
+entries are 17 to 20 times (seconds) for the same driver per recording, 15 to
+23 s on the first ones; whether they are the driver's repeats of that
+section, or par times, is not known. Not yet used by `hp2track`, whose AI
+searches its own line over the collision ground.
 
 ### Police: `0x80034500`
 
@@ -1125,7 +1157,7 @@ locations a model container (the variant's own sky dome).
 | `34200` | track description text |
 | `34202` | world bounds (6000, 5500, 2000) |
 | `34250` | contains "FOG<MAIN>": fog/environment settings? |
-| `34121` | about 360 records named "RAGNAR" |
+| `34121` | recorded drives of "RAGNAR": see "Recorded drives" |
 
 Still unread: `34017` (in the lights container), `80034019`, `35020`/`35021`, `34026`, `80034425`,
 `34106`, `34122`, `34130`, `34146`, and the inside of the chunks in the table above.
