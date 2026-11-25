@@ -27,6 +27,7 @@
 #include "../src/hp2_engine.h"
 #include "../src/hp2_sfx.h"
 #include "../src/hp2_ambient.h"
+#include "../src/hp2_tires.h"
 #include "../src/hp2_race.h"
 #include "../src/hp2_ai.h"
 #include "../src/hp2_geom.h"
@@ -2345,6 +2346,57 @@ static void test_ambient(void)
     hp2_ambient_free(&a);
 }
 
+/* The tyre sounds: each of the six samples a constant, so what plays shows in the sum. */
+static void test_tires(void)
+{
+    static int16_t pcm[6][2 * 200], out[2 * 100];
+    static const char *names[6] = { "RoadNoise", "GravelNoise", "LongitudinalSkid", "SquallSkid", "GravelSkid", "BurnOutPeel" };
+    static const int amp[6] = { 100, 200, 400, 800, 1600, 3200 };
+    hp2_sfx bank;
+    hp2_sfx_sample smp[6];
+    hp2_tires t;
+    hp2_tires_in in;
+    int i, k;
+    printf("tyre sounds (synthetic)\n");
+    memset(&bank, 0, sizeof bank);
+    memset(smp, 0, sizeof smp);
+    for (i = 0; i < 6; i++) {
+        for (k = 0; k < 400; k++) pcm[i][k] = (int16_t)amp[i];
+        memcpy(smp[i].name, names[i], strlen(names[i]));
+        smp[i].pcm = pcm[i]; smp[i].frames = 200;
+    }
+    bank.s = smp; bank.count = bank.cap = 6;
+    hp2_tires_bind(&t, &bank);
+    CHECK(t.v[HP2_TV_ROAD].smp && t.v[HP2_TV_BURN].smp, "tyres: the six samples are found by name");
+    CHECK(hp2_tires_loose(3) && hp2_tires_loose(6) && !hp2_tires_loose(1) && !hp2_tires_loose(0x31), "tyres: dirt, gravel and grass are loose ground");
+    memset(&in, 0, sizeof in);
+    in.on_ground = 1; in.surface = 1;
+    memset(out, 0, sizeof out);
+    hp2_tires_mix(&t, &in, 1.0f, out, 100);
+    CHECK(out[0] == 0 && out[199] == 0, "tyres: silent at a standstill");
+    in.speed = 40;
+    for (k = 0; k < 100; k++) { memset(out, 0, sizeof out); hp2_tires_mix(&t, &in, 1.0f, out, 100); }
+    CHECK(out[10] > 0 && out[10] < 100, "tyres: road noise on asphalt at speed (and quieter than the sample)");
+    in.surface = 3;
+    for (k = 0; k < 100; k++) { memset(out, 0, sizeof out); hp2_tires_mix(&t, &in, 1.0f, out, 100); }
+    CHECK(out[10] > 80 && out[10] < 100, "tyres: gravel noise on gravel, the road noise faded out");
+    in.surface = 1; in.sliding = 2; in.steer = 0.3f;
+    for (k = 0; k < 100; k++) { memset(out, 0, sizeof out); hp2_tires_mix(&t, &in, 1.0f, out, 100); }
+    CHECK(out[10] > 400 && out[10] < 700, "tyres: a squall skid when sliding with steering");
+    in.steer = 0.0f;
+    for (k = 0; k < 100; k++) { memset(out, 0, sizeof out); hp2_tires_mix(&t, &in, 1.0f, out, 100); }
+    CHECK(out[10] > 150 && out[10] < 400, "tyres: a longitudinal skid when sliding straight");
+    in.speed = 3; in.throttle = 1.0f;
+    for (k = 0; k < 100; k++) { memset(out, 0, sizeof out); hp2_tires_mix(&t, &in, 1.0f, out, 100); }
+    CHECK(out[10] >= 1600, "tyres: wheelspin at a standstill peels");
+    memset(out, 0, sizeof out);
+    hp2_tires_mix(&t, &in, 0.0f, out, 100);
+    CHECK(out[10] == 0, "tyres: volume 0 is silent");
+    in.on_ground = 0;
+    for (k = 0; k < 100; k++) { memset(out, 0, sizeof out); hp2_tires_mix(&t, &in, 1.0f, out, 100); }
+    CHECK(out[10] == 0, "tyres: nothing in the air");
+}
+
 /* An engine bank of three samples: coasting idle, under load low, horn. */
 static void test_engine(void)
 {
@@ -2572,6 +2624,7 @@ int main(int argc, char **argv)
     test_engine();
     test_sfx();
     test_ambient();
+    test_tires();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
