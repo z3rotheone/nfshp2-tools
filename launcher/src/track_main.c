@@ -459,7 +459,7 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
         const gltex *t = &w->tex[g[j].tex];
         int mode = t->mode == MODE_BLEND && blend_opaque ? MODE_OPAQUE : t->mode;
         if (hide_tex && t->hash == hide_tex) continue;
-        if (g[j].flat && !keep_cuts && t->clear > 0.02f && t->edge > 0.9f && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
+        if (g[j].flat && !keep_cuts && t->clear > 0.02f && (t->clear < 0.5f || t->edge > 0.9f) && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
         set_mode(mode);
         glBindTexture(GL_TEXTURE_2D, t->id);
