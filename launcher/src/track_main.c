@@ -1231,8 +1231,9 @@ int main(int argc, char **argv)
     hp2_settings_defaults(&cfg);
     if (config) {
         int got = hp2_settings_load(&cfg, config);
-        printf("settings: %s %s; volumes: race music %d, ambient %d, engine %d\n", config, got ? "read" : "NOT FOUND (defaults)",
-               cfg.volume[HP2_VOL_RACE_MUSIC], cfg.volume[HP2_VOL_AMBIENT], cfg.volume[HP2_VOL_ENGINE]);
+        printf("hp2track built %s %s; settings: %s %s; volumes: race music %d, ambient %d, tires %d, engine %d\n", __DATE__, __TIME__, config,
+               got ? "read" : "NOT FOUND (defaults)", cfg.volume[HP2_VOL_RACE_MUSIC], cfg.volume[HP2_VOL_AMBIENT], cfg.volume[HP2_VOL_TIRES],
+               cfg.volume[HP2_VOL_ENGINE]);
     } else printf("settings: no --config given, default volumes\n");
     if (music && sound && have_zdir) {
         long long base = 0;

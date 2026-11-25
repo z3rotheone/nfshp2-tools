@@ -319,7 +319,7 @@ static const char *sfx_for(hp2_fem_screen before, hp2_fem_input in, int res)
         return tree ? "TreeSelectEvent" : car ? "MenuCarSelect" : before == HP2_FEM_TITLE ? "MenuStart" : "MenuSelect";
     case HP2_IN_BACK:  return res ? "MenuCancel" : NULL;
     case HP2_IN_UP: case HP2_IN_DOWN:
-        return !res ? NULL : tree ? "TreeUpDown" : car ? "MenuCarColour" : "MenuUpDown";
+        return !res ? NULL : tree ? "TreeUpDown" : car ? "MenuCarColour" : "MenuStart";   /* the title screen's sound */
     case HP2_IN_LEFT: case HP2_IN_RIGHT:
         if (!res) return NULL;
         return tree ? "TreeLeftRight" : car ? (in == HP2_IN_RIGHT ? "MenuCarRight" : "MenuCarLeft")
