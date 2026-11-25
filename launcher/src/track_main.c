@@ -48,6 +48,8 @@
 #include "hp2_coll.h"
 #include "hp2_drive.h"
 #include "hp2_engine.h"
+#include "hp2_ambient.h"
+#include "hp2_sfx.h"
 #include "hp2_fe.h"
 #include "hp2_font.h"
 #include "hp2_hud.h"
@@ -920,7 +922,9 @@ int main(int argc, char **argv)
     uint8_t *jbhead = NULL;
     size_t jbhead_len = 0;
     const char *config = NULL;
-    int music = 1, has_music = 0;
+    int music = 1, has_music = 0, ambient = 1, has_amb = 0;
+    hp2_ambient amb;
+    hp2_sfx ambsfx;
     hp2_drive drv[HP2_MAX_CARS];
     const hp2_drive *dptr[HP2_MAX_CARS];
     hp2_race races[HP2_MAX_CARS];
@@ -949,6 +953,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--scenery") && i + 1 < argc) scen = argv[++i];
         else if (!strcmp(argv[i], "--tex") && i + 1 < argc && ntexf < 4) texf[ntexf++] = argv[++i];
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
+        else if (!strcmp(argv[i], "--no-ambient")) ambient = 0;
         else if (!strcmp(argv[i], "--cam") && i + 1 < argc) cam = argv[++i];
         else if (!strcmp(argv[i], "--cam-road") && i + 1 < argc) camroad = argv[++i];
         else if (!strcmp(argv[i], "--no-fog")) fog = 0;
@@ -1231,7 +1236,26 @@ int main(int argc, char **argv)
             has_music = 1;
         }
     }
-    if ((has_eng || has_music) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+    /* the course's ambient sounds: its zones from the track file, the location's sample bank */
+    memset(&amb, 0, sizeof amb);
+    memset(&ambsfx, 0, sizeof ambsfx);
+    if (ambient && sound && have_zdir && track > 0 && hp2_ambient_bank_name(track) && hp2_ambient_parse(&amb, f.scen, f.scen_len) > 0) {
+        char bp[64];
+        size_t hl = 0, bl = 0;
+        uint8_t *bh, *bb;
+        snprintf(bp, sizeof bp, "SOUND\\%s.MSH", hp2_ambient_bank_name(track));
+        bh = hp2_zdir_load(&zdir, bp, &hl);
+        snprintf(bp, sizeof bp, "SOUND\\%s.MSB", hp2_ambient_bank_name(track));
+        bb = hp2_zdir_load(&zdir, bp, &bl);
+        if (bh && bb && hp2_sfx_load(&ambsfx, bh, hl, bb, bl) > 0) {
+            hp2_ambient_bind(&amb, &ambsfx, (uint32_t)SDL_GetTicks() | 1u);
+            has_amb = 1;
+            printf("ambient sounds: %d zones (%s)\n", amb.nz, hp2_ambient_bank_name(track));
+        }
+        free(bh);
+        free(bb);
+    }
+    if ((has_eng || has_music || has_amb) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
         SDL_AudioSpec want, have;
         memset(&want, 0, sizeof want);
         want.freq = 44100;
@@ -1349,6 +1373,10 @@ int main(int argc, char **argv)
                             mixbuf[q] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
                         }
                     }
+                    if (has_amb) {      /* from the car, or the camera when it flies free */
+                        float ax = driving ? drv[0].pos[0] : c.pos[0], ay = driving ? drv[0].pos[1] : c.pos[1];
+                        hp2_ambient_mix(&amb, ax, ay, (float)cfg.volume[HP2_VOL_AMBIENT] / 100.0f, mixbuf, 512);
+                    }
                     SDL_QueueAudio(audio, mixbuf, 512 * 4);
                 }
             }
@@ -1411,6 +1439,8 @@ int main(int argc, char **argv)
     if (has_music) hp2_jbplay_close(&jbp);
     free(jbhead);
     if (has_eng) hp2_engine_free(&eng);
+    hp2_ambient_free(&amb);
+    hp2_sfx_free(&ambsfx);
     hp2_ai_line_free(&w.line);
     if (pad) SDL_GameControllerClose(pad);
     SDL_GL_DeleteContext(gl);

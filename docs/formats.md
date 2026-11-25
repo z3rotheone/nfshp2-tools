@@ -1166,6 +1166,24 @@ Most of the file is the same. The differences are the fog (`34250`), `35020`/
 bounds), `34106`, `34121`, `34122`, `34130`, `34132`, `34026`, and in some
 locations a model container (the variant's own sky dome).
 
+### Ambient sound zones: chunk `80038000`
+
+*Read from TRACKB21 (Desert Heat) and checked against the route: every zone sits within a few hundred units of the road, in the same x, y as the route points.*
+
+A top-level chunk of children that each name a sound and the ground polygon it belongs to. The sample names are those of the location's `SOUND\<LOCATION>` bank.
+
+| Child | Holds |
+|---|---|
+| `38020` | steady beds ("Crickets", "PowerLine", "Sandstorm", "Waterfall", "Stream") |
+| `38030` | now-and-then sounds ("DesertBird", "Vulture", "Coyote", "Thunder", "GasBell", "Desertwind") |
+| `38010` | cave / overpass regions ("Cave_21", "Overpass01_21", "WaterfallVerb_21": probably reverb; not read) |
+
+`38020`: char[32] instance name ("Crickets01_21"), char[32] sample name, f32 level (0.5 to 1.5), f32 (equal to the level in the zones seen), u32 flag, 3 × f32 (zero when the flag is 0), u32 n (3 to 13), n × (f32 x, f32 y), then a triangulation of the polygon: u32 count of triangles and 3 u32 indices each.
+
+`38030`: the same two names, then 5 × f32 (the first two are 12 to 20 and 0 to 6: a period and a spread in seconds, Thunder has 360 in the fifth), u32 n, n × (x, y), the triangulation.
+
+The sample banks' second header word is not always 16: 28 in COMMON and FRONTEND, 56 in PARKLAND, 4 in DESERT. It is the length of a trailer after the sample records. DESERT holds 32,000, 11,025 and 8,000 Hz samples besides 22,050.
+
 ### Identified, not decoded
 
 | Chunk | What it holds |

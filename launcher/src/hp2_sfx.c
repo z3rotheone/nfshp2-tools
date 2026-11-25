@@ -28,7 +28,7 @@ int hp2_sfx_load(hp2_sfx *x, const uint8_t *msh, size_t msh_len, const uint8_t *
 {
     uint32_t count, k;
     int added = 0;
-    if (!msh || !msb || msh_len < 12 || rd32(msh + 4) != 16) return -1;
+    if (!msh || !msb || msh_len < 12 || rd32(msh + 4) > 64) return -1;   /* 16 in the engine banks, 28 in COMMON and FRONTEND, 4 to 56 in the ambiences: a trailer's length */
     count = rd32(msh + 8);
     if (count == 0 || (size_t)12 + 52 * (size_t)count > msh_len) return -1;
     for (k = 0; k < count; k++) {
@@ -50,18 +50,22 @@ int hp2_sfx_load(hp2_sfx *x, const uint8_t *msh, size_t msh_len, const uint8_t *
         n = nl;
         if (rr && nr < n) n = nr;
         if (n <= 0) { free(l); free(rr); continue; }
-        {   int mult = rate * 2 <= HP2_SFX_RATE + 1000 ? 2 : 1;       /* 22,050 -> 44,100 */
-            o = (int16_t *)malloc((size_t)n * mult * 2 * sizeof *o);
+        {   /* any rate to 44,100 Hz by linear interpolation (22,050 is an exact doubling) */
+            int m = (int)((long long)n * HP2_SFX_RATE / rate);
+            if (m < 1) m = 1;
+            o = (int16_t *)malloc((size_t)m * 2 * sizeof *o);
             if (!o) { free(l); free(rr); return -1; }
-            for (i = 0; i < n; i++) {
-                int a = l[i], b = rr ? rr[i] : l[i];
-                int a2 = i + 1 < n ? l[i + 1] : a, b2 = i + 1 < n ? (rr ? rr[i + 1] : l[i + 1]) : b;
-                if (mult == 2) {
-                    o[4 * i] = (int16_t)a; o[4 * i + 1] = (int16_t)b;
-                    o[4 * i + 2] = (int16_t)((a + a2) / 2); o[4 * i + 3] = (int16_t)((b + b2) / 2);
-                } else { o[2 * i] = (int16_t)a; o[2 * i + 1] = (int16_t)b; }
+            for (i = 0; i < m; i++) {
+                double pos = (double)i * rate / HP2_SFX_RATE;
+                int i0 = (int)pos, i1 = i0 + 1 < n ? i0 + 1 : n - 1;
+                double f = pos - i0;
+                if (i0 >= n) i0 = i1 = n - 1;
+                {   double a = l[i0] + (l[i1] - l[i0]) * f;
+                    double b = rr ? rr[i0] + (rr[i1] - rr[i0]) * f : a;
+                    o[2 * i] = (int16_t)a; o[2 * i + 1] = (int16_t)b;
+                }
             }
-            n *= mult;
+            n = m;
         }
         free(l); free(rr);
         if (x->count >= x->cap) {

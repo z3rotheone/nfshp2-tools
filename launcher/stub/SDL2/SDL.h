@@ -98,6 +98,7 @@ typedef enum {
 #define SDLK_f                      102
 #define SDLK_m                      109
 #define SDLK_p                      112
+#define SDLK_b                      98
 #define SDLK_r                      114
 #define SDLK_F12                    0x40000045
 #define SDL_MOUSEMOTION             0x400

@@ -26,6 +26,7 @@
 #include "../src/hp2_drive.h"
 #include "../src/hp2_engine.h"
 #include "../src/hp2_sfx.h"
+#include "../src/hp2_ambient.h"
 #include "../src/hp2_race.h"
 #include "../src/hp2_ai.h"
 #include "../src/hp2_geom.h"
@@ -2276,6 +2277,72 @@ static void test_sfx(void)
     }
     CHECK(hp2_sfx_load(&x, msb, 20, msb, sizeof msb) == -1, "sfx: not a bank");
     hp2_sfx_free(&x);
+    set32(msh + 4, 28);                                 /* COMMON and FRONTEND: a longer trailer */
+    set16(msh + 12 + 34, 32000);                        /* the first sample at another rate */
+    CHECK(hp2_sfx_load(&x, msh, sizeof msh, msb, sizeof msb) == 2, "sfx: any trailer length up to 64 is a bank");
+    a = hp2_sfx_find(&x, "MenuTest");
+    CHECK(a && a->frames == (int)((long long)3 * 28 * 44100 / 32000), "sfx: 32,000 Hz resampled to 44,100");
+    hp2_sfx_free(&x);
+}
+
+/* The ambient zones of a track file: a bed and a one-shot, each a square. */
+static void put_f(uint8_t *p, float f) { memcpy(p, &f, 4); }
+static void test_ambient(void)
+{
+    static uint8_t buf[8 + 8 + 160 + 8 + 160], *q = buf;
+    hp2_ambient a;
+    hp2_sfx bank;
+    hp2_sfx_sample smp[2];
+    static int16_t pcm[2 * 4000], out[2 * 100];
+    static const float sq[8] = { 0, 0, 100, 0, 100, 100, 0, 100 };
+    int i, k, sum;
+    printf("ambient zones (synthetic)\n");
+    memset(buf, 0, sizeof buf);
+    memset(&a, 0, sizeof a);
+    set32(q, 0x80038000u); set32(q + 4, 8 + 8 * 3 + 4 + 64 + 8 + 4 * 3 + 64 + 8 + 160 - 8 * 3);   /* patched below */
+    q += 8;
+    /* a bed: name, sample, gain, f32, u32, 3 f32, n, points */
+    set32(q, 0x38020u); set32(q + 4, 88 + 4 + 32);
+    memcpy(q + 8, "BedA_21", 7); memcpy(q + 8 + 32, "Wind", 4);
+    put_f(q + 8 + 64, 1.0f);
+    set32(q + 8 + 88, 4);
+    for (i = 0; i < 8; i++) put_f(q + 8 + 92 + 4 * i, sq[i]);
+    q += 8 + 88 + 4 + 32;
+    /* a one-shot: name, sample, period, spread, 3 f32, n, points */
+    set32(q, 0x38030u); set32(q + 4, 84 + 4 + 32);
+    memcpy(q + 8, "Bird01_21", 9); memcpy(q + 8 + 32, "Bird", 4);
+    put_f(q + 8 + 64, 100.0f); put_f(q + 8 + 68, 0.0f);
+    set32(q + 8 + 84, 4);
+    for (i = 0; i < 8; i++) put_f(q + 8 + 88 + 4 * i, sq[i]);
+    q += 8 + 84 + 4 + 32;
+    set32(buf + 4, (uint32_t)(q - buf - 8));
+    CHECK(hp2_ambient_parse(&a, buf, (size_t)(q - buf)) == 2 && a.z[0].bed && !a.z[1].bed && a.z[1].n == 4, "ambient: a bed and a one-shot read");
+    CHECK(hp2_amb_inside(&a.z[0], 50, 50) && !hp2_amb_inside(&a.z[0], 150, 50) && !hp2_amb_inside(&a.z[0], 50, -1), "ambient: the polygon test");
+    CHECK(!strcmp(hp2_ambient_bank_name(21), "DESERT") && !strcmp(hp2_ambient_bank_name(63), "TROPICS") && !hp2_ambient_bank_name(99), "ambient: course to bank");
+    for (i = 0; i < 4000; i++) pcm[2 * i] = pcm[2 * i + 1] = 1000;
+    memset(&bank, 0, sizeof bank);
+    memset(smp, 0, sizeof smp);
+    memcpy(smp[0].name, "Wind", 4); smp[0].pcm = pcm; smp[0].frames = 4000;
+    memcpy(smp[1].name, "Bird", 4); smp[1].pcm = pcm; smp[1].frames = 150;
+    bank.s = smp; bank.count = bank.cap = 2;
+    hp2_ambient_bind(&a, &bank, 7);
+    memset(out, 0, sizeof out);
+    hp2_ambient_mix(&a, 500, 500, 1.0f, out, 100);
+    for (sum = 0, i = 0; i < 200; i++) sum += out[i] != 0;
+    CHECK(sum == 0, "ambient: nothing outside the zones");
+    for (k = 0; k < 300; k++) { memset(out, 0, sizeof out); hp2_ambient_mix(&a, 50, 50, 1.0f, out, 100); }
+    CHECK(out[198] == 500, "ambient: the bed is at full level (half the sample: the port's headroom) after a fade in");
+    memset(out, 0, sizeof out);
+    hp2_ambient_mix(&a, 50, 50, 0.5f, out, 100);
+    CHECK(out[198] == 250, "ambient: follows the volume");
+    memset(out, 0, sizeof out);
+    hp2_ambient_mix(&a, 50, 50, 0.0f, out, 100);
+    CHECK(out[10] == 0, "ambient: volume 0 is silent");
+    for (k = 0; k < 400; k++) { memset(out, 0, sizeof out); hp2_ambient_mix(&a, 500, 500, 1.0f, out, 100); }
+    CHECK(out[198] == 0 && a.z[0].level == 0, "ambient: the bed fades away outside");
+    hp2_ambient_free(&a);
+    CHECK(hp2_ambient_parse(&a, buf + 100, 16) == 0, "ambient: a file without the chunk gives none");
+    hp2_ambient_free(&a);
 }
 
 /* An engine bank of three samples: coasting idle, under load low, horn. */
@@ -2504,6 +2571,7 @@ int main(int argc, char **argv)
     test_race();
     test_engine();
     test_sfx();
+    test_ambient();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
