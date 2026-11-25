@@ -1771,15 +1771,20 @@ int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r)
         place = series_result(m, e, r);
         decided = place > 0;
         if (!decided) return 0;
-    } else if (r->place >= 1 && r->place <= 8 && r->ticks <= 0)    /* a Lap Knockout you were out of: no time */
+    } else if (e && e->race_type == HP2_RT_PURSUIT)
+        snprintf(m->result[0], sizeof m->result[0], "All speeders arrested in %s", tm);
+    else if (r->place >= 1 && r->place <= 8 && r->ticks <= 0)    /* a Lap Knockout you were out of: no time */
         snprintf(m->result[0], sizeof m->result[0], "You finished %s", ord_name(m, r->place));
     else if (r->place >= 1 && r->place <= 8)
         snprintf(m->result[0], sizeof m->result[0], "You finished %s, %s", ord_name(m, r->place), tm);
     else
         snprintf(m->result[0], sizeof m->result[0], "Race time %s", tm);
     if (g && g->kind == 1) met = place >= 1 && (uint32_t)place <= g->value;
-    else if (g && g->kind == 2 && e->race_type != HP2_RT_PURSUIT)
-        met = (uint32_t)(e->race_type == HP2_RT_DELIVERY ? r->ticks : r->best) <= g->value && (e->race_type == HP2_RT_DELIVERY ? r->ticks : r->best) > 0;
+    else if (g && g->kind == 2) {
+        int whole = e->race_type == HP2_RT_DELIVERY || e->race_type == HP2_RT_PURSUIT;   /* the whole race, not a lap */
+        long t2 = whole ? r->ticks : r->best;
+        met = t2 > 0 && (uint32_t)t2 <= g->value;
+    }
     if (g && g->kind) snprintf(m->result[1], sizeof m->result[1], "%s", met ? "Objective complete" : "Objective not met");
     return met;
 }
@@ -2124,6 +2129,7 @@ int hp2_femenu_race_args(const hp2_fem_race *g, char buf[][32], int cap)
     ARG("--skin");
     ARG("%d", g->skin);
     if (g->race_type == HP2_RT_LAP_KNOCKOUT) ARG("--lap-knockout");
+    if (g->race_type == HP2_RT_PURSUIT) ARG("--pursuit");
     if (!g->nopp) {
         ARG("--opponents");
         ARG("0");

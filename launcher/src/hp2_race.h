@@ -90,6 +90,24 @@ void hp2_knockout_update(hp2_knockout *k, const hp2_race *races, int n);
  * knocked-out ones, the last to go first. */
 void hp2_knockout_order(const hp2_knockout *k, const hp2_race *races, int n, int *order);
 
+/* A Pursuit event: you are the cop (car 0) and the other cars are the
+ * speeders. Stay within HP2_ARREST_RANGE metres of one for HP2_ARREST_TIME
+ * seconds (the time runs down at the same pace when you fall away) and it
+ * is arrested: it stops. The event is done when all are. The range and the
+ * time are the port's own: the game's arrest rule is not decoded. */
+#define HP2_ARREST_RANGE 12.0f
+#define HP2_ARREST_TIME  2.5f
+typedef struct {
+    int on, speeders, narrested, done;
+    int arrested[HP2_RESULT_CARS];
+    float hold[HP2_RESULT_CARS];
+    float time;                      /* the race clock when the last was arrested */
+} hp2_pursuit;
+void hp2_pursuit_reset(hp2_pursuit *p);                           /* keeps on */
+/* One step for n cars at (x[i], y[i]); clock = seconds since GO. Returns
+ * the number arrested this step. */
+int hp2_pursuit_step(hp2_pursuit *p, float dt, float clock, int n, const float *x, const float *y);
+
 /* Writes the text for race r (the player), the player's place and the
  * order of the norder cars (may be NULL / 0); returns its length, or -1 when
  * cap is too small. */

@@ -126,6 +126,8 @@ typedef struct {
 
 /* Lap Knockout (--lap-knockout): see hp2_knockout. Out cars vanish. */
 static hp2_knockout ko;
+/* Pursuit (--pursuit): you are the cop; the others are speeders to arrest. */
+static hp2_pursuit pur;
 
 typedef struct {
     float pos[3], yaw, pitch;   /* degrees; yaw 0 looks along +x, z is up */
@@ -722,12 +724,19 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
         snprintf(buf, sizeof buf, "%d/%d", lap, r->laps);
         if ((x = hp2_hud_widget(hs->race, "LAP_COUNTER"))) hp2_hud_text(h, x, buf);
         hp2_race_time(r->state == HP2_RACE_FINISHED ? r->lap_time[r->laps - 1] : r->clock - r->lap_start, t1, sizeof t1);
+        if (pur.on) hp2_race_time(pur.done ? pur.time : r->clock, t1, sizeof t1);      /* the whole chase, not a lap */
         if ((x = hp2_hud_widget(hs->race, "BEST_LAP_TIME"))) hp2_hud_text(h, x, t1);
         if (r->best > 0) hp2_race_time(r->best, t2, sizeof t2);
         else snprintf(t2, sizeof t2, "-:--.--");
         if ((x = hp2_hud_widget(hs->race, "LAP_TIME"))) hp2_hud_text(h, x, t2);
         /* the place, top left: big figure, its "st"/"nd", "/n" */
-        if (place) {
+        if (pur.on) {                  /* arrests instead of a place */
+            snprintf(buf, sizeof buf, "%d", pur.narrested);
+            if ((x = hp2_hud_widget(hs->race, "BIGRACE_POSITION"))) hp2_hud_text(h, x, buf);
+            if ((x = hp2_hud_widget(hs->race, "BIGRACE_EXTENSION"))) hp2_hud_text(h, x, "");
+            snprintf(buf, sizeof buf, "/%d", ncars - 1);
+            if ((x = hp2_hud_widget(hs->race, "BIGRACE_TOTAL"))) hp2_hud_text(h, x, buf);
+        } else if (place) {
             snprintf(buf, sizeof buf, "%d", place);
             if ((x = hp2_hud_widget(hs->race, "BIGRACE_POSITION"))) hp2_hud_text(h, x, buf);
             if ((x = hp2_hud_widget(hs->race, "BIGRACE_EXTENSION"))) hp2_hud_text(h, x, ordinal(place));
@@ -745,7 +754,12 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
             go.y = 183;
             hp2_hud_image(h, &go, 0, 0, NULL, 1 - r->clock);
         }
-        if (ko.on && ko.done) {
+        if (pur.on && pur.done) {
+            hp2_race_time(pur.time, t1, sizeof t1);
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, "All speeders arrested");
+            snprintf(buf, sizeof buf, "Time %s", t1);
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, buf);
+        } else if (ko.on && ko.done) {
             snprintf(buf, sizeof buf, "You finished %d%s", place, ordinal(place));
             if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, buf);
             if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, ko.out[0] ? "You were knocked out!" : "Last car standing");
@@ -811,7 +825,7 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
             memset(&in, 0, sizeof in);
             in.brake = drv[0].speed > 1 ? 0.4f : 0;
         }
-        if (races[i].state == HP2_RACE_FINISHED && i > 0) {
+        if ((races[i].state == HP2_RACE_FINISHED || pur.arrested[i]) && i > 0) {
             memset(&in, 0, sizeof in);              /* opponents coast to a stop after the line */
             in.brake = drv[i].speed > 1 ? 0.4f : 0;
         }
@@ -832,6 +846,11 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         hp2_race_step(&races[i], dt, drv[i].pos[0], drv[i].pos[1], drv[i].vel[0], drv[i].vel[1]);
     }
     hp2_knockout_update(&ko, races, w->ncv);
+    if (pur.on && races[0].state == HP2_RACE_RUNNING) {
+        float px[HP2_MAX_CARS], py[HP2_MAX_CARS];
+        for (i = 0; i < w->ncv; i++) { px[i] = drv[i].pos[0]; py[i] = drv[i].pos[1]; }
+        hp2_pursuit_step(&pur, dt, races[0].clock, w->ncv, px, py);
+    }
 }
 
 int main(int argc, char **argv)
@@ -889,6 +908,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--result") && i + 1 < argc) resultf = argv[++i];
         else if (!strcmp(argv[i], "--lap-knockout")) ko.on = 1;
+        else if (!strcmp(argv[i], "--pursuit")) pur.on = 1;
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
@@ -1040,6 +1060,7 @@ int main(int argc, char **argv)
     if (f.hudtex) hp2_tex_scan(&ts, f.hudtex, f.hudtex_len);
     if (f.globalb) hp2_font_scan(&fonts, f.globalb, f.globalb_len);
     hp2_hud_init(&hs.hud, &ts, &fonts);
+    if (pur.on) laps = HP2_RACE_MAX_LAPS;      /* the speeders keep running until they are caught */
     for (i = 0; i < HP2_MAX_CARS; i++) {
         hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
         memset(&ai[i], 0, sizeof ai[i]);
@@ -1156,6 +1177,7 @@ int main(int argc, char **argv)
                 case SDLK_r:
                     if (driving) {
                         hp2_knockout_reset(&ko);
+                        hp2_pursuit_reset(&pur);
                         for (i = 0; i < w.ncv; i++) {
                             hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
                             start_car(&w, i, &drv[i], &races[0]);
@@ -1266,6 +1288,13 @@ int main(int argc, char **argv)
         const hp2_race *pr[HP2_MAX_CARS];
         int ord[HP2_MAX_CARS], ci, n, place = 0;
         hp2_race me = races[0];
+        if (pur.on && pur.done) {          /* the chase is over when the last speeder is arrested */
+            me.state = HP2_RACE_FINISHED;
+            memset(me.lap_time, 0, sizeof me.lap_time);
+            me.laps = 1;
+            me.lap_time[0] = pur.time;
+            me.best = 0;
+        }
         if (ko.on) {                  /* the order is the knockout's; the player is finished when it is decided */
             hp2_knockout_order(&ko, races, w.ncv, ord);
             if (ko.done) {
@@ -1279,7 +1308,7 @@ int main(int argc, char **argv)
             hp2_race_order(pr, w.ncv, ord);
         }
         for (ci = 0; ci < w.ncv; ci++) if (ord[ci] == 0) place = ci + 1;
-        n = hp2_race_result_format(&me, w.ncv > 1 ? place : 0, ord, w.ncv, txt, sizeof txt);
+        n = hp2_race_result_format(&me, w.ncv > 1 && !pur.on ? place : 0, ord, w.ncv, txt, sizeof txt);
         FILE *rf = n > 0 ? fopen(resultf, "wb") : NULL;
         if (rf) { fwrite(txt, 1, (size_t)n, rf); fclose(rf); }
         else fprintf(stderr, "could not write %s\n", resultf);

@@ -1245,6 +1245,23 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
             has3 = 0;
             for (k3 = 0; k3 < na3; k3++) has3 |= !strcmp(ab3[k3], "--lap-knockout");
             CHECK(!has3, "a Single Race does not");
+            {   /* a Pursuit event (Hot Pursuit 5): the cop car, --pursuit, and the time against the goal */
+                static hp2_femenu t4;
+                const hp2_tree_event *e5 = &m.trees[1].ev[4];
+                hp2_race_result pr = { 1, 0, 4000L * 100, 0, 0, { 0 } };
+                int na4, k4, has4 = 0;
+                t4 = m;
+                t4.tree_kind = 1; t4.tree_ev = 4; t4.ev_ncars = 1; t4.ev_cars[0] = e5->cars[0]; t4.car = 0; t4.ser.done = 1;
+                t4.screen = HP2_FEM_EVENT_INFO;
+                CHECK(e5->race_type == HP2_RT_PURSUIT && hp2_femenu_input(&t4, HP2_IN_ACCEPT) == HP2_FEM_RACE, "Hot Pursuit event 5: a Pursuit");
+                na4 = hp2_femenu_race_args(&t4.go, ab3, 48);
+                for (k4 = 0; k4 < na4; k4++) has4 |= !strcmp(ab3[k4], "--pursuit");
+                CHECK(has4, "its hp2track arguments include --pursuit");
+                CHECK(e5->target.kind == 2 && hp2_femenu_result(&t4, &pr) == 1 && !strcmp(t4.result[0], "All speeders arrested in 1:40.00")
+                      && !strcmp(t4.result[1], "Objective complete"), "arrested all in 1:40: within the goal");
+                pr.ticks = 4000L * 200;
+                CHECK(hp2_femenu_result(&t4, &pr) == 0 && !strcmp(t4.result[1], "Objective not met"), "in 3:20: not met");
+            }
             {   hp2_race_result ko = { 1, 3, 0, 0, 5, { 1, 2, 0, 3, 4 } };
                 hp2_femenu_result(&t3, &ko);
                 CHECK(!strcmp(t3.result[0], "You finished 3rd"), "knocked out of a Lap Knockout: place, no time");
@@ -1944,6 +1961,30 @@ static void test_race(void)
     CHECK(r.state == HP2_RACE_FINISHED && r.clock > 24 && r.clock < 26, "finished at %g s", r.clock);
     hp2_race_time(83.456f, buf, sizeof buf);
     CHECK(!strcmp(buf, "1:23.46"), "time %s", buf);
+    {   /* Pursuit: stay near a speeder to arrest it */
+        hp2_pursuit pu;
+        float px[3] = { 0, 8, 100 }, py[3] = { 0, 0, 0 };
+        int g1, k;
+        memset(&pu, 0, sizeof pu);
+        pu.on = 1;
+        for (k = 0; k < 20; k++) hp2_pursuit_step(&pu, 0.1f, (float)k * 0.1f, 3, px, py);        /* 2 s near car 1 */
+        CHECK(!pu.arrested[1] && pu.narrested == 0, "2 s within range is not enough");
+        g1 = 0;
+        for (k = 0; k < 8; k++) g1 += hp2_pursuit_step(&pu, 0.1f, 2.0f + (float)k * 0.1f, 3, px, py);
+        CHECK(pu.arrested[1] && g1 == 1 && !pu.arrested[2] && !pu.done, "after 2.5 s speeder 1 is arrested, speeder 2 (100 m) is not");
+        px[2] = 5;
+        for (k = 0; k < 30; k++) hp2_pursuit_step(&pu, 0.1f, 3.0f + (float)k * 0.1f, 3, px, py);
+        CHECK(pu.done && pu.narrested == 2 && pu.time > 5.0f && pu.time < 5.6f, "both arrested: done, with the clock: %g", pu.time);
+        memset(&pu, 0, sizeof pu);
+        pu.on = 1;
+        px[2] = 100;
+        for (k = 0; k < 20; k++) hp2_pursuit_step(&pu, 0.1f, 0, 3, px, py);
+        px[1] = 50;
+        for (k = 0; k < 40; k++) hp2_pursuit_step(&pu, 0.1f, 0, 3, px, py);
+        CHECK(pu.hold[1] == 0 && !pu.arrested[1], "falling away runs the hold down to nothing");
+        hp2_pursuit_reset(&pu);
+        CHECK(pu.on && pu.narrested == 0 && !pu.done, "reset keeps it on");
+    }
     {   /* Lap Knockout: the car furthest behind goes each time the leader finishes a lap */
         hp2_race rs[4];
         hp2_knockout ko;

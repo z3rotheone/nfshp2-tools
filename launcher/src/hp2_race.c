@@ -312,3 +312,32 @@ void hp2_knockout_order(const hp2_knockout *k, const hp2_race *races, int n, int
     for (i = 0; i < m; i++) order[c++] = idx[ord[i]];
     for (i = k->nout - 1; i >= 0; i--) order[c++] = k->elim[i];
 }
+
+void hp2_pursuit_reset(hp2_pursuit *p)
+{
+    int on = p->on;
+    memset(p, 0, sizeof *p);
+    p->on = on;
+}
+
+int hp2_pursuit_step(hp2_pursuit *p, float dt, float clock, int n, const float *x, const float *y)
+{
+    int i, got = 0;
+    if (!p->on || p->done || n < 2) return 0;
+    if (n > HP2_RESULT_CARS) n = HP2_RESULT_CARS;
+    p->speeders = n - 1;
+    for (i = 1; i < n; i++) {
+        float dx = x[i] - x[0], dy = y[i] - y[0];
+        if (p->arrested[i]) continue;
+        if (dx * dx + dy * dy <= HP2_ARREST_RANGE * HP2_ARREST_RANGE) p->hold[i] += dt;
+        else p->hold[i] -= dt;
+        if (p->hold[i] < 0) p->hold[i] = 0;
+        if (p->hold[i] >= HP2_ARREST_TIME) {
+            p->arrested[i] = 1;
+            p->narrested++;
+            got++;
+        }
+    }
+    if (p->narrested >= p->speeders) { p->done = 1; p->time = clock; }
+    return got;
+}

@@ -141,8 +141,13 @@ closes. Two ways in:
   `hp2track`; also the Challenge's Lap Knockout) the car furthest behind is
   out each time the leader completes a lap ("Last place on each lap
   eliminated"): it vanishes, and you are told if it is you; one race, your
-  place being your standing when it was decided. Pursuit and Delivery
-  events race the same way: there are no cops yet.
+  place being your standing when it was decided. In a **Pursuit** event (`--pursuit`) you drive the cop
+  car and the event's opponents are the speeders: stay within 12 m of one
+  for 2.5 s and it is arrested (it stops); all of them arrested ends the
+  chase and the time is held against the event's goal ("Arrest all of the
+  speeders in 2:00 or less"). That rule and its numbers are the port's own:
+  the game's arrest rule, and its cops on the road, are not decoded or built.
+  Delivery events race the same way as a plain race.
 * **Quick Race or a Challenge** (car, course, Time of Day, laps): opponents
   as Customize sets them (how many, Same or Random cars, Opponent AI as
   skill 2, 5 or 8); Quick Race uses a full grid of seven random cars, a Free
