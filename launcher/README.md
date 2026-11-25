@@ -523,3 +523,5 @@ Back from a race with the objective met, hp2fe plays the game's RewardView sound
 **Scenery shadows.** `hp2track --no-scenery-shadows` skips the scenery's own shadow pieces (instance kind 1), to tell them apart from other road artefacts.
 
 **Race music and the speed readout.** hp2track now plays the jukebox in a race: songs whose status is On (not the Menu ones), one after another at random, at the Race Music volume, mixed with the engine. hp2fe passes its `--config` file so the Jukebox and volume settings apply; `--no-music` turns it off, `--no-sound` turns off all sound. The speed digits are right-aligned in a three-figure field against the gear (the layout gives only the left edge; the alignment is the port's reading).
+
+`hp2track` key B (or `--blend-opaque`) draws the blended pieces solid, to tell the ground and road edges from real glass and shadows.
