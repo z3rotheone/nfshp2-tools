@@ -25,7 +25,7 @@ CC      ?= cc
 CFLAGS  ?= -std=c99 -Wall -Wextra -O2
 SRC      = src/hp2_settings.c src/hp2_glyphs.c src/hp2_pad.c src/hp2_menu.c src/hp2_fe.c \
            src/hp2_tex.c src/hp2_font.c src/hp2_lang.c src/hp2_zdir.c src/hp2_tree.c src/hp2_geom.c src/hp2_scene.c src/hp2_car.c src/hp2_coll.c src/hp2_drive.c src/hp2_race.c src/hp2_ai.c src/hp2_engine.c src/hp2_femenu.c src/hp2_jukebox.c \
-           src/hp2_vag.c src/hp2_jbplay.c src/hp2_progress.c
+           src/hp2_vag.c src/hp2_jbplay.c src/hp2_progress.c src/hp2_sfx.c
 SDLSRC   = src/hp2_input.c src/main.c
 FESRC    = src/hp2_fedraw.c src/hp2_fecar.c src/hp2_input.c src/fe_main.c
 BIN      = hp2launcher

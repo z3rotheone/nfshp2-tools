@@ -121,6 +121,14 @@ controller it finds, prints which pad it detected and the bindings in that
 pad's own button names, then shows live steering, throttle, brake and the
 actions currently held. Escape or Ctrl+C to quit.
 
+### Menu sounds
+
+With `--disc`, hp2fe plays the game's own menu sounds from `SOUND\COMMON` and
+`SOUND\FRONTEND` (hp2_sfx): moves, selects, cancel, the wrong-button buzz, the
+event tree's and car select's own sounds, and the locked-event sound. They
+use a second audio device so they are heard at once, follow the "menu sound
+effects" volume of the settings, and `--no-sfx` turns them off.
+
 ### Progress and unlocks
 
 hp2fe keeps what you have done in `<config>.save` (default `hp2.ini.save`): per

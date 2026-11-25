@@ -319,9 +319,17 @@ sample:
 | 44 | 8 bytes | 0 |
 
 A sample runs to the next one's offset (the last to the end of the file).
+The second `u32` is 16 in the engine banks and 28 in COMMON and FRONTEND (the
+records are the same 52 bytes).
 In the engine banks each starts with a silent block, has flag 6 (loop
 start) on the next and flag 3 (loop end) on its last: the whole sample is a
-loop. COMMON holds the menu sounds, each twice (MenuStart, MenuLeftRight...).
+loop. COMMON holds the menu sounds (MenuStart, MenuLeftRight, MenuUpDown,
+MenuSelect, MenuCancel, MenuWrong, MenuAdjustVolume) and FRONTEND the car
+select, event tree and name entry sounds (MenuCarRight/Left/Colour/Select,
+TreeUpDown/LeftRight/SelectEvent/EventLocked, NameKeyboard, EasterEgg ...,
+22 in all). Each sound is stored twice in a row under one name, the same
+length: the left and the right channel (22,050 or 44,100 Hz, plain
+PS-ADPCM, no loop). `launcher/src/hp2_sfx.c` decodes them.
 
 **Engine banks** hold 13 samples named `<prefix>` + `C` (coasting) or `L`
 (under load) + `E` (engine) or `X` (exhaust) + `id`, `Lo`, `Md` or `Hi`, and

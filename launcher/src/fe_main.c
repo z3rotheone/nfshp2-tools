@@ -42,6 +42,7 @@
 #include "hp2_fe.h"
 #include "hp2_fedraw.h"
 #include "hp2_fecar.h"
+#include "hp2_sfx.h"
 #include "hp2_input.h"
 #include "hp2_jbplay.h"
 #include "hp2_race.h"
@@ -77,6 +78,8 @@ static unsigned fc_clock(void) { return fc_fixed != 0xFFFFFFFFu ? fc_fixed : (un
 typedef struct {
     uint8_t *frontb, *globalb, *lang, *bank;
     size_t   frontb_len, globalb_len, lang_len, bank_len;
+    uint8_t *msh[2], *msb[2];            /* the menu sound banks: COMMON, FRONTEND */
+    size_t   msh_len[2], msb_len[2];
     char      bank_path[1024];   /* where the music bank's audio is streamed from */
     long long bank_base;
 } files;
@@ -95,6 +98,10 @@ static int load_files(files *f, const char *disc, const char *language, char **l
         f->frontb = hp2_zdir_load(&z, "FRONTEND\\FRONTB.BUN", &f->frontb_len);
         f->globalb = hp2_zdir_load(&z, "GLOBAL\\GLOBALB.BUN", &f->globalb_len);
         f->lang = hp2_zdir_load(&z, path, &f->lang_len);
+        f->msh[0] = hp2_zdir_load(&z, "SOUND\\COMMON.MSH", &f->msh_len[0]);
+        f->msb[0] = hp2_zdir_load(&z, "SOUND\\COMMON.MSB", &f->msb_len[0]);
+        f->msh[1] = hp2_zdir_load(&z, "SOUND\\FRONTEND.MSH", &f->msh_len[1]);
+        f->msb[1] = hp2_zdir_load(&z, "SOUND\\FRONTEND.MSB", &f->msb_len[1]);
         if (!bank) {
             uint32_t size;
             f->bank = hp2_zdir_load_part(&z, "SOUND\\JUKEBOXM.JBC", hp2_jukebox_header_size(), &f->bank_len);
@@ -281,6 +288,40 @@ static int songbox_update(songbox *b, int now_playing, Uint32 ticks)
     return redraw;
 }
 
+/* ---- menu sounds ------------------------------------------------------------
+ * Their own audio device, so a sound is heard at once and not after the
+ * music's queue; a new one cuts the last. */
+static void sfx_play(SDL_AudioDeviceID dev, const hp2_sfx *x, const hp2_settings *cfg, const char *name)
+{
+    static int16_t buf[HP2_SFX_RATE * 2 * 4];       /* up to four seconds */
+    const hp2_sfx_sample *s;
+    int i, n, vol = cfg->volume[HP2_VOL_MENU_SFX];
+    if (!dev || !name || vol <= 0 || !(s = hp2_sfx_find(x, name))) return;
+    n = s->frames * 2 < (int)(sizeof buf / sizeof buf[0]) ? s->frames * 2 : (int)(sizeof buf / sizeof buf[0]);
+    for (i = 0; i < n; i++) buf[i] = (int16_t)(s->pcm[i] * vol / 100);
+    SDL_ClearQueuedAudio(dev);
+    SDL_QueueAudio(dev, buf, (Uint32)n * 2);
+}
+
+/* The sound the game makes for an input on a screen: res 0 = it did nothing. */
+static const char *sfx_for(hp2_fem_screen before, hp2_fem_input in, int res)
+{
+    int tree = before == HP2_FEM_TREE, car = before == HP2_FEM_SELECT_CAR, track = before == HP2_FEM_SELECT_TRACK;
+    switch (in) {
+    case HP2_IN_ACCEPT:
+        if (!res) return tree ? "TreeEventLocked" : "MenuWrong";
+        return tree ? "TreeSelectEvent" : car ? "MenuCarSelect" : before == HP2_FEM_TITLE ? "MenuStart" : "MenuSelect";
+    case HP2_IN_BACK:  return res ? "MenuCancel" : NULL;
+    case HP2_IN_UP: case HP2_IN_DOWN:
+        return !res ? NULL : tree ? "TreeUpDown" : car ? "MenuCarColour" : "MenuUpDown";
+    case HP2_IN_LEFT: case HP2_IN_RIGHT:
+        if (!res) return NULL;
+        return tree ? "TreeLeftRight" : car ? (in == HP2_IN_RIGHT ? "MenuCarRight" : "MenuCarLeft")
+             : track ? "MenuTrackRightLeft" : before == HP2_FEM_SETTINGS || before == HP2_FEM_JUKEBOX ? "MenuAdjustVolume" : "MenuLeftRight";
+    default: return NULL;
+    }
+}
+
 static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, hp2_fecar *fc, SDL_Renderer *r, int W, int H, hp2_fe_fit fit)
 {
     static hp2_fe_item items[MAX_ITEMS];
@@ -319,6 +360,9 @@ int main(int argc, char **argv)
     char prog_path[1100];
     static hp2_progress progress;
     static hp2_fecar fcar;
+    static hp2_sfx sfx;
+    SDL_AudioDeviceID sfxdev = 0;
+    int use_sfx = 1;
     const char *disc = NULL, *language = "ENGLISH", *config = "hp2.ini", *shot = NULL, *keys = NULL, *bankpath = NULL;
     const char *trackprog = NULL, *race_args[RACE_ARGS + 1];
     char prog[1024], result_path[1100], race_buf[RACE_ARGS][32];
@@ -352,6 +396,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--songbox") && i + 1 < argc) shot_song = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
         else if (!strcmp(argv[i], "--open")) open_all = 1;
+        else if (!strcmp(argv[i], "--no-sfx")) use_sfx = 0;
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) { if (sscanf(argv[++i], "%dx%d", &W, &H) != 2 || W < 64 || H < 48) { W = 1280; H = 720; } }
         else if (!strcmp(argv[i], "--fit") && i + 1 < argc) {
             const char *s = argv[++i];
@@ -362,7 +407,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--hp2track") && i + 1 < argc) trackprog = argv[++i];
         else {
             fprintf(stderr, "usage: %s --disc DIR | --files FRONTB.BUN GLOBALB.BUN FE_LANG.BIN\n"
-                            "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--config PATH] [--size WxH] [--open]\n"
+                            "       [--language NAME] [--jukebox BANK] [--options] [--no-music] [--no-sfx] [--config PATH] [--size WxH] [--open]\n"
                             "       [--fit fit|stretch|expand]\n"
                             "       [--shot OUT.bmp] [--keys up,down,left,right,accept,back,help] [--hp2track PATH]\n", argv[0]);
             return 2;
@@ -450,6 +495,21 @@ int main(int argc, char **argv)
         dirty = 0;      /* a screenshot never writes the settings file */
     } else {
         apply_window_mode(win, &cfg);
+        /* menu sounds (from the disc's COMMON and FRONTEND banks) */
+        if (use_sfx && f.msh[0] && f.msb[0]) {
+            int k;
+            for (k = 0; k < 2; k++) if (f.msh[k] && f.msb[k]) hp2_sfx_load(&sfx, f.msh[k], f.msh_len[k], f.msb[k], f.msb_len[k]);
+            if (sfx.count && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+                SDL_AudioSpec want, have;
+                memset(&want, 0, sizeof want);
+                want.freq = HP2_SFX_RATE;
+                want.format = AUDIO_S16SYS;
+                want.channels = 2;
+                want.samples = 1024;
+                sfxdev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);   /* SDL converts if it must */
+                if (sfxdev) SDL_PauseAudioDevice(sfxdev, 0);
+            }
+        }
         /* menu music: the Jukebox's songs, streamed from the bank */
         if (music && menu.jb && f.bank_path[0] && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
             SDL_AudioSpec want, have;
@@ -558,6 +618,7 @@ int main(int argc, char **argv)
             if (have) {
                 hp2_fem_screen before = menu.screen;
                 int res = hp2_femenu_input(&menu, in);
+                sfx_play(sfxdev, &sfx, &cfg, sfx_for(before, in, res));
                 if (res & HP2_FEM_CHANGED) {
                     dirty = 1;
                     if (menu.screen == HP2_FEM_SETTINGS && menu.sel == HP2_ROW_WINDOW) apply_window_mode(win, &cfg);
@@ -605,6 +666,8 @@ int main(int argc, char **argv)
     if (dirty && !hp2_settings_save(&cfg, config)) fprintf(stderr, "could not save %s\n", config);   /* 1 = saved */
 
     hp2_fecar_close(&fcar);
+    if (sfxdev) SDL_CloseAudioDevice(sfxdev);
+    hp2_sfx_free(&sfx);
     hp2_fedraw_free(&d);
     if (audio) {
         SDL_CloseAudioDevice(audio);
@@ -621,6 +684,7 @@ int main(int argc, char **argv)
     free(f.frontb);
     free(f.globalb);
     free(f.lang);
+    { int k; for (k = 0; k < 2; k++) { free(f.msh[k]); free(f.msb[k]); } }
     free(f.bank);
     return 0;
 }

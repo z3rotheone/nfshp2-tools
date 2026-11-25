@@ -25,6 +25,7 @@
 #include "../src/hp2_coll.h"
 #include "../src/hp2_drive.h"
 #include "../src/hp2_engine.h"
+#include "../src/hp2_sfx.h"
 #include "../src/hp2_race.h"
 #include "../src/hp2_ai.h"
 #include "../src/hp2_geom.h"
@@ -2175,6 +2176,42 @@ static void test_race(void)
     }
 }
 
+/* A menu sound bank: a sound stored twice (left, right) and a single one. */
+static void test_sfx(void)
+{
+    static uint8_t msh[12 + 3 * 52], msb[3 * 48];
+    static const char *names[3] = { "MenuTest", "MenuTest", "Solo" };
+    hp2_sfx x;
+    const hp2_sfx_sample *a, *b;
+    int i;
+    printf("menu sounds (synthetic)\n");
+    memset(msh, 0, sizeof msh);
+    memset(msb, 0, sizeof msb);
+    memset(&x, 0, sizeof x);
+    set32(msh, sizeof msh);
+    set32(msh + 4, 16);
+    set32(msh + 8, 3);
+    for (i = 0; i < 3; i++) {
+        uint8_t *r = msh + 12 + 52 * i;
+        memcpy(r, names[i], strlen(names[i]));
+        r[33] = 1;
+        set16(r + 34, i == 2 ? 44100 : 22050);
+        set32(r + 40, (uint32_t)(48 * i));
+        msb[48 * i + 1] = 0; msb[48 * i + 17] = 0; msb[48 * i + 33] = 1;      /* three blocks, the last flagged */
+        msb[48 * i + 2] = (uint8_t)(i == 1 ? 0x77 : 0x00);                  /* the right channel has a sound in it */
+    }
+    CHECK(hp2_sfx_load(&x, msh, sizeof msh, msb, sizeof msb) == 2 && x.count == 2, "sfx: a stereo pair is one sound, a single another");
+    a = hp2_sfx_find(&x, "MenuTest");
+    b = hp2_sfx_find(&x, "Solo");
+    CHECK(a && a->frames == 3 * 28 * 2 && b && b->frames == 3 * 28 && !hp2_sfx_find(&x, "Nope"), "sfx: 22,050 Hz doubled, 44,100 Hz kept");
+    {   int l = 0, r = 0;
+        for (i = 0; a && i < a->frames; i++) { if (a->pcm[2 * i]) l = 1; if (a->pcm[2 * i + 1]) r = 1; }
+        CHECK(!l && r, "sfx: left and right stay apart");
+    }
+    CHECK(hp2_sfx_load(&x, msb, 20, msb, sizeof msb) == -1, "sfx: not a bank");
+    hp2_sfx_free(&x);
+}
+
 /* An engine bank of three samples: coasting idle, under load low, horn. */
 static void test_engine(void)
 {
@@ -2400,6 +2437,7 @@ int main(int argc, char **argv)
     test_drive();
     test_race();
     test_engine();
+    test_sfx();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
