@@ -872,7 +872,8 @@ static float axis(SDL_GameController *p, SDL_GameControllerAxis a)
 static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *ai, const hp2_drive_in *player, float dt)
 {
     int i, j;
-    static float prev_speed, hit_wait, prev_cd = 99;
+    static float prev_speed, hit_wait, prev_cd = 99, siren_wait, splash_wait;
+    static int prev_surf;
     static int prev_state = HP2_RACE_COUNTDOWN;
     if (has_cues) {
         hit_wait -= dt;
@@ -882,6 +883,21 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         } else if (prev_state == HP2_RACE_COUNTDOWN) cue("CountDownHigh", 0.8f);
         if (races[0].state == HP2_RACE_FINISHED && prev_state != HP2_RACE_FINISHED) cue("FinishLine", 1.0f);
         prev_state = races[0].state;
+    }
+    if (has_cues) {
+        /* a puddle (surface 4) splashes as you hit it at speed */
+        int sf = drv[0].surface & 15;
+        splash_wait -= dt;
+        if (sf == 4 && prev_surf != 4 && drv[0].on_ground && fabsf(drv[0].speed) > 8.0f && splash_wait <= 0) {
+            char nm[8];
+            snprintf(nm, sizeof nm, "Splash%d", 1 + (int)(fabsf(drv[0].speed) * 3) % 3);
+            cue(nm, 0.9f);
+            splash_wait = 0.5f;
+        }
+        prev_surf = sf;
+        /* your siren in a Pursuit event: the long wail, repeated */
+        siren_wait -= dt;
+        if (pur.on && races[0].state == HP2_RACE_RUNNING && !pur.done && siren_wait <= 0) { cue("CopSiren01", 0.5f); siren_wait = 5.3f; }
     }
     for (i = 0; i < w->ncv; i++) {
         hp2_drive_in in;
