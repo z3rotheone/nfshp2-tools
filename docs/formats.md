@@ -975,16 +975,26 @@ about -0.13 to 0.09, f32 about -0.1 to 0.09, then words that read as
 uninitialised memory (garbage floats; 3.016 at +0x5C). Samples are at a fixed
 interval, so the step is a speed in some unit; which unit is not worked out.
 
-TRACKB24 has 26 recordings of 21 to 156 samples (240 to 1,587 m). Many chain:
-a recording ends within 50 units of where the next begins (0 to 1 to 2 ..), and
-the two longest start at the start line. They total 35 km on a 5.19 km track,
-and some ends are 1 to 2 km from the next start, so they are not one lap:
-they probably cover the route graph's edges (the main route, its shortcuts
-and loops; `34149` points link to other points) one recording each. The
-entries are 17 to 20 times (seconds) for the same driver per recording, 15 to
-23 s on the first ones; whether they are the driver's repeats of that
-section, or par times, is not known. Not yet used by `hp2track`, whose AI
-searches its own line over the collision ground.
+TRACKB24 has 26 recordings of 21 to 156 samples (240 to 1,587 m), 35 km in
+all. Matched to the points of the main route (route 0, 73 points; every
+start and end lies within 110 units of a point, most within 50), they are
+**four passes round the lap**, each in route order and each starting at the
+line: recordings 0-8 (8.8 km, ending back at point 0), 9-21 (several
+fragments over the same stretch, with shortcut route 1 at recording 20),
+22-23 (435 samples to point 33, then 384 back to point 1) and 24-25 (404 to
+point 30, then 408 to point 72). A lap is about 8.4 km (5.19 miles); the
+route's own progress runs to 7,343, so one unit is a little over a metre.
+The passes are different lines: the same stretch differs by some units
+between them. The long ones (22-25) have no time entries; the short ones
+have 17 to 20, the first around 15 to 23 s for 1,160 m and 4.3 to 5.8 s for
+240 m. Those values come in ascending runs of about the same ratio, which
+reads as one time per car (20 entries, "RAGNAR" driving each of 20 cars over
+that section; flag 2 and 999.0 where a car was not driven), as par times for
+the opponents. That reading is a guess, and the speeds it implies (up to
+75 m/s over 1,160 m) are too high for the samples to be one-per-time-unit, so
+the sampling interval is not known either. Not yet used by `hp2track`, whose
+AI searches its own line over the collision ground; using pass 22-23 or 24-25
+as the line would be possible (positions and headings are complete).
 
 ### Police: `0x80034500`
 
