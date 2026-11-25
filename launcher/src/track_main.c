@@ -96,6 +96,7 @@ typedef struct {
     float    mid;           /* share of half-transparent texels */
     float    clear;         /* share of fully clear texels */
     float    clearlum;      /* their mean brightness (0 for a black shadow shape) */
+    float    edge;          /* the largest share of opaque texels along one edge: a strip joined to its edge, not a sprite */
 } gltex;
 
 typedef struct {
@@ -258,6 +259,13 @@ static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
             }
             g->clear = (float)clear / (float)n;
             g->clearlum = clear ? (float)lum / (float)clear : 0;
+            {
+                long e0 = 0, e1 = 0, e2 = 0, e3 = 0;
+                int ix, iy;
+                for (ix = 0; ix < t->w; ix++) { e0 += px[4 * ix + 3] >= 16; e1 += px[4 * ((long)(t->h - 1) * t->w + ix) + 3] >= 16; }
+                for (iy = 0; iy < t->h; iy++) { e2 += px[4 * (long)iy * t->w + 3] >= 16; e3 += px[4 * ((long)iy * t->w + t->w - 1) + 3] >= 16; }
+                g->edge = fmaxf(fmaxf((float)e0 / t->w, (float)e1 / t->w), fmaxf((float)e2 / t->h, (float)e3 / t->h));
+            }
             g->mode = mid > n / 20 ? MODE_BLEND : clear ? MODE_CUTOUT : MODE_OPAQUE;
             g->mid = (float)mid / (float)n;
             tw = t->w;
@@ -451,7 +459,7 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
         const gltex *t = &w->tex[g[j].tex];
         int mode = t->mode == MODE_BLEND && blend_opaque ? MODE_OPAQUE : t->mode;
         if (hide_tex && t->hash == hide_tex) continue;
-        if (g[j].flat && !keep_cuts && t->clear > 0.02f && t->clear < 0.5f && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
+        if (g[j].flat && !keep_cuts && t->clear > 0.02f && t->edge > 0.9f && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
         set_mode(mode);
         glBindTexture(GL_TEXTURE_2D, t->id);

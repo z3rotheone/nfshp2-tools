@@ -51,3 +51,5 @@ __pycache__/
 # ---- ghidra projects ----
 *.gpr
 *.rep/
+launcher/hp2track
+launcher/hp2fe
