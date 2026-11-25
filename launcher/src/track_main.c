@@ -93,11 +93,15 @@ typedef struct {
     uint32_t hash;
     GLuint   id;
     int      mode;
+    float    mid;           /* share of half-transparent texels */
+    float    clear;         /* share of fully clear texels */
+    float    clearlum;      /* their mean brightness (0 for a black shadow shape) */
 } gltex;
 
 typedef struct {
     GLuint list;
     int    tex;             /* index into the texture table */
+    int    flat;            /* nearly all its triangles lie flat: ground, not a foliage card */
 } glgroup;
 
 #define HP2_MAX_CARS 8
@@ -246,13 +250,16 @@ static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
         glGenTextures(1, &g->id);
         glBindTexture(GL_TEXTURE_2D, g->id);
         if (t && t->bpp && (px = (uint8_t *)malloc((size_t)t->w * t->h * 4)) && hp2_tex_decode(t, px) == 0) {
-            long k, n = (long)t->w * t->h, mid = 0, clear = 0;
+            long k, n = (long)t->w * t->h, mid = 0, clear = 0, lum = 0;
             for (k = 0; k < n; k++) {
                 uint8_t a = px[4 * k + 3];
-                if (a < 16) clear++;
+                if (a < 16) { clear++; lum += (px[4 * k] + px[4 * k + 1] + px[4 * k + 2]) / 3; }
                 else if (a < 240) mid++;
             }
+            g->clear = (float)clear / (float)n;
+            g->clearlum = clear ? (float)lum / (float)clear : 0;
             g->mode = mid > n / 20 ? MODE_BLEND : clear ? MODE_CUTOUT : MODE_OPAQUE;
+            g->mid = (float)mid / (float)n;
             tw = t->w;
             th = t->h;
         } else {
@@ -309,6 +316,18 @@ static int build_world(world *w, int mipmaps, const hp2_texset *ts)
             out[j].tex = find_or_add_tex(w, s->g[j].tex);
             if (out[j].tex < 0) return -1;
             out[j].list = compile(&s->g[j]);
+            {   /* ground: the strips along a road are alpha-cut to dissolve into the verge, which
+                 * is not there to show through, so flat pieces are drawn without the cut (below) */
+                const hp2_vert *v = s->g[j].v;
+                int t, nt = s->g[j].nv / 3, flat = 0;
+                for (t = 0; v && t < nt; t++) {
+                    const hp2_vert *a = &v[3 * t], *b = &v[3 * t + 1], *c = &v[3 * t + 2];
+                    float ux = b->x - a->x, uy = b->y - a->y, uz = b->z - a->z, vx = c->x - a->x, vy = c->y - a->y, vz = c->z - a->z;
+                    float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = sqrtf(nx * nx + ny * ny + nz * nz);
+                    if (l > 1e-6f && fabsf(nz) / l > 0.85f) flat++;
+                }
+                out[j].flat = nt > 0 && flat * 10 >= nt * 9;
+            }
         }
     }
     (void)mipmaps;
@@ -420,6 +439,7 @@ static void set_mode(int mode)
     }
 }
 
+static int keep_cuts;      /* --keep-cuts: flat pieces keep their alpha cut too (the old look) */
 static int holes;          /* --holes: magenta background, no sky, so missing geometry shows */
 static int blend_opaque;   /* B: draw the blended pieces as solid (finding which ones the ground is made of) */
 
@@ -429,6 +449,7 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
     for (j = 0; j < n; j++) {
         const gltex *t = &w->tex[g[j].tex];
         int mode = t->mode == MODE_BLEND && blend_opaque ? MODE_OPAQUE : t->mode;
+        if (g[j].flat && !keep_cuts && t->clear > 0.02f && t->clear < 0.5f && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
         set_mode(mode);
         glBindTexture(GL_TEXTURE_2D, t->id);
@@ -939,6 +960,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
         else if (!strcmp(argv[i], "--blend-opaque")) blend_opaque = 1;
         else if (!strcmp(argv[i], "--holes")) holes = 1;
+        else if (!strcmp(argv[i], "--keep-cuts")) keep_cuts = 1;
         else if (!strcmp(argv[i], "--no-scenery-shadows")) scene_flags = HP2_SCENE_NO_SHADOWS;
         else if (!strcmp(argv[i], "--opponents") && i + 1 < argc) nopp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--opponent") && i + 1 < argc && nopp_named < HP2_MAX_CARS - 1) {

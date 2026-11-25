@@ -527,3 +527,5 @@ Back from a race with the objective met, hp2fe plays the game's RewardView sound
 `hp2track` key B (or `--blend-opaque`) draws the blended pieces solid, to tell the ground and road edges from real glass and shadows.
 
 `hp2track --holes` paints the background magenta and skips the sky, so missing geometry stands out; `--cam-road X,Y,YAW,PITCH` puts the camera on the road at that point (for screenshots with `--shot`). Speeds of 100 and over are drawn at 80% so three figures stay in the gauge's box.
+
+**Road edges.** The strips along a road are 4-bit textures whose alpha dissolves the strip into the verge (about a third of the texels fully clear); the verge is not drawn under them, so cutting them out left holes where the background showed. Flat pieces whose texture is cut in a minority of its texels, with a non-black colour in the cut (not a shadow shape), are now drawn solid; `hp2track --keep-cuts` restores the old look. Checked by rendering course 61 offline at the reported spot (`--cam`, `--holes`).
