@@ -1201,6 +1201,55 @@ static void test_flow(const hp2_fe_layout *L, const hp2_lang *lang)
             CHECK(met2 == 0 && !m.result[0][0] && !m.result[1][0] && find_text(it2, n2, "Objective not met") == 0,
                   "a race left unfinished leaves no result lines");
         }
+        {   /* event 4 is a Race Knockout of four cars: the last place of each race is out */
+            hp2_race_result rr = { 1, 2, 4000L * 83, 4000L * 83, 4, { 1, 0, 2, 3 } };
+            hp2_fe_item it2[160];
+            int n2, met2;
+            CHECK(m.go.race_type == HP2_RT_KNOCKOUT && m.go.nopp == 3 && m.go.round == 0, "event 4: three opponents, race 1");
+            met2 = hp2_femenu_result(&m, &rr);
+            n2 = hp2_femenu_items(&m, it2, 160);
+            CHECK(met2 == 0 && !m.ser.done && m.ser.round == 1 && !m.ser.alive[m.go.opp_id[2]] && strstr(m.result[0], "advance")
+                  && find_text(it2, n2, m.result[0]) == 1 && !m.result[1][0], "2nd of four: the last car is out, you advance");
+            CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_RACE && m.go.nopp == 2 && m.go.round == 1, "the next race has two opponents");
+            rr.norder = 3; rr.order[0] = 0; rr.order[1] = 1; rr.order[2] = 2; rr.place = 1;
+            met2 = hp2_femenu_result(&m, &rr);
+            CHECK(met2 == 0 && !m.ser.done && m.ser.round == 2, "three left, one out again");
+            CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_RACE && m.go.nopp == 1, "the last race: one opponent");
+            rr.norder = 2; rr.order[0] = 0; rr.order[1] = 1; rr.place = 1;
+            met2 = hp2_femenu_result(&m, &rr);
+            CHECK(met2 == 1 && m.ser.done && strstr(m.result[0], "1st") && !strcmp(m.result[1], "Objective complete"),
+                  "first of the last two: the Knockout is won, objective met");
+            CHECK(hp2_femenu_input(&m, HP2_IN_ACCEPT) == HP2_FEM_RACE && m.go.nopp == 3 && m.go.round == 0 && !m.ser.done,
+                  "accept after it is decided: a fresh Knockout");
+            rr.norder = 4; rr.order[0] = 1; rr.order[1] = 2; rr.order[2] = 3; rr.order[3] = 0; rr.place = 4;
+            met2 = hp2_femenu_result(&m, &rr);
+            CHECK(met2 == 0 && m.ser.done && strstr(m.result[0], "knocked out") && strstr(m.result[0], "4th")
+                  && !strcmp(m.result[1], "Objective not met"), "last in the first race: knocked out, 4th, not met");
+            hp2_femenu_input(&m, HP2_IN_ACCEPT);
+        }
+        {   /* Championship event 6 is a Tournament of three races and eight cars: points */
+            static hp2_femenu t2;
+            const hp2_tree_event *e6 = &m.trees[0].ev[5];
+            hp2_race_result rr = { 1, 2, 4000L * 83, 4000L * 83, 8, { 1, 0, 2, 3, 4, 5, 6, 7 } };
+            int ok6, k6;
+            t2 = m;
+            t2.tree_kind = 0; t2.tree_ev = 5; t2.ev_ncars = 1; t2.ev_cars[0] = e6->cars[0]; t2.car = 0; t2.ser.done = 1;
+            t2.screen = HP2_FEM_EVENT_INFO;
+            ok6 = e6->race_type == HP2_RT_TOURNAMENT && e6->nraces == 3 && e6->nopponents == 7;
+            CHECK(ok6 && hp2_femenu_input(&t2, HP2_IN_ACCEPT) == HP2_FEM_RACE && t2.go.nopp == 7 && t2.go.round == 0
+                  && t2.go.track == e6->races[0].track, "event 6: a Tournament, race 1 on its first course, all seven opponents");
+            CHECK(ok6 && hp2_femenu_result(&t2, &rr) == 0 && !t2.ser.done && t2.ser.points[0] == 8 && t2.ser.points[1] == 10
+                  && strstr(t2.result[0], "Race 1 of 3") && strstr(t2.result[0], "2nd"), "2nd in race 1: 8 points, the winner 10");
+            CHECK(ok6 && hp2_femenu_input(&t2, HP2_IN_ACCEPT) == HP2_FEM_RACE && t2.go.nopp == 7 && t2.go.round == 1
+                  && t2.go.track == e6->races[1].track && t2.go.reverse == e6->races[1].ii, "race 2 on the second course, nobody is out");
+            for (k6 = 0; k6 < 2 && ok6; k6++) {
+                rr.order[0] = 0; rr.order[1] = 1; rr.order[2] = 2; rr.place = 1;
+                hp2_femenu_result(&t2, &rr);
+                if (k6 == 0) hp2_femenu_input(&t2, HP2_IN_ACCEPT);
+            }
+            CHECK(ok6 && t2.ser.done && t2.ser.points[0] == 28 && t2.ser.points[1] == 26 && strstr(t2.result[0], "Tournament over: 1st with 28 points"),
+                  "two wins after a 2nd: 28 points to 26, first overall");
+        }
         hp2_femenu_input(&m, HP2_IN_BACK);
         CHECK(m.screen == HP2_FEM_SELECT_CAR && m.car_popup == 2 && m.ev_mode, "back: Handling again");
         hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK); hp2_femenu_input(&m, HP2_IN_BACK);
@@ -1875,15 +1924,19 @@ static void test_race(void)
     {   /* how a race ended: written by hp2track, read back by the menus */
         char txt[160];
         hp2_race_result rr;
-        int n = hp2_race_result_format(&r, 3, txt, sizeof txt);
+        static const int ord3[3] = { 2, 0, 1 };
+        int n = hp2_race_result_format(&r, 3, ord3, 3, txt, sizeof txt);
         CHECK(n > 0 && hp2_race_result_parse(txt, &rr) && rr.finished == 1 && rr.place == 3
               && rr.ticks == (long)(r.lap_time[0] * 4000.0f + 0.5f) && rr.best == rr.ticks,
               "result text: finished, 3rd, %ld ticks", rr.ticks);
+        CHECK(rr.norder == 3 && rr.order[0] == 2 && rr.order[1] == 0 && rr.order[2] == 1, "the order of the cars comes back");
+        hp2_race_result_parse("hp2result 1\norder 0 9 1\n", &rr);
+        CHECK(rr.norder == 0, "an order naming a car that cannot exist is dropped");
         r.state = HP2_RACE_RUNNING;
-        hp2_race_result_format(&r, 0, txt, sizeof txt);
+        hp2_race_result_format(&r, 0, NULL, 0, txt, sizeof txt);
         CHECK(hp2_race_result_parse(txt, &rr) && !rr.finished && !rr.place && !rr.ticks && !rr.best, "unfinished: no times");
         CHECK(!hp2_race_result_parse("place 2\nticks 5\n", &rr) && !rr.place && !rr.ticks, "no header: not a result");
-        CHECK(!hp2_race_result_parse(NULL, &rr) && hp2_race_result_format(&r, 1, txt, 8) < 0, "NULL and a short buffer are safe");
+        CHECK(!hp2_race_result_parse(NULL, &rr) && hp2_race_result_format(&r, 1, NULL, 0, txt, 8) < 0, "NULL and a short buffer are safe");
         hp2_race_result_parse("hp2result 1\nfinished 1\nplace 500\nticks -4\nbest zz\nstuff\n", &rr);
         CHECK(rr.finished == 1 && rr.place == 0 && rr.ticks == 0 && rr.best == 0, "out-of-range values are dropped");
     }

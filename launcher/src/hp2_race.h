@@ -69,11 +69,18 @@ void hp2_race_time(float t, char *buf, int size);
 /* How a race ended, as hp2track hands it to the menus (--result FILE): a
  * few "key value" lines. Times are in the game's ticks, 4000 a second.
  * place 0 = no opponents; ticks and best are 0 unless finished. */
-typedef struct { int finished, place; long ticks, best; } hp2_race_result;
+#define HP2_RESULT_CARS 8
+typedef struct {
+    int finished, place;
+    long ticks, best;
+    int norder, order[HP2_RESULT_CARS];   /* the cars from the leader down: 0 is the player, 1.. the
+                                             opponents in the order they were named */
+} hp2_race_result;
 
-/* Writes the text for race r (the player) and the player's place; returns
- * its length, or -1 when cap is too small. */
-int hp2_race_result_format(const hp2_race *r, int place, char *out, size_t cap);
+/* Writes the text for race r (the player), the player's place and the
+ * order of the norder cars (may be NULL / 0); returns its length, or -1 when
+ * cap is too small. */
+int hp2_race_result_format(const hp2_race *r, int place, const int *order, int norder, char *out, size_t cap);
 /* Reads that text back. Returns 1 when it is a result file, else 0 and
  * *out is zeroed. Unknown lines are ignored. */
 int hp2_race_result_parse(const char *text, hp2_race_result *out);

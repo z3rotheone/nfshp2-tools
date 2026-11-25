@@ -123,6 +123,9 @@ typedef struct {
     char opp[HP2_FEM_MAX_OPP][16];
     int  opp_skill[HP2_FEM_MAX_OPP]; /* 0..9 */
     int  opp_skin[HP2_FEM_MAX_OPP];  /* 1.., or -1: any */
+    int  opp_id[HP2_FEM_MAX_OPP];    /* each opponent's number among all the event's (a Race Knockout drops
+                                        the beaten ones) */
+    int  round;                      /* with event: the race of a Tournament / Knockout, 0-based */
     int  event;                      /* the event number, 0 for a quick or single race */
     int  tree_kind;                  /* with event: 0 Championship, 1 Hot Pursuit */
     int  race_type;                  /* with event: HP2_RT_* */
@@ -131,6 +134,17 @@ typedef struct {
 #define HP2_FEM_VISIBLE  7    /* settings rows shown at once */
 #define HP2_FEM_SONGS    5    /* jukebox songs shown at once */
 #define HP2_FEM_EVENT_ROWS 5  /* event list: events shown at once */
+
+/* An event of several races: a Tournament (points over its races) or a Race
+ * Knockout (the last place of each race is out). Car 0 is the player, 1.. the
+ * event's opponents. */
+typedef struct {
+    int round;                       /* the race to run next, 0-based */
+    int nrounds;                     /* a Tournament's races; a Knockout runs until one is left */
+    int alive[HP2_FEM_MAX_OPP + 1];
+    int points[HP2_FEM_MAX_OPP + 1];
+    int done;                        /* 1 once it is decided; the next accept starts it afresh */
+} hp2_fem_series;
 
 typedef struct {
     const hp2_fe_layout *layout;
@@ -160,6 +174,7 @@ typedef struct {
     int                  ev_mode;   /* car select shows an event's own cars */
     int                  ev_ncars, ev_cars[HP2_TREE_MAX_CARS];   /* car database indices */
     hp2_fem_race         go;        /* the race HP2_FEM_RACE asks for */
+    hp2_fem_series       ser;       /* the Tournament or Knockout under way */
     int                  car_popup; /* car select: 0 none, 1 Transmission, 2 Handling */
     int                  trans;     /* 0 Automatic, 1 Manual, 2 Semi-Auto */
     int                  handling;  /* 0 Classic, 1 Extreme */

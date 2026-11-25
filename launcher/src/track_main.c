@@ -1232,8 +1232,12 @@ int main(int argc, char **argv)
         SDL_GL_SwapWindow(win);
     }
     if (resultf && w.has_car) {      /* how the race ended, for the menus */
-        char txt[160];
-        int n = hp2_race_result_format(&races[0], w.ncv > 1 ? player_place(races, w.ncv) : 0, txt, sizeof txt);
+        char txt[256];
+        const hp2_race *pr[HP2_MAX_CARS];
+        int ord[HP2_MAX_CARS], ci, n;
+        for (ci = 0; ci < w.ncv; ci++) pr[ci] = &races[ci];
+        hp2_race_order(pr, w.ncv, ord);
+        n = hp2_race_result_format(&races[0], w.ncv > 1 ? player_place(races, w.ncv) : 0, ord, w.ncv, txt, sizeof txt);
         FILE *rf = n > 0 ? fopen(resultf, "wb") : NULL;
         if (rf) { fwrite(txt, 1, (size_t)n, rf); fclose(rf); }
         else fprintf(stderr, "could not write %s\n", resultf);

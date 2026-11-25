@@ -131,9 +131,15 @@ closes. Two ways in:
   Accept on the event's details): the event's own course (its "II" version
   driven the other way round, `--reverse`), laps, and opponents with the
   cars, paints and skill (0-9) the event tables give them; your car in the
-  colour you picked. A Tournament or Knockout lists several races: the
-  port runs the first, as a plain race (no knockouts, no points). Pursuit
-  and Delivery events race the same way: there are no cops yet.
+  colour you picked. A **Race Knockout** (the game's "Last place in each race
+  eliminated") runs the event's course again, or its next course, with the
+  cars still in; accept on the details starts each race, and the last car
+  home is out (you included: "You were knocked out!", your place the number
+  of cars left). A **Tournament** runs all its races in order for points
+  (10, 8, 6, 5, 4, 3, 2, 1 by place: the port's table, the game's scoring is
+  not decoded); after the last the most points wins. A **Lap Knockout** runs
+  as a plain race for now (no one is dropped each lap). Pursuit and Delivery
+  events race the same way: there are no cops yet.
 * **Quick Race or a Challenge** (car, course, Time of Day, laps): opponents
   as Customize sets them (how many, Same or Random cars, Opponent AI as
   skill 2, 5 or 8); Quick Race uses a full grid of seven random cars, a Free
@@ -147,7 +153,9 @@ reads it, deletes it and shows it on the event's details: "You finished 2nd,
 The objective is the event's own (34A03): a place at or better than the
 given one, or a time: the whole race for a Delivery, the best lap for the
 others. A Pursuit's goal is never met until there are cops. A race closed
-before the finish shows nothing. Nothing is kept: no unlocks or points.
+before the finish shows nothing. The result file also lists the cars from
+the leader down (`order`), which is how a Knockout or Tournament scores the
+other cars. Nothing is kept between runs: no unlocks or points.
 
 `--keys` (scripted inputs) prints the race's command line instead, e.g.
 `race: hp2track --disc DIR --track 21 --laps 2 --car OPEL --skin 1

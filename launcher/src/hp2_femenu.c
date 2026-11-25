@@ -351,6 +351,7 @@ static const char *db_car_name(const hp2_femenu *m, const char *db)
     return db;
 }
 
+static void series_reset(hp2_femenu *m);
 static const char *lang_or(const hp2_femenu *m, uint32_t id, const char *dflt)
 {
     const char *s = m->lang ? hp2_lang_by_id(m->lang, id) : NULL;
@@ -374,6 +375,8 @@ static int car_input(hp2_femenu *m, hp2_fem_input in)
             if (m->ev_mode) {   /* the event sets the track: its details next */
                 if (!m->evinfo || !m->chal) return 0;
                 m->screen = HP2_FEM_EVENT_INFO;
+                series_reset(m);
+                m->result[0][0] = m->result[1][0] = 0;
                 return HP2_FEM_REDRAW;
             }
             if (!m->tracksel) return 0;
@@ -831,35 +834,55 @@ static const char *cardb_name(int idx)
     return idx >= 0 && idx < CARDB_N ? CARDB[idx] : NULL;
 }
 
-/* The event's race: its first (a Tournament or Knockout lists several; the
- * port runs the first), the car picked in its own colour, its opponents. */
+static void series_reset(hp2_femenu *m)
+{
+    int k;
+    memset(&m->ser, 0, sizeof m->ser);
+    for (k = 0; k <= HP2_FEM_MAX_OPP; k++) m->ser.alive[k] = 1;
+}
+
+/* The event's next race: its first, or, in a Tournament, the next of its
+ * races, or in a Race Knockout the first race's course again with the cars
+ * still in; the car picked in its own colour. */
 static int event_race(hp2_femenu *m)
 {
     const hp2_tree *t = m->trees ? &m->trees[m->tree_kind] : NULL;
     const hp2_tree_event *e;
     hp2_fem_race *g = &m->go;
+    const hp2_tree_race *rc;
     const char *car;
-    int k;
+    int k, full = 0, series;
     if (!t || !t->present || m->tree_ev >= t->count) return 0;
     e = &t->ev[m->tree_ev];
     if (e->nraces < 1 || m->car < 0 || m->car >= m->ev_ncars || !(car = cardb_name(m->ev_cars[m->car]))) return 0;
+    series = e->race_type == HP2_RT_TOURNAMENT || e->race_type == HP2_RT_KNOCKOUT;
+    if (!series || m->ser.done) series_reset(m);
+    for (k = 0; k < e->nopponents && k < HP2_FEM_MAX_OPP; k++) if (cardb_name(e->opponents[k].car)) full++;
+    for (k = full + 1; k <= HP2_FEM_MAX_OPP; k++) m->ser.alive[k] = 0;      /* cars the event has not */
+    full = 0;
+    if (e->race_type == HP2_RT_TOURNAMENT) m->ser.nrounds = e->nraces;
+    rc = &e->races[series && m->ser.round < e->nraces ? m->ser.round : series ? e->nraces - 1 : 0];   /* a Knockout with fewer courses than rounds repeats the last */
     memset(g, 0, sizeof *g);
-    g->track = e->races[0].track;
-    g->reverse = e->races[0].ii;
-    g->laps = e->races[0].laps > 0 ? e->races[0].laps : 1;
+    g->track = rc->track;
+    g->reverse = rc->ii;
+    g->laps = rc->laps > 0 ? rc->laps : 1;
     copy_name(g->car, car);
     g->skin = m->color + 1;
     for (k = 0; k < e->nopponents && g->nopp < HP2_FEM_MAX_OPP; k++) {
         const char *o = cardb_name(e->opponents[k].car);
         if (!o) continue;
+        full++;
+        if (series && !m->ser.alive[full]) continue;          /* knocked out */
         copy_name(g->opp[g->nopp], o);
         g->opp_skill[g->nopp] = e->opponents[k].skill;
         g->opp_skin[g->nopp] = e->opponents[k].colour >= 1 ? e->opponents[k].colour : -1;   /* 1-8 (never 0), as the paints */
+        g->opp_id[g->nopp] = full;
         g->nopp++;
     }
     g->event = e->number;
     g->tree_kind = m->tree_kind;
     g->race_type = e->race_type;
+    g->round = series ? m->ser.round : 0;
     return 1;
 }
 
@@ -1656,21 +1679,102 @@ static void result_time(long ticks, char *out, size_t cap)
     snprintf(out, cap, "%ld:%02ld.%02ld", cs / 6000, cs / 100 % 60, cs % 100);
 }
 
+static const char *ord_name(const hp2_femenu *m, int n)
+{
+    static const char *dflt[9] = { "", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th" };
+    return lang_or(m, 61000u + (uint32_t)(n < 1 ? 1 : n > 8 ? 8 : n), dflt[n < 1 ? 1 : n > 8 ? 8 : n]);
+}
+
+/* The game's message (strings with %s for the place and "@" for a new line)
+ * on one line. */
+static void msg_line(const hp2_femenu *m, char *out, size_t cap, uint32_t id, const char *dflt, int place)
+{
+    char t[160];
+    size_t k;
+    sub_s(t, sizeof t, lang_or(m, id, dflt), ord_name(m, place));
+    for (k = 0; t[k]; k++) if (t[k] == '@') t[k] = ' ';
+    snprintf(out, cap, "%s", t);
+}
+
+/* A Tournament's points for 1st, 2nd .. 8th: the port's own table, the game's
+ * scoring is not decoded. */
+static const int TOURNAMENT_POINTS[8] = { 10, 8, 6, 5, 4, 3, 2, 1 };
+
+static int series_car_id(const hp2_femenu *m, int car)
+{
+    return car <= 0 || car > HP2_FEM_MAX_OPP ? 0 : m->go.opp_id[car - 1];
+}
+
+/* A Tournament or Race Knockout race ended; fills the two lines and returns
+ * the player's final place when the event is decided, else 0. */
+static int series_result(hp2_femenu *m, const hp2_tree_event *e, const hp2_race_result *r)
+{
+    int n = r->norder, k, pl = 0, sp = 0;
+    hp2_fem_series *s = &m->ser;
+    for (k = 0; k < n; k++) if (r->order[k] == 0) pl = k + 1;
+    if (!pl) return 0;
+    if (e->race_type == HP2_RT_KNOCKOUT) {
+        int last = series_car_id(m, r->order[n - 1]), left = 0;
+        s->alive[last] = 0;
+        for (k = 0; k <= HP2_FEM_MAX_OPP; k++) left += s->alive[k];
+        if (last == 0) {                     /* you were last: out, in the place of the cars still in */
+            s->done = 1;
+            sp = n;
+            msg_line(m, m->result[0], sizeof m->result[0], 59019u, "You were knocked out! You finish in %s place!", sp);
+        } else if (left <= 1) {              /* the rest are out: you won */
+            s->done = 1;
+            sp = 1;
+            msg_line(m, m->result[0], sizeof m->result[0], 59010u, "You finished in %s place!", 1);
+        } else {
+            s->round++;
+            msg_line(m, m->result[0], sizeof m->result[0], 59017u, "You finished in %s place. You advance to the next race!", pl);
+        }
+        return sp;
+    }
+    /* a Tournament */
+    for (k = 0; k < n; k++) s->points[series_car_id(m, r->order[k])] += TOURNAMENT_POINTS[k < 8 ? k : 7];
+    if (s->round + 1 < s->nrounds) {
+        snprintf(m->result[0], sizeof m->result[0], "Race %d of %d: %s, +%d points, %d in all", s->round + 1, s->nrounds,
+                 ord_name(m, pl), TOURNAMENT_POINTS[pl - 1 < 8 ? pl - 1 : 7], s->points[0]);
+        snprintf(m->result[1], sizeof m->result[1], "Accept for the next race");
+        s->round++;
+        return 0;
+    }
+    {   /* the last race: most points wins, the last race's order breaks a tie */
+        int key[HP2_RESULT_CARS], mine = 0;
+        for (k = 0; k < HP2_RESULT_CARS; k++) key[k] = -1;
+        for (k = 0; k < n; k++) {
+            int id = series_car_id(m, r->order[k]);
+            key[id] = s->points[id] * 100 + (8 - k);
+        }
+        sp = 1;
+        for (k = 0; k < HP2_RESULT_CARS; k++) if (key[k] > key[0]) sp++;
+        (void)mine;
+    }
+    s->done = 1;
+    snprintf(m->result[0], sizeof m->result[0], "Tournament over: %s with %d points", ord_name(m, sp), s->points[0]);
+    return sp;
+}
+
 int hp2_femenu_result(hp2_femenu *m, const hp2_race_result *r)
 {
     const hp2_tree *t = m->trees && m->go.event > 0 ? &m->trees[m->go.tree_kind & 1] : NULL;
     const hp2_tree_event *e = t && m->go.event <= t->count ? &t->ev[m->go.event - 1] : NULL;
     const hp2_tree_cond *g = e ? &e->target : NULL;
     char tm[24];
-    int met = 0;
+    int met = 0, place = r ? r->place : 0, decided = 1;
     m->result[0][0] = m->result[1][0] = 0;
     if (!r || !r->finished) return 0;
     result_time(r->ticks, tm, sizeof tm);
-    if (r->place >= 1 && r->place <= 8)
-        snprintf(m->result[0], sizeof m->result[0], "You finished %s, %s", lang_or(m, 61000u + (uint32_t)r->place, "1st"), tm);
+    if (e && (e->race_type == HP2_RT_TOURNAMENT || e->race_type == HP2_RT_KNOCKOUT) && r->norder >= 2) {
+        place = series_result(m, e, r);
+        decided = place > 0;
+        if (!decided) return 0;
+    } else if (r->place >= 1 && r->place <= 8)
+        snprintf(m->result[0], sizeof m->result[0], "You finished %s, %s", ord_name(m, r->place), tm);
     else
         snprintf(m->result[0], sizeof m->result[0], "Race time %s", tm);
-    if (g && g->kind == 1) met = r->place >= 1 && (uint32_t)r->place <= g->value;
+    if (g && g->kind == 1) met = place >= 1 && (uint32_t)place <= g->value;
     else if (g && g->kind == 2 && e->race_type != HP2_RT_PURSUIT)
         met = (uint32_t)(e->race_type == HP2_RT_DELIVERY ? r->ticks : r->best) <= g->value && (e->race_type == HP2_RT_DELIVERY ? r->ticks : r->best) > 0;
     if (g && g->kind) snprintf(m->result[1], sizeof m->result[1], "%s", met ? "Objective complete" : "Objective not met");
@@ -1751,7 +1855,11 @@ static int evinfo_items(hp2_femenu *m, list *l)
     for (k = 0; k < 2; k++) {       /* the last race of this event */
         if (!m->result[k][0]) continue;
         it = push(l, lab, m->result[k]);
-        if (it) { it->w.y = 284.0f + 26.0f * (float)k; it->w.visible = 1; }
+        if (it) {
+            size_t len = strlen(m->result[k]);
+            float sc = len > 32 ? 32.0f / (float)len : 1.0f;      /* about 32 characters fit */
+            it->w.y = 284.0f + 26.0f * (float)k; it->w.sx *= sc; it->w.sy *= sc; it->w.visible = 1;
+        }
     }
     if (m->chal) help_bar(m, l, m->chal);
     return l->n;

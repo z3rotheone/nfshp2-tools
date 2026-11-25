@@ -201,7 +201,7 @@ void hp2_race_time(float t, char *buf, int size)
     snprintf(buf, (size_t)size, "%d:%02d.%02d", cs / 6000, cs / 100 % 60, cs % 100);
 }
 
-int hp2_race_result_format(const hp2_race *r, int place, char *out, size_t cap)
+int hp2_race_result_format(const hp2_race *r, int place, const int *order, int norder, char *out, size_t cap)
 {
     long ticks = 0, best = 0;
     int fin = r->state == HP2_RACE_FINISHED, i, n;
@@ -212,7 +212,23 @@ int hp2_race_result_format(const hp2_race *r, int place, char *out, size_t cap)
         best = (long)(r->best * 4000.0f + 0.5f);
     }
     n = snprintf(out, cap, "hp2result 1\nfinished %d\nplace %d\nticks %ld\nbest %ld\n", fin, place < 0 ? 0 : place, ticks, best);
-    return n < 0 || (size_t)n >= cap ? -1 : n;
+    if (n < 0 || (size_t)n >= cap) return -1;
+    if (order && norder > 0) {
+        int k, m;
+        if (norder > HP2_RESULT_CARS) norder = HP2_RESULT_CARS;
+        m = snprintf(out + n, cap - (size_t)n, "order");
+        if (m < 0 || (size_t)(n + m) >= cap) return -1;
+        n += m;
+        for (k = 0; k < norder; k++) {
+            m = snprintf(out + n, cap - (size_t)n, " %d", order[k]);
+            if (m < 0 || (size_t)(n + m) >= cap) return -1;
+            n += m;
+        }
+        m = snprintf(out + n, cap - (size_t)n, "\n");
+        if (m < 0 || (size_t)(n + m) >= cap) return -1;
+        n += m;
+    }
+    return n;
 }
 
 int hp2_race_result_parse(const char *text, hp2_race_result *out)
@@ -234,6 +250,18 @@ int hp2_race_result_parse(const char *text, hp2_race_result *out)
             else if (sscanf(line, "place %ld", &v) == 1) out->place = v < 0 || v > 99 ? 0 : (int)v;
             else if (sscanf(line, "ticks %ld", &v) == 1) out->ticks = v < 0 ? 0 : v;
             else if (sscanf(line, "best %ld", &v) == 1) out->best = v < 0 ? 0 : v;
+            else if (!strncmp(line, "order", 5) && (line[5] == ' ' || !line[5])) {
+                const char *q = line + 5;
+                char *end;
+                out->norder = 0;
+                while (out->norder < HP2_RESULT_CARS) {
+                    long c = strtol(q, &end, 10);
+                    if (end == q) break;
+                    if (c < 0 || c >= HP2_RESULT_CARS) { out->norder = 0; break; }
+                    out->order[out->norder++] = (int)c;
+                    q = end;
+                }
+            }
         }
         if (!e) break;
         p = e + 1;
