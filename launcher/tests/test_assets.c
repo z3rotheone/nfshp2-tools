@@ -30,6 +30,7 @@
 #include "../src/hp2_tires.h"
 #include "../src/hp2_speech.h"
 #include "../src/hp2_oneshot.h"
+#include "../src/hp2_reverb.h"
 #include "../src/hp2_race.h"
 #include "../src/hp2_ai.h"
 #include "../src/hp2_geom.h"
@@ -2410,6 +2411,43 @@ static void test_oneshot(void)
     CHECK(out[2 * 1] == 500 && out[2 * 2] == 0 && o.smp[0] == NULL, "one-shot: ends and frees its voice");
 }
 
+static void test_reverb(void)
+{
+    static uint8_t buf[8 + 8 + 48 + 8 * 4 + 8], two[1];
+    static hp2_reverb r;
+    static int16_t out[2 * 4000];
+    uint8_t *c = buf + 8 + 8;
+    float wet, dec;
+    int i, tail_in = 0, tail_out = 0;
+    float pts[8] = { 0, 0, 10, 0, 10, 10, 0, 10 };
+    printf("echo regions (synthetic)\n");
+    (void)two;
+    memset(buf, 0, sizeof buf);
+    buf[0] = 0x00; buf[1] = 0x80; buf[2] = 0x03; buf[3] = 0x80;     /* 0x80038000 */
+    buf[4] = 8 + 48 + 32; buf[8] = 0x10; buf[9] = 0x80; buf[10] = 0x03; buf[11] = 0;   /* 0x38010: stored as 0x00038010 */
+    buf[9] = 0x80; buf[8] = 0x10; buf[10] = 0x03; buf[9] = 0x80;
+    buf[8] = 0x10; buf[9] = 0x80; buf[10] = 0x03; buf[11] = 0x00;
+    buf[12] = 48 + 32;
+    memcpy(c, "Tunnel_22", 9);
+    c[36] = 4;
+    memcpy(c + 40, pts, sizeof pts);
+    hp2_reverb_init(&r);
+    CHECK(hp2_reverb_parse(&r, buf, sizeof buf) == 1 && r.nz == 1 && !strcmp(r.z[0].name, "Tunnel_22"), "echo: one region read");
+    hp2_reverb_kind("Overpass01_21", &wet, &dec);
+    CHECK(wet < 0.3f && dec < 0.7f, "echo: an overpass is a short, light echo");
+    hp2_reverb_kind("Cavern_21", &wet, &dec);
+    CHECK(wet > 0.4f, "echo: a cavern is a long, strong one");
+    out[0] = out[1] = 8000;
+    hp2_reverb_apply(&r, 50, 50, out, 4000);
+    for (i = 2000; i < 4000; i++) tail_out += abs(out[2 * i]);
+    CHECK(tail_out == 0, "echo: nothing added outside a region");
+    memset(out, 0, sizeof out); out[0] = out[1] = 8000;
+    hp2_reverb_apply(&r, 5, 5, out, 4000);
+    for (i = 2000; i < 4000; i++) tail_in += abs(out[2 * i]);
+    CHECK(tail_in > 0, "echo: a tail inside a region (%d)", tail_in);
+    hp2_reverb_free(&r);
+}
+
 static void test_tires(void)
 {
     static int16_t pcm[6][2 * 200], out[2 * 100];
@@ -2690,6 +2728,7 @@ int main(int argc, char **argv)
     test_tires();
     test_speech();
     test_oneshot();
+    test_reverb();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

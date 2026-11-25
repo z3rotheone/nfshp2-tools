@@ -1176,7 +1176,7 @@ A top-level chunk of children that each name a sound and the ground polygon it b
 |---|---|
 | `38020` | steady beds ("Crickets", "PowerLine", "Sandstorm", "Waterfall", "Stream") |
 | `38030` | now-and-then sounds ("DesertBird", "Vulture", "Coyote", "Thunder", "GasBell", "Desertwind") |
-| `38010` | cave / overpass regions ("Cave_21", "Overpass01_21", "WaterfallVerb_21": probably reverb; not read) |
+| `38010` | cave / overpass regions ("Cave_21", "Overpass01_21", "WaterfallVerb_21": an echo region: name[32], u32 1, u32 n, n ground (x, y), then a triangulation; no reverb setting, so the port picks one by name) |
 
 `38020`: char[32] instance name ("Crickets01_21"), char[32] sample name, f32 level (0.5 to 1.5), f32 (equal to the level in the zones seen), u32 flag, 3 × f32 (zero when the flag is 0), u32 n (3 to 13), n × (f32 x, f32 y), then a triangulation of the polygon: u32 count of triangles and 3 u32 indices each.
 

@@ -52,6 +52,7 @@
 #include "hp2_tires.h"
 #include "hp2_speech.h"
 #include "hp2_oneshot.h"
+#include "hp2_reverb.h"
 #include "hp2_sfx.h"
 #include "hp2_fe.h"
 #include "hp2_font.h"
@@ -144,6 +145,8 @@ static hp2_speech speech;      /* the police radio of a Pursuit event */
 static int has_speech, pursuit_called;
 static hp2_oneshot cues;       /* crashes, horn, countdown beeps, finish line (the port's own triggers) */
 static int has_cues;
+static hp2_reverb verb;        /* the track's echo regions: caves, tunnels, mines, hangars, overpasses */
+static int has_verb;
 static void cue(const char *name, float gain) { if (has_cues) hp2_oneshot_play(&cues, name, gain); }
 
 typedef struct {
@@ -997,7 +1000,7 @@ int main(int argc, char **argv)
     uint8_t *jbhead = NULL;
     size_t jbhead_len = 0;
     const char *config = NULL;
-    int music = 1, has_music = 0, ambient = 1, has_amb = 0, tiresnd = 1, speechsnd = 1, cuesnd = 1;
+    int music = 1, has_music = 0, ambient = 1, has_amb = 0, tiresnd = 1, speechsnd = 1, cuesnd = 1, reverbfx = 1;
     hp2_ambient amb;
     hp2_sfx ambsfx, ingsfx;
     hp2_tires tires;
@@ -1034,6 +1037,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--no-tires")) tiresnd = 0;
         else if (!strcmp(argv[i], "--no-speech")) speechsnd = 0;
         else if (!strcmp(argv[i], "--no-cues")) cuesnd = 0;
+        else if (!strcmp(argv[i], "--no-echo")) reverbfx = 0;
         else if (!strcmp(argv[i], "--cam") && i + 1 < argc) cam = argv[++i];
         else if (!strcmp(argv[i], "--cam-road") && i + 1 < argc) camroad = argv[++i];
         else if (!strcmp(argv[i], "--no-fog")) fog = 0;
@@ -1369,6 +1373,12 @@ int main(int argc, char **argv)
         free(bb);
         free(vb);
     }
+    /* echo regions: caves, tunnels, overpasses (the port's own reverb) */
+    hp2_reverb_init(&verb);
+    if (reverbfx && sound && f.scen && hp2_reverb_parse(&verb, f.scen, f.scen_len) > 0) {
+        has_verb = 1;
+        printf("echo regions: %d\n", verb.nz);
+    }
     /* crashes, horn, countdown and finish sounds, from the race bank (INGAME) */
     if (cuesnd && sound && have_zdir && w.has_car) {
         if (!has_tires) {                   /* the tyre block loads INGAME only for itself */
@@ -1379,7 +1389,7 @@ int main(int argc, char **argv)
         }
         if (ingsfx.count > 0) { hp2_oneshot_bind(&cues, &ingsfx); has_cues = 1; }
     }
-    if ((has_eng || has_music || has_amb || has_tires || has_speech || has_cues) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+    if ((has_eng || has_music || has_amb || has_tires || has_speech || has_cues || has_verb) && sound && SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
         SDL_AudioSpec want, have;
         memset(&want, 0, sizeof want);
         want.freq = 44100;
@@ -1493,14 +1503,6 @@ int main(int argc, char **argv)
                 while (SDL_GetQueuedAudioSize(audio) < 44100 * 4 * 6 / 100) {
                     if (has_eng) hp2_engine_mix(&eng, drv[0].rpm, drv[0].load, 0.6f * (float)cfg.volume[HP2_VOL_ENGINE] / 80.0f, mixbuf, 512, 44100);
                     else memset(mixbuf, 0, sizeof mixbuf);
-                    if (has_music) {
-                        static int16_t mus[2 * 512];
-                        int got = hp2_jbplay_fill(&jbp, mus, 512), q;
-                        for (q = 0; q < 2 * got; q++) {
-                            int v = mixbuf[q] + mus[q];
-                            mixbuf[q] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
-                        }
-                    }
                     if (has_amb) {      /* from the car, or the camera when it flies free */
                         float ax = driving ? drv[0].pos[0] : c.pos[0], ay = driving ? drv[0].pos[1] : c.pos[1];
                         hp2_ambient_mix(&amb, ax, ay, (float)cfg.volume[HP2_VOL_AMBIENT] / 100.0f, mixbuf, 512);
@@ -1513,6 +1515,18 @@ int main(int argc, char **argv)
                         hp2_tires_mix(&tires, &ti, (float)cfg.volume[HP2_VOL_TIRES] / 100.0f, mixbuf, 512);
                     }
                     if (has_cues) hp2_oneshot_mix(&cues, (float)cfg.volume[HP2_VOL_AMBIENT] / 100.0f, mixbuf, 512);
+                    if (has_verb) {        /* the echo takes the effects, not the music or the radio */
+                        float ex = driving ? drv[0].pos[0] : c.pos[0], ey = driving ? drv[0].pos[1] : c.pos[1];
+                        hp2_reverb_apply(&verb, ex, ey, mixbuf, 512);
+                    }
+                    if (has_music) {
+                        static int16_t mus[2 * 512];
+                        int got = hp2_jbplay_fill(&jbp, mus, 512), q;
+                        for (q = 0; q < 2 * got; q++) {
+                            int v = mixbuf[q] + mus[q];
+                            mixbuf[q] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+                        }
+                    }
                     if (has_speech) hp2_speech_mix(&speech, (float)cfg.volume[HP2_VOL_SPEECH] / 100.0f, mixbuf, 512);
                     SDL_QueueAudio(audio, mixbuf, 512 * 4);
                 }
@@ -1574,6 +1588,7 @@ int main(int argc, char **argv)
     }
     if (audio) SDL_CloseAudioDevice(audio);
     if (has_music) hp2_jbplay_close(&jbp);
+    if (has_verb) hp2_reverb_free(&verb);
     if (has_speech) hp2_speech_close(&speech);
     if (have_zdir) hp2_zdir_close(&zdir);
     free(jbhead);
