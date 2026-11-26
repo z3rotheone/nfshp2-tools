@@ -21,6 +21,7 @@
  *                                        frames of a song, for check_vag.py
  */
 #include "../src/hp2_fe.h"
+#include "../src/hp2_raster.h"
 #include "../src/hp2_car.h"
 #include "../src/hp2_coll.h"
 #include "../src/hp2_drive.h"
@@ -2519,6 +2520,36 @@ static void test_ram(void)
     CHECK(hp2_pursuit_damage(&p, 1, 10.0f, 3, &arr) == 0, "backup: an arrested car takes no more");
 }
 
+static void test_raster(void)
+{
+    hp2_rast r;
+    hp2_rvert near_[3] = { { 2, 2, 1, 0, 0, 1, 0, 0, 1 }, { 18, 2, 1, 0, 0, 1, 0, 0, 1 }, { 2, 18, 1, 0, 0, 1, 0, 0, 1 } };
+    hp2_rvert far_[3] = { { 0, 0, 5, 0, 0, 0, 1, 0, 1 }, { 20, 0, 5, 0, 0, 0, 1, 0, 1 }, { 0, 20, 5, 0, 0, 0, 1, 0, 1 } };
+    uint8_t tx[4 * 4 * 4];
+    hp2_rtex t;
+    int k;
+    printf("software rasteriser (synthetic)\n");
+    CHECK(hp2_rast_init(&r, 20, 20) == 0, "raster: a buffer");
+    hp2_rast_tri(&r, near_, NULL, 0);
+    hp2_rast_tri(&r, far_, NULL, 0);                 /* the far one second: the depth buffer keeps the near one */
+    CHECK(r.px[4 * (5 * 20 + 5)] == 255 && r.px[4 * (5 * 20 + 5) + 1] == 0, "raster: the near red triangle stays over the far green one");
+    CHECK(r.px[4 * (1 * 20 + 15) + 1] == 255 && r.px[4 * (1 * 20 + 15)] == 0, "raster: the far one shows where the near one is not");
+    CHECK(r.px[4 * (19 * 20 + 19) + 3] == 0, "raster: untouched pixels stay clear");
+    hp2_rast_clear(&r);
+    hp2_rast_tri(&r, far_, NULL, 0);
+    hp2_rast_tri(&r, near_, NULL, 0);                /* and in the other order */
+    CHECK(r.px[4 * (5 * 20 + 5)] == 255, "raster: the same either way round");
+    for (k = 0; k < 16; k++) { tx[4 * k] = 255; tx[4 * k + 1] = 255; tx[4 * k + 2] = 255; tx[4 * k + 3] = 128; }
+    CHECK(hp2_rtex_make(&t, tx, 4, 4) == 0 && t.n == 3 && t.lw[2] == 1, "raster: a 4x4 texture has three mip levels");
+    hp2_rast_clear(&r);
+    hp2_rast_tri(&r, far_, NULL, 0);
+    near_[0].a = near_[1].a = near_[2].a = 1;
+    hp2_rast_tri(&r, near_, &t, 1);                  /* blended with a half-clear texture over green: part red, part green */
+    CHECK(r.px[4 * (5 * 20 + 5)] > 100 && r.px[4 * (5 * 20 + 5) + 1] > 60 && r.px[4 * (5 * 20 + 5) + 3] == 255, "raster: a half-clear blended texel mixes with what is behind");
+    hp2_rtex_free(&t);
+    hp2_rast_free(&r);
+}
+
 static void test_tires(void)
 {
     static int16_t pcm[6][2 * 200], out[2 * 100];
@@ -2796,6 +2827,7 @@ int main(int argc, char **argv)
     test_engine();
     test_sfx();
     test_ambient();
+    test_raster();
     test_tires();
     test_speech();
     test_oneshot();

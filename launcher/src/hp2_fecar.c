@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { SDL_Vertex v[3]; float z; int tex; } tri;
+#include "hp2_raster.h"
+
+typedef struct { hp2_rvert v[3]; float z; int tex; int blend; } tri;
 
 int hp2_fecar_open(hp2_fecar *c, const char *disc, SDL_Renderer *r, const uint8_t *globalb, size_t globalb_len)
 {
@@ -26,7 +28,7 @@ int hp2_fecar_open(hp2_fecar *c, const char *disc, SDL_Renderer *r, const uint8_
 static void drop_textures(hp2_fecar *c)
 {
     int i;
-    for (i = 0; i < c->ntex; i++) if (c->tex[i].t) SDL_DestroyTexture(c->tex[i].t);
+    for (i = 0; i < c->ntex; i++) if (c->tex[i].ok) hp2_rtex_free(&c->tex[i].t);
     free(c->tex);
     c->tex = NULL;
     c->ntex = 0;
@@ -38,6 +40,8 @@ void hp2_fecar_close(hp2_fecar *c)
     if (c->loaded) hp2_car_free(&c->car);
     drop_textures(c);
     if (c->ss) SDL_DestroyTexture(c->ss);
+    hp2_rast_free(&c->rast);
+    if (c->smoke_ok) hp2_rtex_free(&c->smoke);
     hp2_tex_free(&c->ts);
     free(c->cartex);
     free(c->work);
@@ -77,38 +81,36 @@ static int load_car(hp2_fecar *c, const char *name)
     return 0;
 }
 
-static SDL_Texture *texture_for(hp2_fecar *c, uint32_t h)
+/* The index of the car's texture for hash h (made as a mip-mapped RGBA texture; .ok is 0 when no pack has it). .blend
+ * is set when it has translucent texels (the windows), which are drawn blended; the rest are solid whatever their alpha. */
+static int texture_for(hp2_fecar *c, uint32_t h)
 {
     int i;
     const hp2_tex *t;
     uint8_t *px;
-    SDL_Texture *st = NULL;
-    for (i = 0; i < c->ntex; i++) if (c->tex[i].hash == h) return c->tex[i].t;
+    for (i = 0; i < c->ntex; i++) if (c->tex[i].hash == h) return i;
     if (c->ntex % 32 == 0) {
         void *p = realloc(c->tex, sizeof *c->tex * (size_t)(c->ntex + 32));
-        if (!p) return NULL;
+        if (!p) return -1;
         c->tex = p;
     }
+    memset(&c->tex[c->ntex], 0, sizeof c->tex[c->ntex]);
+    c->tex[c->ntex].hash = h;
     t = hp2_tex_find(&c->ts, h);
     if (t && t->bpp && (px = (uint8_t *)malloc((size_t)t->w * t->h * 4)) != NULL) {
         if (hp2_tex_decode(t, px) == 0) {
-            long q, np = (long)t->w * t->h;
+            long q, np = (long)t->w * t->h, mid = 0;
             for (q = 0; q < np; q++) {      /* the GS draws a texture at up to twice its colours (vertex colour 128 = 1x) */
                 int k2;
                 for (k2 = 0; k2 < 3; k2++) { int x = px[4 * q + k2] * 8 / 5; px[4 * q + k2] = (uint8_t)(x > 255 ? 255 : x); }
+                if (px[4 * q + 3] < 200) mid++;
             }
-            st = SDL_CreateTexture(c->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, t->w, t->h);
-            if (st) {
-                SDL_UpdateTexture(st, NULL, px, t->w * 4);
-                SDL_SetTextureBlendMode(st, SDL_BLENDMODE_BLEND);
-            }
+            c->tex[c->ntex].blend = mid > np / 20;
+            c->tex[c->ntex].ok = hp2_rtex_make(&c->tex[c->ntex].t, px, t->w, t->h) == 0;
         }
         free(px);
     }
-    c->tex[c->ntex].hash = h;
-    c->tex[c->ntex].t = st;
-    c->ntex++;
-    return st;
+    return c->ntex++;
 }
 
 typedef struct { float right[3], up[3], fwd[3], cam[3], focal, cx, cy; float yaw_c, yaw_s; } cam_t;
@@ -134,20 +136,18 @@ static int cmp_far(const void *a, const void *b)
 
 /* Adds a mesh to the list: each vertex scaled (sx, sy, sz), moved to (tx, ty, tz), turned by the yaw. */
 static int add_mesh(hp2_fecar *c, const hp2_car *car, const hp2_mesh *m, const cam_t *k, int skin,
-                    const float sc[3], const float tr[3], tri **list, size_t *n, size_t *cap)
+                    const float sc[3], const float tr[3], tri **list, size_t *n, size_t *cap, int mirror, float gz)
 {
     int b, i;
     for (b = 0; b < m->nb; b++) {
         const hp2_mbatch *mb = &m->b[b];
         uint32_t th = hp2_car_texture(car, &c->ts, mb->tex, skin);
-        SDL_Texture *st = mb->tex ? texture_for(c, th) : NULL;
-        int ti = -1;
-        for (i = 0; i < c->ntex; i++) if (c->tex[i].hash == th) ti = i;
-        (void)st;
+        int ti = mb->tex ? texture_for(c, th) : -1;
+        int tblend = ti >= 0 && c->tex[ti].blend;
         for (i = 0; i + 2 < mb->count; i += 3) {
             tri *t;
             float z = 0;
-            int j;
+            int j, vblend = 0;
             if (*n >= *cap) {
                 size_t nc = *cap ? *cap * 2 : 8192;
                 tri *p = realloc(*list, nc * sizeof **list);
@@ -160,121 +160,173 @@ static int add_mesh(hp2_fecar *c, const hp2_car *car, const hp2_mesh *m, const c
                 const hp2_vert *v = &m->v[mb->first + i + j];
                 float p[3] = { v->x * sc[0] + tr[0], v->y * sc[1] + tr[1], v->z * sc[2] + tr[2] };
                 float q[3] = { p[0] * k->yaw_c - p[1] * k->yaw_s, p[0] * k->yaw_s + p[1] * k->yaw_c, p[2] };
-                float sx, sy;
-                int al = v->c[3] * 2, r, g, bl;
+                float sx, sy, zv, h = p[2] - gz;
+                if (mirror) q[2] = 2.0f * gz - p[2];                 /* the reflection in the floor */
+                float al = mb->tex && v->c[3] ? v->c[3] * 2 / 255.0f : 1.0f;
                 /* the model's vertex colours are the game's own dim lighting; the port lights it from above and
                  * the front: a soft key light on the (turned) normal, 0.45 ambient */
                 float nx = v->n[0] / 127.0f, ny = v->n[1] / 127.0f, nz = v->n[2] / 127.0f, lit = 0.85f;
                 if (v->n[0] || v->n[1] || v->n[2]) {
                     float wx = nx * k->yaw_c - ny * k->yaw_s, wy = nx * k->yaw_s + ny * k->yaw_c;
-                    lit = 0.45f + 0.75f * fmaxf(0.0f, 0.55f * wx + 0.25f * wy + 0.8f * nz);
-                    if (lit > 1.0f) lit = 1.0f;
+                    if (mirror) nz = -nz;
+                    lit = 0.62f + 0.95f * fmaxf(0.0f, 0.55f * wx + 0.25f * wy + 0.8f * nz);
+                    if (lit > 1.4f) lit = 1.4f;
                 }
-                r = g = bl = (int)(255.0f * lit);
-                z += project(k, q, &sx, &sy);
-                t->v[j].position.x = sx;
-                t->v[j].position.y = sy;
-                t->v[j].tex_coord.x = v->u;
-                t->v[j].tex_coord.y = v->v;
-                t->v[j].color.r = (Uint8)(r > 255 ? 255 : r);
-                t->v[j].color.g = (Uint8)(g > 255 ? 255 : g);
-                t->v[j].color.b = (Uint8)(bl > 255 ? 255 : bl);
-                t->v[j].color.a = mb->tex && v->c[3] ? (Uint8)(al > 255 ? 255 : al) : 255;
+                if (al > 1.0f) al = 1.0f;
+                if (mirror) {                                   /* faint, fading with height above the floor */
+                    float f = 0.2f * (1.0f - h / 1.2f);
+                    al = f > 0 ? f : 0;
+                    lit *= 0.7f;
+                    vblend = 1;
+                }
+                if (al < 0.98f) vblend = 1;
+                zv = project(k, q, &sx, &sy);
+                z += zv;
+                t->v[j].x = sx; t->v[j].y = sy; t->v[j].z = zv;
+                t->v[j].u = v->u; t->v[j].v = v->v;
+                t->v[j].r = t->v[j].g = t->v[j].b = lit;
+                t->v[j].a = al;
             }
             t->z = z / 3.0f;
             t->tex = ti;
-            if (ti < 0 && mb->tex) t->tex = -2;   /* a texture we do not have: drawn flat */
+            t->blend = mirror ? 2 : tblend || vblend;
         }
     }
     return 0;
 }
 
-void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const SDL_Rect *area)
+void hp2_fecar_set_textures(hp2_fecar *c, const hp2_texset *fets) { c->fets = fets; }
+
+/* The backdrop of the car select screen, which the game draws in code: soft blue smoke drifting about, and the
+ * spotlit floor. The look is the port's own (read off a PCSX2 screenshot): the smoke is the game's SMOKEB_CS sprite
+ * sheet (4 x 4 puffs) tinted blue. */
+static void backdrop(hp2_fecar *c, float t, float fcx, float fcy, float fr)
+{
+    hp2_rast *r = &c->rast;
+    int i;
+    if (!c->smoke_ok && c->fets) {
+        const hp2_tex *st = hp2_tex_find(c->fets, hp2_geom_hash("SMOKEB_CS"));
+        if (st && st->bpp) {
+            uint8_t *px = (uint8_t *)malloc((size_t)st->w * st->h * 4);
+            if (px && hp2_tex_decode(st, px) == 0) c->smoke_ok = hp2_rtex_make(&c->smoke, px, st->w, st->h) == 0;
+            free(px);
+        }
+    }
+    if (c->smoke_ok) {
+        for (i = 0; i < 14; i++) {
+            float ph = (float)i * 2.399f, sz = (0.28f + 0.22f * (float)((i * 7) % 5) / 4.0f) * (float)r->w;
+            float x = ((float)((i * 37) % 100) / 100.0f) * (float)r->w + sinf(t * 0.7f + ph) * 0.03f * (float)r->w;
+            float y = (0.04f + 0.5f * (float)((i * 53) % 100) / 100.0f) * (float)r->h + cosf(t * 0.5f + ph) * 0.02f * (float)r->h;
+            int cell = (i * 5 + (int)(t * 0.4f)) % 16;
+            float u0 = (float)(cell % 4) * 0.25f, v0 = (float)(cell / 4) * 0.25f;
+            hp2_rvert q[4];
+            int k;
+            for (k = 0; k < 4; k++) {
+                q[k].x = x + ((k == 0 || k == 3) ? -sz : sz) * 0.5f;
+                q[k].y = y + ((k < 2) ? -sz : sz) * 0.5f;
+                q[k].z = 500.0f;
+                q[k].u = u0 + ((k == 0 || k == 3) ? 0.002f : 0.248f);
+                q[k].v = v0 + ((k < 2) ? 0.002f : 0.248f);
+                q[k].r = 0.13f; q[k].g = 0.25f; q[k].b = 0.62f; q[k].a = 0.8f;
+            }
+            hp2_rast_tri(r, q, &c->smoke, 1);
+            { hp2_rvert tri2[3]; tri2[0] = q[0]; tri2[1] = q[2]; tri2[2] = q[3]; hp2_rast_tri(r, tri2, &c->smoke, 1); }
+        }
+    }
+    /* the floor: a wide pool of light, brighter near the car, with a soft rim */
+    hp2_rast_glow(r, fcx, fcy, fr * 1.5f, fr * 0.36f, 0.5f, 0.53f, 0.6f, 0.55f);
+    hp2_rast_glow(r, fcx, fcy, fr * 0.85f, fr * 0.2f, 0.68f, 0.7f, 0.76f, 0.35f);
+}
+
+void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const SDL_Rect *area, const SDL_Rect *car)
 {
     static const float one[3] = { 1, 1, 1 }, zero[3] = { 0, 0, 0 };
     tri *list = (tri *)c->work;
-    size_t n = 0, cap = c->work_cap, i;
+    size_t n = 0, cap = c->work_cap, i, nm;
     cam_t k;
-    float L, D, el = 0.22f, a = yaw * 3.14159265f / 180.0f;
-    int w, S = 1, ss_on = 0;
-    SDL_BlendMode saved_bm = SDL_BLENDMODE_BLEND;
-    Uint8 sr_, sg_, sb_, sa_;
-    if (!c->ok || !name) return;
+    float L, D, el = 0.22f, a = yaw * 3.14159265f / 180.0f, sf, gz = 1e9f, gx, gy, fsx, fsy;
+    int w, bw, bh, pass;
+    if (!c->ok || !name || area->w < 8 || area->h < 8) return;
     if (!c->loaded || strcmp(c->name, name)) { if (load_car(c, name) != 0) return; }
-    /* supersampling: the car is drawn 3x (2x when the area is big) into a texture and scaled down, which smooths the
-     * edges and the textures (the hood's moire) the way the plain 2D renderer cannot */
-    if (area->w > 8 && area->h > 8) {
-        S = area->w * 3 <= 2048 && area->h * 3 <= 2048 ? 3 : 2;
-        if (area->w * S > 4096 || area->h * S > 4096) S = 1;
-        if (S > 1) {
-            if (!c->ss || c->ssw != area->w * S || c->ssh != area->h * S) {
-                if (c->ss) SDL_DestroyTexture(c->ss);
-                c->ssw = area->w * S; c->ssh = area->h * S;
-                c->ss = SDL_CreateTexture(c->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, c->ssw, c->ssh);
-                if (c->ss) SDL_SetTextureScaleMode(c->ss, SDL_ScaleModeLinear);
-            }
-            if (c->ss && SDL_SetRenderTarget(c->r, c->ss) == 0) {
-                SDL_GetRenderDrawBlendMode(c->r, &saved_bm);
-                SDL_GetRenderDrawColor(c->r, &sr_, &sg_, &sb_, &sa_);
-                SDL_SetRenderDrawBlendMode(c->r, SDL_BLENDMODE_NONE);
-                SDL_SetRenderDrawColor(c->r, 0, 0, 0, 0);
-                SDL_RenderClear(c->r);
-                ss_on = 1;
-            }
-        }
-    }
-    if (!ss_on) S = 1;
     if (c->skin != skin) { drop_textures(c); c->skin = skin; }
+    /* the backdrop and the car are rasterised here, with a depth buffer, at up to 2.5x the area's size (about 2.5
+     * million pixels at most) and scaled down by the renderer, which smooths their edges */
+    sf = sqrtf(2.5e6f / ((float)area->w * (float)area->h));
+    sf = sf > 2.5f ? 2.5f : sf < 0.75f ? 0.75f : sf;
+    bw = (int)((float)area->w * sf); bh = (int)((float)area->h * sf);
+    if (c->rast.w != bw || c->rast.h != bh) {
+        hp2_rast_free(&c->rast);
+        if (hp2_rast_init(&c->rast, bw, bh) != 0) return;
+    }
+    hp2_rast_clear(&c->rast);
     L = c->car.rec.length > 1.0f ? c->car.rec.length : 4.5f;
     D = L * 2.3f;
     k.cam[0] = D * cosf(el); k.cam[1] = 0; k.cam[2] = D * sinf(el) + 0.5f;
     k.fwd[0] = -cosf(el); k.fwd[1] = 0; k.fwd[2] = -sinf(el);
     k.right[0] = 0; k.right[1] = 1; k.right[2] = 0;
     k.up[0] = -sinf(el); k.up[1] = 0; k.up[2] = cosf(el);
-    k.focal = (float)area->w * (float)S * 0.5f * D / (L * 0.64f);
-    k.cx = (ss_on ? 0.0f : (float)area->x) + (float)area->w * (float)S * 0.5f;
-    k.cy = (ss_on ? 0.0f : (float)area->y) + (float)area->h * (float)S * 0.55f;
+    /* the car's size and place come from its own rectangle, in this buffer's pixels */
+    k.focal = (float)car->w * sf * 0.5f * D / (L * 0.64f);
+    k.cx = ((float)(car->x - area->x) + (float)car->w * 0.5f) * sf;
+    k.cy = ((float)(car->y - area->y) + (float)car->h * 0.55f) * sf;
     k.yaw_c = cosf(a); k.yaw_s = sinf(a);
-    if (add_mesh(c, &c->car, &c->car.body, &k, skin, one, zero, &list, &n, &cap) != 0) goto done;
     for (w = 0; w < 4; w++) {
-        const hp2_wheel *wh = &c->car.rec.wheel[w];
-        int front = w == HP2_WHEEL_FL || w == HP2_WHEEL_FR;
-        float sy = wh->y > 0 ? -1.0f : 1.0f;
-        float tr0, tw0;
-        const hp2_mesh *tm = hp2_car_tyre(&c->car, w, &tr0, &tw0);
-        float sr = tr0 > 0 ? wh->radius / tr0 : 1;
-        float sw = tw0 > 0 ? wh->width / tw0 : 1;
-        float s2[3] = { sr, sy * sw, sr }, sb[3] = { 1, sy, 1 }, tr[3] = { wh->x, wh->y, wh->z };
-        if (add_mesh(c, &c->car, &c->car.brake[front ? 0 : 1], &k, skin, sb, tr, &list, &n, &cap) != 0) goto done;
-        if (add_mesh(c, &c->car, tm, &k, skin, s2, tr, &list, &n, &cap) != 0) goto done;
+        float z0 = c->car.rec.wheel[w].z - c->car.rec.wheel[w].radius;
+        if (z0 < gz) gz = z0;
     }
-    qsort(list, n, sizeof *list, cmp_far);
-    if (!ss_on) SDL_RenderSetClipRect(c->r, area);
-    for (i = 0; i < n;) {
-        size_t j = i;
-        SDL_Vertex vv[3 * 256];
-        int m = 0;
-        int ti = list[i].tex;
-        while (j < n && list[j].tex == ti && m < 256) { memcpy(vv + 3 * m, list[j].v, sizeof list[j].v); m++; j++; }
-        SDL_RenderGeometry(c->r, ti >= 0 ? c->tex[ti].t : NULL, vv, 3 * m, NULL, 0);
-        i = j;
+    if (gz > 1e8f) gz = 0;
+    {   float p0[3] = { 0, 0, gz };
+        gx = 0; gy = 0; (void)gx; (void)gy;
+        project(&k, p0, &fsx, &fsy);
     }
-    if (ss_on) {
+    backdrop(c, a, fsx, fsy, (float)car->w * sf * 0.5f);
+    for (pass = 0; pass < 2; pass++) {      /* 0: the reflection in the floor, 1: the car */
+        int mir = pass == 0;
+        float mgz = mir ? gz : 0;
+        n = 0;
+        if (add_mesh(c, &c->car, &c->car.body, &k, skin, one, zero, &list, &n, &cap, mir, mgz) != 0) goto done;
+        for (w = 0; w < 4; w++) {
+            const hp2_wheel *wh = &c->car.rec.wheel[w];
+            int front = w == HP2_WHEEL_FL || w == HP2_WHEEL_FR;
+            float sy = wh->y > 0 ? -1.0f : 1.0f;
+            float tr0, tw0;
+            const hp2_mesh *tm = hp2_car_tyre(&c->car, w, &tr0, &tw0);
+            float sr = tr0 > 0 ? wh->radius / tr0 : 1;
+            float sw = tw0 > 0 ? wh->width / tw0 : 1;
+            float s2[3] = { sr, sy * sw, sr }, sb[3] = { 1, sy, 1 }, tr[3] = { wh->x, wh->y, wh->z };
+            if (add_mesh(c, &c->car, &c->car.brake[front ? 0 : 1], &k, skin, sb, tr, &list, &n, &cap, mir, mgz) != 0) goto done;
+            if (add_mesh(c, &c->car, tm, &k, skin, s2, tr, &list, &n, &cap, mir, mgz) != 0) goto done;
+        }
+        if (mir) {                          /* the reflection: translucent, its own triangles do not stack */
+            for (i = 0; i < n; i++)
+                hp2_rast_tri(&c->rast, list[i].v, list[i].tex >= 0 && c->tex[list[i].tex].ok ? &c->tex[list[i].tex].t : NULL, 2);
+            hp2_rast_clear_z(&c->rast);
+            continue;
+        }
+        for (i = 0; i < n; i++)             /* solid triangles in any order: the depth buffer sorts them out */
+            if (!list[i].blend)
+                hp2_rast_tri(&c->rast, list[i].v, list[i].tex >= 0 && c->tex[list[i].tex].ok ? &c->tex[list[i].tex].t : NULL, 0);
+        nm = 0;                             /* then the blended ones (windows) far to near */
+        for (i = 0; i < n; i++) if (list[i].blend) { tri t = list[i]; list[nm++] = t; }
+        qsort(list, nm, sizeof *list, cmp_far);
+        for (i = 0; i < nm; i++)
+            hp2_rast_tri(&c->rast, list[i].v, list[i].tex >= 0 && c->tex[list[i].tex].ok ? &c->tex[list[i].tex].t : NULL, 1);
+    }
+    if (!c->ss || c->ssw != bw || c->ssh != bh) {
+        if (c->ss) SDL_DestroyTexture(c->ss);
+        c->ssw = bw; c->ssh = bh;
+        c->ss = SDL_CreateTexture(c->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, bw, bh);
+        if (c->ss) SDL_SetTextureScaleMode(c->ss, SDL_ScaleModeLinear);
+    }
+    if (c->ss) {
         SDL_BlendMode bm = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
                                                       SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD);
-        SDL_SetRenderTarget(c->r, NULL);
-        /* the target holds premultiplied colour (drawn over transparent black with SDL's blend) */
+        SDL_UpdateTexture(c->ss, NULL, c->rast.px, bw * 4);
+        /* the buffer holds premultiplied colour */
         if (SDL_SetTextureBlendMode(c->ss, bm) != 0) SDL_SetTextureBlendMode(c->ss, SDL_BLENDMODE_BLEND);
         SDL_RenderCopy(c->r, c->ss, NULL, area);
-    } else {
-        SDL_RenderSetClipRect(c->r, NULL);
     }
 done:
-    if (ss_on) {
-        SDL_SetRenderTarget(c->r, NULL);
-        SDL_SetRenderDrawBlendMode(c->r, saved_bm);
-        SDL_SetRenderDrawColor(c->r, sr_, sg_, sb_, sa_);
-    }
     c->work = list;
     c->work_cap = cap;
 }

@@ -352,7 +352,13 @@ static void draw(hp2_fedraw *d, hp2_femenu *m, songbox *box, hp2_fecar *fc, SDL_
         hp2_fe_to_window(&v, CAR_AREA_X, CAR_AREA_Y, &x0, &y0);
         hp2_fe_to_window(&v, CAR_AREA_X + CAR_AREA_W, CAR_AREA_Y + CAR_AREA_H, &x1, &y1);
         a.x = (int)x0; a.y = (int)y0; a.w = (int)(x1 - x0); a.h = (int)(y1 - y0);
-        hp2_fecar_draw(fc, hp2_femenu_car_model(m), m->color + 1, (float)(fc_clock() % 36000) * 0.01f, &a);
+        {   SDL_Rect bg;        /* the whole backdrop: the smoke and the spotlit floor reach the screen's sides */
+            float bx0, by0, bx1, by1;
+            hp2_fe_to_window(&v, 0.0f, 92.0f, &bx0, &by0);
+            hp2_fe_to_window(&v, 640.0f, 392.0f, &bx1, &by1);
+            bg.x = (int)bx0; bg.y = (int)by0; bg.w = (int)(bx1 - bx0); bg.h = (int)(by1 - by0);
+            hp2_fecar_draw(fc, hp2_femenu_car_model(m), m->color + 1, (float)(fc_clock() % 36000) * 0.01f, &bg, &a);
+        }
     }
     if (box->song >= 0 && box->jb) {   /* on top of the menu */
         n = hp2_femenu_songbox(box->screen, &box->jb->track[box->song], box->quoted, sizeof box->quoted, items, MAX_ITEMS);
@@ -505,7 +511,7 @@ int main(int argc, char **argv)
     ren = win ? SDL_CreateRenderer(win, -1, shot ? SDL_RENDERER_SOFTWARE : SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC) : NULL;
     if (!ren) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     hp2_fedraw_init(&d, ren, &tex, &fonts);
-    if (disc) hp2_fecar_open(&fcar, disc, ren, f.globalb, f.globalb_len);   /* the 3D car; not without a disc */
+    if (disc && hp2_fecar_open(&fcar, disc, ren, f.globalb, f.globalb_len) == 0) hp2_fecar_set_textures(&fcar, &tex);   /* the 3D car; not without a disc */
     if (shot) fc_fixed = 3000u;
     update_glyphs(&menu, &cfg, pad);           /* button names: the settings, then the pad in hand */
 
