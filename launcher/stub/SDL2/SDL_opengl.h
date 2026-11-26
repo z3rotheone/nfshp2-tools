@@ -63,6 +63,7 @@ void glCallList(GLuint list);
 void glClear(GLbitfield mask);
 void glClearColor(GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha);
 void glColor4ub(GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha);
+void glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
 void glDepthFunc(GLenum func);
 void glDepthMask(GLboolean flag);
 void glDisable(GLenum cap);

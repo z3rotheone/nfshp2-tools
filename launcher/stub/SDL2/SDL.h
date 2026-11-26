@@ -98,6 +98,8 @@ typedef enum {
 #define SDLK_f                      102
 #define SDLK_m                      109
 #define SDLK_p                      112
+#define SDLK_s                      115
+#define SDLK_w                      119
 #define SDLK_b                      98
 #define SDLK_r                      114
 #define SDLK_F12                    0x40000045

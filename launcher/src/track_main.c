@@ -894,6 +894,118 @@ placed:
     d->arcade = w->arcade;
 }
 
+/* The pause menu (the port's own layout, the game's wording): the list on page 0, then for a pursuit the
+ * objective (page 1) and the cop controls (pages 2 and 3). The keys are the port's own. */
+static int paused, ppage, psel;
+enum { PI_RESUME, PI_RESTART, PI_OBJECTIVE, PI_CONTROLS, PI_QUIT };
+
+static int pause_items(int *it)
+{
+    int n = 0;
+    it[n++] = PI_RESUME;
+    it[n++] = PI_RESTART;
+    if (pur.on) { it[n++] = PI_OBJECTIVE; it[n++] = PI_CONTROLS; }
+    it[n++] = PI_QUIT;
+    return n;
+}
+
+/* Handles one key or pad button while driving; returns 1 when the pause menu took it. */
+static int pause_event(const SDL_Event *ev, int *quit, int *restart)
+{
+    int it[8], n = pause_items(it), key = 0, btn = -1, up, down, ok, back, esc;
+    if (ev->type == SDL_KEYDOWN) key = (int)ev->key.keysym.sym; else btn = ev->cbutton.button;
+    esc = key == SDLK_ESCAPE || btn == SDL_CONTROLLER_BUTTON_START;
+    if (!paused) {
+        if (!esc) return 0;
+        paused = 1; ppage = 0; psel = 0;
+        return 1;
+    }
+    up = key == SDLK_UP || key == SDLK_w || btn == SDL_CONTROLLER_BUTTON_DPAD_UP;
+    down = key == SDLK_DOWN || key == SDLK_s || btn == SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+    ok = key == SDLK_RETURN || key == SDLK_SPACE || btn == SDL_CONTROLLER_BUTTON_A;
+    back = key == SDLK_BACKSPACE || btn == SDL_CONTROLLER_BUTTON_B;
+    if (esc) { if (ppage) ppage = 0; else paused = 0; return 1; }
+    if (ppage == 0) {
+        if (up) psel = (psel + n - 1) % n;
+        else if (down) psel = (psel + 1) % n;
+        else if (back) paused = 0;
+        else if (ok) {
+            switch (it[psel]) {
+            case PI_RESUME: paused = 0; break;
+            case PI_RESTART: *restart = 1; break;
+            case PI_OBJECTIVE: ppage = 1; break;
+            case PI_CONTROLS: ppage = 2; break;
+            default: *quit = 1; break;
+            }
+        }
+    } else if (ok) ppage = ppage == 2 ? 3 : 0;
+    else if (back) ppage = ppage == 3 ? 2 : 0;
+    return 1;
+}
+
+static void ptext(hp2_hud *h, const hp2_fe_widget *tpl, float x, float y, float sc, int r, int g, int b, unsigned align, const char *s)
+{
+    hp2_fe_widget t = *tpl;
+    t.x = x; t.y = y; t.sx = t.sy = sc; t.align = align;
+    t.rgba[0] = (uint8_t)r; t.rgba[1] = (uint8_t)g; t.rgba[2] = (uint8_t)b; t.rgba[3] = 128;
+    hp2_hud_text(h, &t, s);
+}
+
+static void draw_pause(hudstate *hs, int W, int H)
+{
+    static const char *names[] = { "Resume", "Restart", "View Objective", "View Cop Controls", "Quit" };
+    static const char *info[4][12] = {
+        { 0 },
+        { "Be on the lookout for speeders!", "Arrest four speeders in time to earn bonus points.", "",
+          "[T] target/untarget speeders within range", "[L] call helicopter backup", "[K] call for roadblock",
+          "[Left Shift] activate speed boost", 0 },
+        { "In You're the Cop mode, it pays to know cop tactics:", "",
+          "1. Activate the siren [T] to target speeders. A blue arrow", "will float above the targeted car.",
+          "2. Call for help from a roadblock [K] or helicopter [L],", "and your fellow officers will help you stop the targeted car.", 0 },
+        { "3. Use speed boost [Left Shift] to gain on speeders.", "4. Once you get close enough, hit the speeder repeatedly and",
+          "pin them to finish the arrest.", "5. Fill your arrest quota before time runs out!", 0 },
+    };
+    hp2_hud *h = &hs->hud;
+    const hp2_fe_widget *big = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"), *body = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2");
+    const hp2_font *f;
+    int it[8], n = pause_items(it), i;
+    float lh;
+    if (!big) return;
+    if (!body) body = big;
+    f = hp2_font_find(h->fonts, big->font);
+    lh = f ? f->line_height : 32.0f;
+    hp2_hud_begin(h, W, H);
+    h->view.margin_l = h->view.margin_r = 0;       /* the 640 x 480 canvas, centred */
+    glDisable(GL_TEXTURE_2D);
+    glColor4f(0, 0, 0, ppage ? 0.8f : 0.6f);
+    glBegin(GL_QUADS);
+    glVertex2f(0, 0); glVertex2f((float)W, 0); glVertex2f((float)W, (float)H); glVertex2f(0, (float)H);
+    glEnd();
+    glEnable(GL_TEXTURE_2D);
+    if (ppage == 0) {
+        const char *title = "PAUSE";
+        ptext(h, big, 320, 70, 0.8f, 110, 110, 110, HP2_FE_ALIGN_CENTRE, title);
+        for (i = 0; i < n; i++) {
+            char buf[40];
+            const char *nm = names[it[i]];
+            if (it[i] == PI_RESUME) snprintf(buf, sizeof buf, "Resume %s", pur.on ? "Pursuit" : "Race");
+            else if (it[i] == PI_RESTART) snprintf(buf, sizeof buf, "Restart %s", pur.on ? "Pursuit" : "Race");
+            else if (it[i] == PI_QUIT) snprintf(buf, sizeof buf, "Quit %s", pur.on ? "Pursuit" : "Race");
+            else snprintf(buf, sizeof buf, "%s", nm);
+            if (i == psel) ptext(h, big, 320, 140 + i * lh * 0.62f, 0.5f, 128, 70, 0, HP2_FE_ALIGN_CENTRE, buf);
+            else ptext(h, big, 320, 140 + i * lh * 0.62f, 0.5f, 100, 100, 100, HP2_FE_ALIGN_CENTRE, buf);
+        }
+    } else {
+        int k;
+        ptext(h, big, 320, 50, 0.6f, 128, 90, 30, HP2_FE_ALIGN_CENTRE, ppage == 1 ? "You're The Cop" : "Cop Controls");
+        for (k = 0; info[ppage][k]; k++)
+            ptext(h, body, 60, 120 + k * lh * 0.4f, 0.4f, 120, 120, 120, HP2_FE_ALIGN_LEFT, info[ppage][k]);
+        ptext(h, body, 60, 410, 0.4f, 100, 100, 100, HP2_FE_ALIGN_LEFT, "Backspace  previous");
+        ptext(h, body, 60, 435, 0.4f, 100, 100, 100, HP2_FE_ALIGN_LEFT, ppage == 3 || ppage == 1 ? "Enter  close" : "Enter  next");
+    }
+    hp2_hud_end();
+}
+
 static float axis(SDL_GameController *p, SDL_GameControllerAxis a)
 {
     float v = p ? SDL_GameControllerGetAxis(p, a) / 32767.0f : 0;
@@ -1495,9 +1607,11 @@ int main(int argc, char **argv)
         float dt, f3[3], mv[3] = { 0, 0, 0 }, sp, side[2];
         Uint32 now;
         int dw, dh;
+        int rkey = 0;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) quit = 1;
-            else if (ev.type == SDL_KEYDOWN) {
+            else if (driving && (ev.type == SDL_KEYDOWN || ev.type == SDL_CONTROLLERBUTTONDOWN) && pause_event(&ev, &quit, &rkey)) {
+            } else if (ev.type == SDL_KEYDOWN) {
                 switch (ev.key.keysym.sym) {
                 case SDLK_ESCAPE:
                     if (grab) { grab = 0; SDL_SetRelativeMouseMode(SDL_FALSE); }
@@ -1505,20 +1619,7 @@ int main(int argc, char **argv)
                     break;
                 case SDLK_f: fog = !fog; break;
                 case SDLK_b: blend_opaque = !blend_opaque; printf("blended pieces drawn %s\n", blend_opaque ? "solid" : "as blended"); break;
-                case SDLK_r:
-                    if (driving) {
-                        hp2_knockout_reset(&ko);
-                        hp2_pursuit_reset(&pur); pursuit_called = 0;
-                        for (i = 0; i < w.ncv; i++) {
-                            hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
-                            start_car(&w, i, &drv[i], &races[0]);
-                            ai[i].stuck = ai[i].reverse = 0;
-                            ai[i].at = -1;
-                        }
-                        chase_camera(&drv[0], &c, 1);
-                    }
-                    else start_camera(&w.sc, &c);
-                    break;
+                case SDLK_r: rkey = 1; break;
                 case SDLK_c:
                     if (w.has_car) {
                         driving = !driving;
@@ -1555,6 +1656,21 @@ int main(int argc, char **argv)
                 pad = NULL;
             }
         }
+        if (rkey) {
+            paused = 0; ppage = 0; busted = 0; busted_t = 0;
+            if (driving) {
+                hp2_knockout_reset(&ko);
+                hp2_pursuit_reset(&pur); pursuit_called = 0;
+                for (i = 0; i < w.ncv; i++) {
+                    hp2_race_init(&races[i], w.sc.route, w.sc.route_n, w.sc.route_loop, w.sc.route_len, laps);
+                    start_car(&w, i, &drv[i], &races[0]);
+                    ai[i].stuck = ai[i].reverse = 0;
+                    ai[i].at = -1;
+                }
+                chase_camera(&drv[0], &c, 1);
+            }
+            else start_camera(&w.sc, &c);
+        }
         now = SDL_GetTicks();
         dt = (now - last) / 1000.0f;
         if (dt > 0.1f) dt = 0.1f;
@@ -1572,8 +1688,8 @@ int main(int argc, char **argv)
                 horn_was = k[SDL_SCANCODE_H];
             }
             in.handbrake = k[SDL_SCANCODE_SPACE] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A));
-            race_tick(&w, drv, races, ai, &in, dt);
-            chase_camera(&drv[0], &c, 1 - expf(-8 * dt));
+            if (!paused) race_tick(&w, drv, races, ai, &in, dt);
+            chase_camera(&drv[0], &c, paused ? 0 : 1 - expf(-8 * dt));
             if (now / 250 != (Uint32)titled) {
                 char title[96];
                 titled = (int)(now / 250);
@@ -1584,6 +1700,7 @@ int main(int argc, char **argv)
             SDL_GL_GetDrawableSize(win, &dw, &dh);
             draw(&w, &c, dw, dh, fog, dptr);
             draw_hud(&hs, &drv[0], races, w.nrace, dw, dh);
+            if (paused) draw_pause(&hs, dw, dh);
             SDL_GL_SwapWindow(win);
             if (audio) {
                 static int16_t mixbuf[2 * 1024];
