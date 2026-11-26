@@ -856,8 +856,21 @@ static void start_car(const world *w, int k, hp2_drive *d, const hp2_race *route
     if (w->ncv > 1 && route && route->n) {
         /* the player at the back of the grid, the opponents ahead; the police behind them all (on a
          * point-to-point course the racers move up to make room, the route does not run behind its start) */
-        int ncop = w->ncv - w->nrace, coprows = (ncop + 1) / 2, rows = (w->nrace + 1) / 2, slot, row;
+        int pursuit = pur.on, nracers = w->nrace - (pursuit ? 1 : 0);      /* you're the cop: not on the grid */
+        int ncop = w->ncv - w->nrace, coprows = (ncop + 1) / 2, rows = (nracers + 1) / 2, slot, row;
         float base = route->loop ? -4.0f : 6.0f + 8.0f * coprows, p, xy[2], dir[2], side;
+        if (pursuit && k == 0) {
+            /* the cop waits 90 m up the road, at its right edge, facing down the course
+             * (the port's own place: the game's start is not decoded) */
+            p = 90.0f;
+            slot = 1;
+            side = -3.6f;
+            hp2_race_point(route, p, xy, dir);
+            x = xy[0] - dir[1] * side;
+            y = xy[1] + dir[0] * side;
+            hd = atan2f(dir[1], dir[0]);
+            goto placed;
+        }
         if (k >= w->nrace) {
             slot = k - w->nrace;
             p = (route->loop ? -4.0f - 8.0f : 6.0f + 8.0f * (coprows - 1)) - 8.0f * (route->loop ? slot / 2 : slot / 2);
@@ -872,6 +885,7 @@ static void start_car(const world *w, int k, hp2_drive *d, const hp2_race *route
         y = xy[1] + dir[0] * side;
         hd = atan2f(dir[1], dir[0]);
     }
+placed:
     if (w->has_coll) hp2_coll_ground(&w->coll, x, y, z + 5, 5, &z, NULL, NULL);
     hp2_drive_init(d, &w->cv[k].car.rec, x, y, z, hd);
     d->arcade = w->arcade;
