@@ -441,13 +441,18 @@ static void fill_gaps(world *w)
         for (j = 0; j < w->sc.sec[i].ng; j++) {
             glgroup *g = &w->grp[i][j];
             const hp2_sgroup *sg = &w->sc.sec[i].g[j];
-            int nt = sg->nv / 3, bare = 0, seen = 0;
+            int nt = sg->nv / 3, bare = 0, seen = 0, nflat = 0;
             const gltex *tx = &w->tex[g->tex];
-            if (!sg->v || !g->flat || ground_solid(tx, 1) || tx->mode != MODE_CUTOUT || tx->clear <= 0.5f || tx->clearlum <= 8.0f) continue;
+            /* edge > 0.9: the strip is solid along its border, like the road-edge pieces; a card clear at its border is a decal */
+            if (!sg->v || ground_solid(tx, g->flat) || tx->mode != MODE_CUTOUT || tx->clear <= 0.5f || tx->clearlum <= 8.0f || tx->edge <= 0.9f) continue;
             for (t = 0; t < nt; t++) {
                 const hp2_vert *a = &sg->v[3 * t], *b = a + 1, *c = a + 2;
+                float ux = b->x - a->x, uy = b->y - a->y, uz = b->z - a->z, vx = c->x - a->x, vy = c->y - a->y, vz = c->z - a->z;
+                float mx = uy * vz - uz * vy, my = uz * vx - ux * vz, mz = ux * vy - uy * vx, len = sqrtf(mx * mx + my * my + mz * mz);
                 float px = (a->x + b->x + c->x) / 3, py = (a->y + b->y + c->y) / 3, pz = (a->z + b->z + c->z) / 3;
                 int cx = (int)((px - x0) / cell), cy = (int)((py - y0) / cell), covered = 0, q;
+                if (len < 1e-6f || fabsf(mz) / len < 0.85f) continue;      /* only the ground-like triangles of the piece */
+                nflat++;
                 if (cx < 0 || cy < 0 || cx >= nx || cy >= ny) continue;
                 for (q = 0; q < fillc[(size_t)cy * nx + cx] && !covered; q++) {
                     const hp2_vert *o = tris[start[(size_t)cy * nx + cx] + q];
@@ -457,7 +462,8 @@ static void fill_gaps(world *w)
                 seen++;
                 if (!covered) bare++;
             }
-            if (seen && bare * 2 > seen) { g->fill = 1; nfill++; }
+            /* a piece that is mostly ground-like and mostly uncovered would show the sky through the floor */
+            if (seen && nflat * 2 >= nt && bare * 2 > seen) { g->fill = 1; nfill++; }
         }
     free(tris);
     free(start);
