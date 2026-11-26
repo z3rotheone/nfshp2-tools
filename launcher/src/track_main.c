@@ -110,7 +110,7 @@ typedef struct {
     GLuint list;
     int    tex;             /* index into the texture table */
     int    flat;            /* nearly all its triangles lie flat: ground, not a foliage card */
-    int    fill;            /* 1: a cut-out piece with nothing solid under it, drawn solid or the floor is see-through; 2: a flat piece with no texture, not drawn */
+    int    fill;            /* 1: a cut-out piece with nothing solid under it, drawn solid or the floor is see-through; */
 } glgroup;
 
 #define HP2_MAX_CARS 8
@@ -264,7 +264,8 @@ static int find_or_add_tex(world *w, uint32_t h)
 
 static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
 {
-    static const uint8_t white[4] = { 255, 255, 255, 255 };
+    /* a texture in no pack (da258882, flat ground at Scenic Drive's tunnel) gets a plain dirt colour: white shows as a bright block */
+    static const uint8_t white[4] = { 84, 77, 62, 255 };
     int i;
     for (i = 0; i < w->ntex; i++) {
         gltex *g = &w->tex[i];
@@ -389,8 +390,8 @@ static int tri_covers(const hp2_vert *a, const hp2_vert *b, const hp2_vert *c, f
 /* A translucent piece (not an alpha-cut one): wet-road sheen, water, a ground overlay. Over nothing solid it shows the sky. */
 static int see_through_kind(const gltex *t, int ntris)
 {
-    /* up to 60 triangles: wet-road sheen and puddles along a road. Bigger blended pieces are sea and lakes, which are meant to be see-through */
-    if (t->mode == MODE_BLEND) return t->clear < 0.5f && ntris <= 60;
+    (void)ntris;      /* translucent pieces are water: they stay as they are (drawing them solid removed Scenic Drive's water) */
+    if (t->mode == MODE_BLEND) return 0;
     return t->mode == MODE_CUTOUT && t->clear > 0.5f && t->clearlum > 8.0f && t->edge > 0.9f;   /* a strip solid along its border */
 }
 
@@ -405,12 +406,6 @@ static void fill_gaps(world *w)
     int *start, *fillc;
     const hp2_vert **tris = NULL;
     size_t ntri = 0, k;
-    /* a flat piece whose texture is in no pack (da258882 at the start of Scenic Drive's tunnel) would be a white block on the ground */
-    for (i = 0; i < w->sc.nsec; i++)
-        for (j = 0; j < w->sc.sec[i].ng; j++) {
-            glgroup *g = &w->grp[i][j];
-            if (g->flat && w->tex[g->tex].missing && w->sc.sec[i].num != 99) g->fill = 2;
-        }
     if (nx < 1 || ny < 1 || (long)nx * ny > 16000000L) return;
     for (i = 0; i < w->sc.nsec; i++)
         for (j = 0; j < w->sc.sec[i].ng; j++) {
@@ -432,7 +427,7 @@ static void fill_gaps(world *w)
             for (j = 0; j < w->sc.sec[i].ng; j++) {
                 const glgroup *g = &w->grp[i][j];
                 const hp2_sgroup *sg = &w->sc.sec[i].g[j];
-                if (!sg->v || g->fill == 2 || !ground_solid(&w->tex[g->tex], g->flat) || w->tex[g->tex].mode == MODE_BLEND) continue;
+                if (!sg->v || !ground_solid(&w->tex[g->tex], g->flat) || w->tex[g->tex].mode == MODE_BLEND) continue;
                 for (t = 0; t < sg->nv / 3; t++) {
                     const hp2_vert *a = &sg->v[3 * t], *b = a + 1, *c = a + 2;
                     float lo[2] = { fminf(a->x, fminf(b->x, c->x)), fminf(a->y, fminf(b->y, c->y)) };
@@ -622,9 +617,8 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
         const gltex *t = &w->tex[g[j].tex];
         int mode = t->mode == MODE_BLEND && blend_opaque ? MODE_OPAQUE : t->mode;
         if (hide_tex && t->hash == hide_tex) continue;
-        if (g[j].fill == 2) continue;
         if (g[j].flat && !keep_cuts && t->clear > 0.02f && (t->clear < 0.5f || t->edge > 0.9f) && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
-        if (g[j].fill == 1 && mode != MODE_OPAQUE) mode = MODE_OPAQUE;
+        if (g[j].fill == 1 && mode == MODE_CUTOUT) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
         set_mode(mode);
         glBindTexture(GL_TEXTURE_2D, t->id);
