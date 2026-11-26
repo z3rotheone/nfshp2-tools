@@ -2470,6 +2470,33 @@ static void test_cop(void)
     CHECK(in.throttle < 1 && in.brake > 0, "cop: eases off when alongside a slower target");
 }
 
+static void test_ram(void)
+{
+    hp2_pursuit p;
+    float px[3] = { 0, 100, 200 }, py[3] = { 0, 0, 0 };
+    int arr = 0, k;
+    printf("pursuit by ramming (synthetic)\n");
+    memset(&p, 0, sizeof p);
+    p.on = p.ram = 1;
+    hp2_pursuit_reset(&p);
+    hp2_pursuit_step(&p, 0.1f, 0.0f, 3, px, py);
+    CHECK(p.speeders == 2 && p.health[1] == HP2_RAM_HEALTH, "ram: two speeders at full health");
+    px[1] = 5;
+    for (k = 0; k < 40; k++) hp2_pursuit_step(&p, 0.1f, 0.0f, 3, px, py);
+    CHECK(p.narrested == 0, "ram: staying close arrests nobody");
+    CHECK(hp2_pursuit_ram(&p, 1, 2.0f, 5, &arr) == 0, "ram: a tap below the minimum does nothing");
+    CHECK(hp2_pursuit_ram(&p, 1, 10.0f, 5, &arr) > 24.0f && !arr && p.health[1] < 76.0f, "ram: a 10 m/s hit takes 24.5 off");
+    CHECK(hp2_pursuit_ram(&p, 1, 20.0f, 5, &arr) == 0, "ram: a second hit in the same half second is ignored");
+    hp2_pursuit_step(&p, 0.6f, 5.5f, 3, px, py);
+    hp2_pursuit_ram(&p, 1, 20.0f, 6, &arr);
+    hp2_pursuit_step(&p, 0.6f, 6.1f, 3, px, py);
+    hp2_pursuit_ram(&p, 1, 20.0f, 7, &arr);
+    CHECK(arr == 1 && p.arrested[1] && p.narrested == 1 && !p.done, "ram: three hard hits arrest it (%.0f left)", p.health[1]);
+    hp2_pursuit_step(&p, 0.6f, 7.0f, 3, px, py);
+    for (k = 0; k < 3; k++) { hp2_pursuit_step(&p, 0.6f, 8.0f + k, 3, px, py); hp2_pursuit_ram(&p, 2, 30.0f, 8.0f + k, &arr); }
+    CHECK(p.done && p.narrested == 2 && p.time > 0, "ram: the event is done when the last is arrested");
+}
+
 static void test_tires(void)
 {
     static int16_t pcm[6][2 * 200], out[2 * 100];
@@ -2752,6 +2779,7 @@ int main(int argc, char **argv)
     test_oneshot();
     test_reverb();
     test_cop();
+    test_ram();
     if (fb && gb) test_real(fb, gb, lf, disc, bank, exe);
     printf("\nassets: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

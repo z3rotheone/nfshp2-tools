@@ -102,7 +102,17 @@ typedef struct {
     int arrested[HP2_RESULT_CARS];
     float hold[HP2_RESULT_CARS];
     float time;                      /* the race clock when the last was arrested */
+    int ram;                         /* 1: arrests come from ramming (below), not from staying close */
+    float health[HP2_RESULT_CARS], cool[HP2_RESULT_CARS];
 } hp2_pursuit;
+/* Ramming (the port's own numbers: the game's arrest rule is not decoded). Each speeder has HP2_RAM_HEALTH; a
+ * hit closing faster than HP2_RAM_MIN m/s takes (closing - HP2_RAM_MIN) x HP2_RAM_DAMAGE off it, at most one hit
+ * a half second; at 0 it is disabled and arrested. Returns the damage done (0 if none), and sets
+ * *arrested when this hit arrested it. */
+#define HP2_RAM_HEALTH 100.0f
+#define HP2_RAM_MIN    3.0f
+#define HP2_RAM_DAMAGE 3.5f
+float hp2_pursuit_ram(hp2_pursuit *p, int car, float closing, float clock, int *arrested);
 void hp2_pursuit_reset(hp2_pursuit *p);                           /* keeps on */
 /* One step for n cars at (x[i], y[i]); clock = seconds since GO. Returns
  * the number arrested this step. */

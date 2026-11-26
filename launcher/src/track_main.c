@@ -951,12 +951,24 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
     }
     prev_speed = drv[0].speed;
     for (i = 0; i < w->ncv; i++)
-        for (j = i + 1; j < w->ncv; j++)
-            if (!ko.out[i] && !ko.out[j] && hp2_drive_collide(&drv[i], &drv[j]) && i == 0 && hit_wait <= 0) {
-                cue("CrashMetalMedium02", 0.9f);
-                if (has_speech && pur.on) hp2_speech_say(&speech, "CopHit", 0);
-                hit_wait = 0.4f;
+        for (j = i + 1; j < w->ncv; j++) {
+            float closing = 0;
+            if (ko.out[i] || ko.out[j]) continue;
+            if (i == 0 && pur.on && j < w->nrace) {       /* how hard you are closing on a speeder, before the bump changes it */
+                float nx = drv[j].pos[0] - drv[0].pos[0], ny = drv[j].pos[1] - drv[0].pos[1], nl = hypotf(nx, ny);
+                if (nl > 0.01f) closing = ((drv[0].vel[0] - drv[j].vel[0]) * nx + (drv[0].vel[1] - drv[j].vel[1]) * ny) / nl;
             }
+            if (hp2_drive_collide(&drv[i], &drv[j]) && i == 0) {
+                int arr = 0;
+                float dmg = j < w->nrace ? hp2_pursuit_ram(&pur, j, closing, races[0].clock, &arr) : 0;
+                if (hit_wait <= 0) {
+                    cue("CrashMetalMedium02", 0.9f);
+                    hit_wait = 0.4f;
+                }
+                if (has_speech && pur.on && (dmg > 0 || hit_wait > 0.35f))
+                    hp2_speech_say(&speech, arr ? (pur.done ? "TermPursuit" : "Arrest") : "CopHit", arr);
+            }
+        }
     for (i = 0; i < w->ncv; i++) {
         if (i > 0 && ko.out[i]) continue;
         hp2_race_step(&races[i], dt, drv[i].pos[0], drv[i].pos[1], drv[i].vel[0], drv[i].vel[1]);
@@ -1083,7 +1095,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--result") && i + 1 < argc) resultf = argv[++i];
         else if (!strcmp(argv[i], "--lap-knockout")) ko.on = 1;
-        else if (!strcmp(argv[i], "--pursuit")) pur.on = 1;
+        else if (!strcmp(argv[i], "--pursuit")) { pur.on = pur.ram = 1; hp2_pursuit_reset(&pur); }
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--no-music")) music = 0;
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
