@@ -366,6 +366,8 @@ static int build_world(world *w, int mipmaps, const hp2_texset *ts)
     return 0;
 }
 
+static float why_xy[2];     /* --why X,Y: list the pieces under that point and how each is drawn */
+static int why_on;
 static int keep_cuts;      /* --keep-cuts (set below with the drawing state) */
 
 /* Whether a flat group is drawn solid (the rule draw_groups applies to ground pieces). */
@@ -476,6 +478,26 @@ static void fill_gaps(world *w)
     free(start);
     free(fillc);
     if (nfill) printf("%d ground pieces with nothing solid under them are drawn solid\n", nfill);
+}
+
+/* --why X,Y: what lies under a point and how draw_groups will treat it (for tracking down holes). */
+static void why_report(const world *w)
+{
+    int i, j, t;
+    printf("why %.1f,%.1f: sec grp texture    z      tris mode flat fill forced clear edge\n", why_xy[0], why_xy[1]);
+    for (i = 0; i < w->sc.nsec; i++)
+        for (j = 0; j < w->sc.sec[i].ng; j++) {
+            const glgroup *g = &w->grp[i][j];
+            const hp2_sgroup *sg = &w->sc.sec[i].g[j];
+            const gltex *tx = &w->tex[g->tex];
+            for (t = 0; sg->v && t < sg->nv / 3; t++)
+                if (tri_covers(&sg->v[3 * t], &sg->v[3 * t + 1], &sg->v[3 * t + 2], why_xy[0], why_xy[1])) {
+                    printf("      %3d %3d %08x %7.1f %5d %4d %4d %4d %6d %5.2f %4.2f%s\n", w->sc.sec[i].num, j, tx->hash,
+                           (sg->v[3 * t].z + sg->v[3 * t + 1].z + sg->v[3 * t + 2].z) / 3, sg->nv / 3, tx->mode, g->flat, g->fill,
+                           ground_solid(tx, g->flat), tx->clear, tx->edge, tx->missing ? "  MISSING" : "");
+                    break;
+                }
+        }
 }
 
 /* One list per batch of a car mesh, textures resolved as the game fills
@@ -1391,6 +1413,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--arcade")) w.arcade = 1;
         else if (!strcmp(argv[i], "--reverse")) reverse = 1;
         else if (!strcmp(argv[i], "--blend-opaque")) blend_opaque = 1;
+        else if (!strcmp(argv[i], "--why") && i + 1 < argc) { why_on = sscanf(argv[++i], "%f,%f", &why_xy[0], &why_xy[1]) == 2; }
         else if (!strcmp(argv[i], "--holes")) holes = 1;
         else if (!strcmp(argv[i], "--keep-cuts")) keep_cuts = 1;
         else if (!strcmp(argv[i], "--hide-tex") && i + 1 < argc) hide_tex = (uint32_t)strtoul(argv[++i], NULL, 16);
@@ -1608,6 +1631,7 @@ int main(int argc, char **argv)
         printf("OpenGL %s; %d textures used, %d not found\n", ver ? ver : "?", w.ntex, w.missing_tex);
     }
     fill_gaps(&w);
+    if (why_on) why_report(&w);
     hp2_scene_drop_vertices(&w.sc);   /* the display lists hold the geometry now */
     start_camera(&w.sc, &c);
     if (w.has_car) {
