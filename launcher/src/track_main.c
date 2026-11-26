@@ -155,6 +155,12 @@ static int busted;             /* the cops held the player: the race is lost */
 static float busted_t;
 static float cop_left = HP2_COP_TIME;   /* You're The Cop: seconds left to fill the quota */
 static int timeup, cop_heli = 3, cop_block = 3;
+/* You're The Cop controls (the port's own numbers: the game's rules are not decoded) */
+static int cop_target;                 /* the speeder the siren targets, 0 = none */
+static float cop_boost = 1.0f;         /* boost fuel 0..1: 3 s of boost, refills in 12 s */
+static float block_t, block_car_t[HP2_RESULT_CARS], heli_t;   /* roadblock arrival, speeders held, helicopter time left */
+static int block_car, heli_car;
+static int cop_key_t, cop_key_k, cop_key_l, cop_boost_on;     /* set by the key handler, read by race_tick */
 static hp2_reverb verb;        /* the track's echo regions: caves, tunnels, mines, hangars, overpasses */
 static int has_verb;
 static void cue(const char *name, float gain) { if (has_cues) hp2_oneshot_play(&cues, name, gain); }
@@ -768,6 +774,28 @@ static int draw(world *w, const camera *c, int W, int H, int fog, const hp2_driv
                 draw_car(w, &w->cv[k], cars[k], 0);
                 draw_car(w, &w->cv[k], cars[k], 1);
             }
+            if (pur.on && cop_target > 0 && cop_target < w->ncv && !pur.arrested[cop_target]) {
+                /* the siren's blue arrow floating above the targeted speeder (the port's own shape) */
+                const hp2_drive *t = cars[cop_target];
+                float z = t->pos[2] + 3.2f + 0.3f * sinf(SDL_GetTicks() * 0.006f), r = 0.9f;
+                float a = SDL_GetTicks() * 0.003f, cx = t->pos[0], cy = t->pos[1];
+                int q;
+                glDisable(GL_TEXTURE_2D);
+                glDisable(GL_FOG);
+                glDepthMask(GL_TRUE);
+                glBegin(GL_TRIANGLE_FAN);
+                glColor3f(0.2f, 0.45f, 1.0f);
+                glVertex3f(cx, cy, z);                       /* the tip points down */
+                for (q = 0; q <= 4; q++) {
+                    float u = a + q * 1.5707963f;
+                    glColor3f(0.05f, 0.2f, 0.9f);
+                    glVertex3f(cx + r * cosf(u), cy + r * sinf(u), z + 1.6f);
+                }
+                glEnd();
+                glColor3f(1, 1, 1);
+                glEnable(GL_TEXTURE_2D);
+                if (fog) glEnable(GL_FOG);
+            }
         }
         for (i = 0; i < sc->nsec; i++) {
             if (!sc->sec[i].ng || !box_visible(clip, sc->sec[i].box)) continue;
@@ -1223,6 +1251,51 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         siren_wait -= dt;
         if ((pur.on ? !pur.done && !timeup : (w->ncv > w->nrace && !busted)) && races[0].state == HP2_RACE_RUNNING && siren_wait <= 0) { cue("CopSiren01", 0.5f); siren_wait = 5.3f; }
     }
+    if (pur.on && races[0].state == HP2_RACE_RUNNING && !pur.done && !timeup) {
+        /* the cop's own tools (the port's numbers): siren target, boost, roadblock and helicopter calls */
+        int k, best = 0;
+        float bd = 1e9f;
+        if (cop_target && pur.arrested[cop_target]) cop_target = 0;
+        if (cop_key_t) {
+            if (cop_target) cop_target = 0;                      /* T again lets it go */
+            else for (k = 1; k < w->nrace; k++) {                /* the nearest free speeder within 120 m */
+                float d = hypotf(drv[k].pos[0] - drv[0].pos[0], drv[k].pos[1] - drv[0].pos[1]);
+                if (!pur.arrested[k] && d < 120.0f && d < bd) { bd = d; best = k; }
+            }
+            if (best) cop_target = best;
+        }
+        if (cop_boost_on && cop_boost > 0 && drv[0].on_ground && !busted) {
+            cop_boost -= dt / 3.0f;
+            drv[0].vel[0] += cosf(drv[0].heading) * 14.0f * dt;
+            drv[0].vel[1] += sinf(drv[0].heading) * 14.0f * dt;
+        } else if (!cop_boost_on) cop_boost += dt / 12.0f;
+        if (cop_boost < 0) cop_boost = 0;
+        if (cop_boost > 1) cop_boost = 1;
+        if (cop_key_k && cop_block > 0 && cop_target && block_t <= 0) {
+            cop_block--; block_t = 4.0f; block_car = cop_target;     /* the roadblock is up 4 s later, ahead of the target */
+            if (has_speech) hp2_speech_say(&speech, "CopHit", 0);
+        }
+        if (block_t > 0) {
+            block_t -= dt;
+            if (block_t <= 0 && !pur.arrested[block_car]) {
+                int arr = 0;
+                block_car_t[block_car] = 3.0f;                       /* it hits the block: held 3 s, 40 damage */
+                hp2_pursuit_damage(&pur, block_car, 40.0f, races[0].clock, &arr);
+                cue("CrashMetalHard01", 1.0f);
+                if (has_speech && arr) hp2_speech_say(&speech, pur.done ? "TermPursuit" : "Arrest", 1);
+            }
+        }
+        if (cop_key_l && cop_heli > 0 && cop_target && heli_t <= 0) { cop_heli--; heli_t = 8.0f; heli_car = cop_target; }
+        if (heli_t > 0) {                                            /* the helicopter hounds its car: 8 damage a second for 8 s */
+            int arr = 0;
+            heli_t -= dt;
+            if (!pur.arrested[heli_car]) {
+                hp2_pursuit_damage(&pur, heli_car, 8.0f * dt, races[0].clock, &arr);
+                if (has_speech && arr) hp2_speech_say(&speech, pur.done ? "TermPursuit" : "Arrest", 1);
+            }
+        }
+        cop_key_t = cop_key_k = cop_key_l = 0;
+    }
     for (i = 0; i < w->ncv; i++) {
         hp2_drive_in in;
         if (i > 0 && ko.out[i]) continue;                  /* knocked out: gone */
@@ -1232,7 +1305,10 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
                           drv[0].vel[0], drv[0].vel[1], dt, &in);
             if (races[0].clock < COP_DELAY) { memset(&in, 0, sizeof in); in.brake = 1; }   /* a head start for the player */
         }
-        else hp2_ai_drive(&ai[i], &races[i], &w->line, &drv[i], dt, &in);
+        else {
+            hp2_ai_drive(&ai[i], &races[i], &w->line, &drv[i], dt, &in);
+            if (pur.on && block_car_t[i] > 0) { block_car_t[i] -= dt; memset(&in, 0, sizeof in); in.brake = 1; }   /* held by the roadblock */
+        }
         if (i == 0 && (ko.out[0] || busted)) {              /* you are out or busted: coast to a stop */
             memset(&in, 0, sizeof in);
             in.brake = drv[0].speed > 1 ? 0.4f : 0;
@@ -1841,6 +1917,7 @@ int main(int argc, char **argv)
         }
         if (rkey) {
             paused = 0; ppage = 0; busted = 0; busted_t = 0; timeup = 0; cop_left = HP2_COP_TIME; cop_heli = cop_block = 3;
+            cop_target = 0; cop_boost = 1.0f; block_t = heli_t = 0; memset(block_car_t, 0, sizeof block_car_t);
             if (driving) {
                 hp2_knockout_reset(&ko);
                 hp2_pursuit_reset(&pur); pursuit_called = 0;
@@ -1871,6 +1948,12 @@ int main(int argc, char **argv)
                 horn_was = k[SDL_SCANCODE_H];
             }
             in.handbrake = k[SDL_SCANCODE_SPACE] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A));
+            {   static int t_was, k_was, l_was;
+                cop_key_t = k[SDL_SCANCODE_T] && !t_was; t_was = k[SDL_SCANCODE_T];
+                cop_key_k = k[SDL_SCANCODE_K] && !k_was; k_was = k[SDL_SCANCODE_K];
+                cop_key_l = k[SDL_SCANCODE_L] && !l_was; l_was = k[SDL_SCANCODE_L];
+                cop_boost_on = k[SDL_SCANCODE_LSHIFT] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_X));
+            }
             if (!paused) race_tick(&w, drv, races, ai, &in, dt);
             chase_camera(&drv[0], &c, paused ? 0 : 1 - expf(-8 * dt));
             if (now / 250 != (Uint32)titled) {

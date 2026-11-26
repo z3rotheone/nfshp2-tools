@@ -117,6 +117,8 @@ typedef struct {
 #define HP2_RAM_MIN    3.0f
 #define HP2_RAM_DAMAGE 3.5f
 float hp2_pursuit_ram(hp2_pursuit *p, int car, float closing, float clock, int *arrested);
+/* Damage from backup (roadblock, helicopter): takes dmg off a speeder, arrests it at 0 (the port's own). */
+float hp2_pursuit_damage(hp2_pursuit *p, int car, float dmg, float clock, int *arrested);
 void hp2_pursuit_reset(hp2_pursuit *p);                           /* keeps on */
 /* One step for n cars at (x[i], y[i]); clock = seconds since GO. Returns
  * the number arrested this step. */

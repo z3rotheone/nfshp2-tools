@@ -347,15 +347,11 @@ int hp2_pursuit_step(hp2_pursuit *p, float dt, float clock, int n, const float *
     return got;
 }
 
-float hp2_pursuit_ram(hp2_pursuit *p, int car, float closing, float clock, int *arrested)
+float hp2_pursuit_damage(hp2_pursuit *p, int car, float dmg, float clock, int *arrested)
 {
-    float dmg;
     if (arrested) *arrested = 0;
-    if (!p->on || !p->ram || p->done || car < 1 || car >= HP2_RESULT_CARS || p->arrested[car] || p->cool[car] > 0) return 0;
-    if (closing <= HP2_RAM_MIN) return 0;
+    if (!p->on || !p->ram || p->done || car < 1 || car >= HP2_RESULT_CARS || p->arrested[car] || dmg <= 0) return 0;
     if (p->health[car] <= 0) p->health[car] = HP2_RAM_HEALTH;
-    dmg = (closing - HP2_RAM_MIN) * HP2_RAM_DAMAGE;
-    p->cool[car] = 0.5f;
     p->health[car] -= dmg;
     if (p->health[car] <= 0) {
         p->health[car] = 0;
@@ -365,4 +361,15 @@ float hp2_pursuit_ram(hp2_pursuit *p, int car, float closing, float clock, int *
         if (p->speeders > 0 && p->narrested >= (p->quota > 0 && p->quota < p->speeders ? p->quota : p->speeders)) { p->done = 1; p->time = clock; }
     }
     return dmg;
+}
+
+float hp2_pursuit_ram(hp2_pursuit *p, int car, float closing, float clock, int *arrested)
+{
+    float dmg;
+    if (arrested) *arrested = 0;
+    if (!p->on || !p->ram || p->done || car < 1 || car >= HP2_RESULT_CARS || p->arrested[car] || p->cool[car] > 0) return 0;
+    if (closing <= HP2_RAM_MIN) return 0;
+    dmg = (closing - HP2_RAM_MIN) * HP2_RAM_DAMAGE;
+    p->cool[car] = 0.5f;
+    return hp2_pursuit_damage(p, car, dmg, clock, arrested);
 }

@@ -2508,6 +2508,15 @@ static void test_ram(void)
     hp2_pursuit_step(&p, 0.1f, 0.0f, 3, px, py);
     for (k = 0; k < 3; k++) { hp2_pursuit_step(&p, 0.6f, 1.0f + k, 3, px, py); hp2_pursuit_ram(&p, 1, 30.0f, 1.0f + k, &arr); }
     CHECK(p.done && p.narrested == 1, "ram: a quota of one is filled by the first arrest");
+    /* backup (roadblock 40, helicopter 8 a second) uses the same health */
+    memset(&p, 0, sizeof p);
+    p.on = p.ram = 1;
+    hp2_pursuit_reset(&p);
+    hp2_pursuit_step(&p, 0.1f, 0.0f, 3, px, py);
+    CHECK(hp2_pursuit_damage(&p, 1, 40.0f, 1, &arr) == 40.0f && !arr && p.health[1] == 60.0f, "backup: a roadblock takes 40 off");
+    for (k = 0; k < 80; k++) hp2_pursuit_damage(&p, 1, 8.0f * 0.1f, 2, &arr);
+    CHECK(p.arrested[1] && p.narrested == 1, "backup: the helicopter finishes it off");
+    CHECK(hp2_pursuit_damage(&p, 1, 10.0f, 3, &arr) == 0, "backup: an arrested car takes no more");
 }
 
 static void test_tires(void)
