@@ -27,6 +27,8 @@ typedef struct {
     /* textures made so far, by hash */
     struct { uint32_t hash; SDL_Texture *t; } *tex;
     int           ntex;
+    SDL_Texture  *ss;                 /* the car is drawn into this at several times the size, then scaled down */
+    int           ssw, ssh;
     void         *work;               /* triangle scratch */
     size_t        work_cap;
 } hp2_fecar;

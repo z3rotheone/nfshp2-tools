@@ -37,6 +37,7 @@ void hp2_fecar_close(hp2_fecar *c)
     if (!c->ok) return;
     if (c->loaded) hp2_car_free(&c->car);
     drop_textures(c);
+    if (c->ss) SDL_DestroyTexture(c->ss);
     hp2_tex_free(&c->ts);
     free(c->cartex);
     free(c->work);
@@ -195,9 +196,34 @@ void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const S
     size_t n = 0, cap = c->work_cap, i;
     cam_t k;
     float L, D, el = 0.22f, a = yaw * 3.14159265f / 180.0f;
-    int w;
+    int w, S = 1, ss_on = 0;
+    SDL_BlendMode saved_bm = SDL_BLENDMODE_BLEND;
+    Uint8 sr_, sg_, sb_, sa_;
     if (!c->ok || !name) return;
     if (!c->loaded || strcmp(c->name, name)) { if (load_car(c, name) != 0) return; }
+    /* supersampling: the car is drawn 3x (2x when the area is big) into a texture and scaled down, which smooths the
+     * edges and the textures (the hood's moire) the way the plain 2D renderer cannot */
+    if (area->w > 8 && area->h > 8) {
+        S = area->w * 3 <= 2048 && area->h * 3 <= 2048 ? 3 : 2;
+        if (area->w * S > 4096 || area->h * S > 4096) S = 1;
+        if (S > 1) {
+            if (!c->ss || c->ssw != area->w * S || c->ssh != area->h * S) {
+                if (c->ss) SDL_DestroyTexture(c->ss);
+                c->ssw = area->w * S; c->ssh = area->h * S;
+                c->ss = SDL_CreateTexture(c->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, c->ssw, c->ssh);
+                if (c->ss) SDL_SetTextureScaleMode(c->ss, SDL_ScaleModeLinear);
+            }
+            if (c->ss && SDL_SetRenderTarget(c->r, c->ss) == 0) {
+                SDL_GetRenderDrawBlendMode(c->r, &saved_bm);
+                SDL_GetRenderDrawColor(c->r, &sr_, &sg_, &sb_, &sa_);
+                SDL_SetRenderDrawBlendMode(c->r, SDL_BLENDMODE_NONE);
+                SDL_SetRenderDrawColor(c->r, 0, 0, 0, 0);
+                SDL_RenderClear(c->r);
+                ss_on = 1;
+            }
+        }
+    }
+    if (!ss_on) S = 1;
     if (c->skin != skin) { drop_textures(c); c->skin = skin; }
     L = c->car.rec.length > 1.0f ? c->car.rec.length : 4.5f;
     D = L * 2.3f;
@@ -205,9 +231,9 @@ void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const S
     k.fwd[0] = -cosf(el); k.fwd[1] = 0; k.fwd[2] = -sinf(el);
     k.right[0] = 0; k.right[1] = 1; k.right[2] = 0;
     k.up[0] = -sinf(el); k.up[1] = 0; k.up[2] = cosf(el);
-    k.focal = (float)area->w * 0.5f * D / (L * 0.64f);
-    k.cx = (float)area->x + (float)area->w * 0.5f;
-    k.cy = (float)area->y + (float)area->h * 0.55f;
+    k.focal = (float)area->w * (float)S * 0.5f * D / (L * 0.64f);
+    k.cx = (ss_on ? 0.0f : (float)area->x) + (float)area->w * (float)S * 0.5f;
+    k.cy = (ss_on ? 0.0f : (float)area->y) + (float)area->h * (float)S * 0.55f;
     k.yaw_c = cosf(a); k.yaw_s = sinf(a);
     if (add_mesh(c, &c->car, &c->car.body, &k, skin, one, zero, &list, &n, &cap) != 0) goto done;
     for (w = 0; w < 4; w++) {
@@ -223,7 +249,7 @@ void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const S
         if (add_mesh(c, &c->car, tm, &k, skin, s2, tr, &list, &n, &cap) != 0) goto done;
     }
     qsort(list, n, sizeof *list, cmp_far);
-    SDL_RenderSetClipRect(c->r, area);
+    if (!ss_on) SDL_RenderSetClipRect(c->r, area);
     for (i = 0; i < n;) {
         size_t j = i;
         SDL_Vertex vv[3 * 256];
@@ -233,8 +259,22 @@ void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const S
         SDL_RenderGeometry(c->r, ti >= 0 ? c->tex[ti].t : NULL, vv, 3 * m, NULL, 0);
         i = j;
     }
-    SDL_RenderSetClipRect(c->r, NULL);
+    if (ss_on) {
+        SDL_BlendMode bm = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
+                                                      SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD);
+        SDL_SetRenderTarget(c->r, NULL);
+        /* the target holds premultiplied colour (drawn over transparent black with SDL's blend) */
+        if (SDL_SetTextureBlendMode(c->ss, bm) != 0) SDL_SetTextureBlendMode(c->ss, SDL_BLENDMODE_BLEND);
+        SDL_RenderCopy(c->r, c->ss, NULL, area);
+    } else {
+        SDL_RenderSetClipRect(c->r, NULL);
+    }
 done:
+    if (ss_on) {
+        SDL_SetRenderTarget(c->r, NULL);
+        SDL_SetRenderDrawBlendMode(c->r, saved_bm);
+        SDL_SetRenderDrawColor(c->r, sr_, sg_, sb_, sa_);
+    }
     c->work = list;
     c->work_cap = cap;
 }

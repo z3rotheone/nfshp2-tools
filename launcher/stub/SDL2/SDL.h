@@ -145,6 +145,7 @@ typedef struct { Uint32 flags; void *format; int w, h, pitch; void *pixels; } SD
 typedef enum { SDL_BLENDMODE_NONE = 0, SDL_BLENDMODE_BLEND = 1 } SDL_BlendMode;
 #define SDL_PIXELFORMAT_RGBA32          0x16762004u
 #define SDL_TEXTUREACCESS_STATIC        0
+#define SDL_TEXTUREACCESS_TARGET        2
 #define SDL_RENDERER_SOFTWARE           0x1u
 #define SDL_RENDERER_ACCELERATED        0x2u
 #define SDL_RENDERER_PRESENTVSYNC       0x4u
@@ -192,6 +193,16 @@ int   SDL_RenderReadPixels(SDL_Renderer *r, const SDL_Rect *rect, Uint32 format,
 SDL_Texture *SDL_CreateTexture(SDL_Renderer *r, Uint32 format, int access, int w, int h);
 int   SDL_UpdateTexture(SDL_Texture *t, const SDL_Rect *rect, const void *pixels, int pitch);
 int   SDL_SetTextureBlendMode(SDL_Texture *t, SDL_BlendMode mode);
+typedef enum { SDL_ScaleModeNearest, SDL_ScaleModeLinear } SDL_ScaleMode;
+typedef enum { SDL_BLENDFACTOR_ONE = 2, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA = 6 } SDL_BlendFactor;
+typedef enum { SDL_BLENDOPERATION_ADD = 1 } SDL_BlendOperation;
+SDL_BlendMode SDL_ComposeCustomBlendMode(SDL_BlendFactor sc, SDL_BlendFactor dc, SDL_BlendOperation co, SDL_BlendFactor sa, SDL_BlendFactor da, SDL_BlendOperation ao);
+int   SDL_SetTextureScaleMode(SDL_Texture *t, SDL_ScaleMode mode);
+int   SDL_RenderCopy(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *s, const SDL_Rect *d);
+int   SDL_SetRenderTarget(SDL_Renderer *r, SDL_Texture *t);
+int   SDL_SetRenderDrawBlendMode(SDL_Renderer *r, SDL_BlendMode mode);
+int   SDL_GetRenderDrawBlendMode(SDL_Renderer *r, SDL_BlendMode *mode);
+int   SDL_GetRenderDrawColor(SDL_Renderer *r, Uint8 *cr, Uint8 *cg, Uint8 *cb, Uint8 *ca);
 void  SDL_DestroyTexture(SDL_Texture *t);
 SDL_Surface *SDL_CreateRGBSurfaceWithFormat(Uint32 flags, int w, int h, int depth, Uint32 format);
 void  SDL_FreeSurface(SDL_Surface *s);
