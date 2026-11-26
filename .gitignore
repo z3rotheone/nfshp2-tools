@@ -53,3 +53,6 @@ __pycache__/
 *.rep/
 launcher/hp2track
 launcher/hp2fe
+
+# FUSE leftovers from the connected folder
+.fuse_hidden*
