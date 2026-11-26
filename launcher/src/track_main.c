@@ -861,6 +861,7 @@ static void start_car(const world *w, int k, hp2_drive *d, const hp2_race *route
         int pursuit = pur.on, nracers = w->nrace - (pursuit ? 1 : 0);      /* you're the cop: not on the grid */
         int ncop = w->ncv - w->nrace, coprows = (ncop + 1) / 2, rows = (nracers + 1) / 2, slot, row;
         float base = route->loop ? -4.0f : 6.0f + 8.0f * coprows, p, xy[2], dir[2], side;
+        if (pursuit) base = 30.0f;      /* the speeders roll past the waiting cop as the countdown ends */
         if (pursuit && k == 0) {
             /* the cop waits 90 m up the road, at its right edge, facing down the course
              * (the port's own place: the game's start is not decoded) */
@@ -952,7 +953,7 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
             memset(&in, 0, sizeof in);              /* opponents coast to a stop after the line */
             in.brake = drv[i].speed > 1 ? 0.4f : 0;
         }
-        if (races[0].state == HP2_RACE_COUNTDOWN) {
+        if (races[0].state == HP2_RACE_COUNTDOWN && !(pur.on && i > 0 && i < w->nrace)) {
             /* held at the line: the engine revs with the throttle */
             float want = drv[i].idle_rpm + in.throttle * (0.7f * drv[i].redline_rpm - drv[i].idle_rpm);
             drv[i].rpm += (want - drv[i].rpm) * fminf(1, 8 * dt);
