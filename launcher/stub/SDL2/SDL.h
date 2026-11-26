@@ -218,7 +218,7 @@ SDL_JoystickID SDL_JoystickInstanceID(SDL_Joystick *j);
 
 /* OpenGL windows and input, for the track viewer (track_main.c) */
 typedef void *SDL_GLContext;
-typedef enum { SDL_GL_DOUBLEBUFFER = 5, SDL_GL_DEPTH_SIZE = 6 } SDL_GLattr;
+typedef enum { SDL_GL_DOUBLEBUFFER = 5, SDL_GL_DEPTH_SIZE = 6, SDL_GL_MULTISAMPLEBUFFERS = 13, SDL_GL_MULTISAMPLESAMPLES = 14 } SDL_GLattr;
 #define SDL_WINDOW_OPENGL               0x2u
 int   SDL_GL_SetAttribute(SDL_GLattr attr, int value);
 SDL_GLContext SDL_GL_CreateContext(SDL_Window *w);

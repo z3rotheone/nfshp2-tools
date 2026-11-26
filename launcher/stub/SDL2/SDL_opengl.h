@@ -78,6 +78,9 @@ void glFogi(GLenum pname, GLint param);
 GLuint glGenLists(GLsizei range);
 void glGenTextures(GLsizei n, GLuint *textures);
 const GLubyte * glGetString(GLenum name);
+#define GL_EXTENSIONS 0x1F03
+void glGetFloatv(GLenum pname, GLfloat *params);
+void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
 void glLoadMatrixf(const GLfloat *m);
 void glMatrixMode(GLenum mode);
 void glNewList(GLuint list, GLenum mode);

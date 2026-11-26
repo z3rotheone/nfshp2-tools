@@ -118,7 +118,7 @@ typedef struct {
 typedef struct {
     int      ok, skin;
     hp2_car  car;
-    glgroup *carg, *tyreg, *brakeg[2];
+    glgroup *carg, *tyreg, *tyreg_r, *brakeg[2];
     int      shadow_tex;
 } carview;
 
@@ -268,11 +268,23 @@ static int find_or_add_tex(world *w, uint32_t h)
     return w->ntex++;
 }
 
+#ifndef GL_MULTISAMPLE
+#define GL_MULTISAMPLE 0x809D
+#endif
+
 static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
 {
     /* a texture in no pack (da258882, flat ground at Scenic Drive's tunnel) gets a plain dirt colour: white shows as a bright block */
     static const uint8_t white[4] = { 84, 77, 62, 255 };
     int i;
+    float aniso = 1;                  /* 8x anisotropic filtering where the card has it: slanted road and car textures stay sharp */
+    {   const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+        if (ext && strstr(ext, "GL_EXT_texture_filter_anisotropic")) {
+            float mx = 1;
+            glGetFloatv(0x84FF /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT */, &mx);
+            aniso = mx < 8 ? mx : 8;
+        }
+    }
     for (i = 0; i < w->ntex; i++) {
         gltex *g = &w->tex[i];
         const hp2_tex *t = g->hash ? hp2_tex_find(ts, g->hash) : NULL;
@@ -308,6 +320,7 @@ static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        if (mipmaps && aniso > 1) glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, aniso);
         if (mipmaps) {
             glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -528,6 +541,7 @@ static int build_car(world *w, carview *cv, const hp2_texset *ts)
     char name[64];
     cv->carg = build_mesh(w, cv, &cv->car.body, ts, cv->skin);
     cv->tyreg = build_mesh(w, cv, &cv->car.tyre, ts, cv->skin);
+    cv->tyreg_r = cv->car.tyre_rear.nv ? build_mesh(w, cv, &cv->car.tyre_rear, ts, cv->skin) : NULL;
     cv->brakeg[0] = build_mesh(w, cv, &cv->car.brake[0], ts, cv->skin);
     cv->brakeg[1] = build_mesh(w, cv, &cv->car.brake[1], ts, cv->skin);
     snprintf(name, sizeof name, "%s_SHADOWIG", cv->car.rec.model);
@@ -656,8 +670,10 @@ static void draw_car(const world *w, const carview *cv, const hp2_drive *d, int 
         const hp2_wheel *wh = &c->rec.wheel[k];
         int front = k == HP2_WHEEL_FL || k == HP2_WHEEL_FR;
         float sy = wh->y > 0 ? -1.0f : 1.0f;     /* the model's tyre is a right-hand one */
-        float sr = c->tyre_radius > 0 ? wh->radius / c->tyre_radius : 1;
-        float sw = c->tyre_width > 0 ? wh->width / c->tyre_width : 1;
+        float tr0, tw0;
+        const hp2_mesh *tm = hp2_car_tyre(c, k, &tr0, &tw0);
+        float sr = tr0 > 0 ? wh->radius / tr0 : 1;
+        float sw = tw0 > 0 ? wh->width / tw0 : 1;
         glPushMatrix();
         glTranslatef(wh->x, wh->y, wh->z);
         if (front) glRotatef(-d->steer_angle * 180 / PI, 0, 0, 1);
@@ -667,7 +683,7 @@ static void draw_car(const world *w, const carview *cv, const hp2_drive *d, int 
         glPopMatrix();
         glRotatef(fmodf(d->spin, 2 * PI) * 180 / PI, 0, 1, 0);
         glScalef(sr, sy * sw, sr);
-        draw_groups(w, cv->tyreg, c->tyre.nb, pass);
+        draw_groups(w, tm == &c->tyre_rear && cv->tyreg_r ? cv->tyreg_r : cv->tyreg, tm->nb, pass);
         glPopMatrix();
     }
     glPopMatrix();
@@ -1687,11 +1703,20 @@ int main(int argc, char **argv)
         fprintf(stderr, "SDL: %s\n", SDL_GetError());
         return 1;
     }
+    int msaa;
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    win = SDL_CreateWindow("Hot Pursuit 2 - track viewer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
-                           SDL_WINDOW_OPENGL | (shot ? SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI));
-    gl = win ? SDL_GL_CreateContext(win) : NULL;
+    /* 4x multisampling for the cars' and scenery's edges, if the card has it (then without) */
+    for (msaa = shot ? 0 : 4; ; msaa = 0) {
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, msaa ? 1 : 0);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, msaa);
+        win = SDL_CreateWindow("Hot Pursuit 2 - track viewer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H,
+                               SDL_WINDOW_OPENGL | (shot ? SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI));
+        gl = win ? SDL_GL_CreateContext(win) : NULL;
+        if (gl || !msaa) break;
+        if (win) SDL_DestroyWindow(win);
+    }
+    if (gl && msaa) glEnable(GL_MULTISAMPLE);
     if (!gl) { fprintf(stderr, "OpenGL: %s\n", SDL_GetError()); return 1; }
     SDL_GL_SetSwapInterval(1);
     {

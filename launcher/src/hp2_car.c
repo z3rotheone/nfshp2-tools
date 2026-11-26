@@ -176,6 +176,32 @@ static int add_part(hp2_mesh *dst, const hp2_partset *ps, const char *model, con
     return r;
 }
 
+static void tyre_size(const hp2_mesh *m, float *radius, float *width)
+{
+    float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+    int i;
+    *radius = *width = 0;
+    if (!m->nv) return;
+    for (i = 0; i < m->nv; i++) {
+        const float p[3] = { m->v[i].x, m->v[i].y, m->v[i].z };
+        int k;
+        for (k = 0; k < 3; k++) {
+            if (p[k] < lo[k]) lo[k] = p[k];
+            if (p[k] > hi[k]) hi[k] = p[k];
+        }
+    }
+    *radius = ((hi[0] - lo[0]) > (hi[2] - lo[2]) ? hi[0] - lo[0] : hi[2] - lo[2]) / 2;
+    *width = hi[1] - lo[1];
+}
+
+const hp2_mesh *hp2_car_tyre(const hp2_car *c, int k, float *radius, float *width)
+{
+    if (c->tyre_rear.nv && (k == HP2_WHEEL_RR || k == HP2_WHEEL_RL)) { *radius = c->rear_radius; *width = c->rear_width; return &c->tyre_rear; }
+    *radius = c->tyre_radius;
+    *width = c->tyre_width;
+    return &c->tyre;
+}
+
 int hp2_car_build(hp2_car *c, const uint8_t *geom, size_t len, const hp2_carrec *rec)
 {
     hp2_partset ps;
@@ -193,19 +219,9 @@ int hp2_car_build(hp2_car *c, const uint8_t *geom, size_t len, const hp2_carrec 
         || add_part(&c->brake[0], &ps, rec->model, "_BRAKE_FRONT") < 0
         || add_part(&c->brake[1], &ps, rec->model, "_BRAKE_REAR") < 0)
         goto fail;
-    if (c->tyre.nv) {
-        float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
-        for (i = 0; i < c->tyre.nv; i++) {
-            const float p[3] = { c->tyre.v[i].x, c->tyre.v[i].y, c->tyre.v[i].z };
-            int k;
-            for (k = 0; k < 3; k++) {
-                if (p[k] < lo[k]) lo[k] = p[k];
-                if (p[k] > hi[k]) hi[k] = p[k];
-            }
-        }
-        c->tyre_radius = ((hi[0] - lo[0]) > (hi[2] - lo[2]) ? hi[0] - lo[0] : hi[2] - lo[2]) / 2;
-        c->tyre_width = hi[1] - lo[1];
-    }
+    if (add_part(&c->tyre_rear, &ps, rec->model, "_TIRE_REAR_A") < 0) goto fail;
+    tyre_size(&c->tyre, &c->tyre_radius, &c->tyre_width);
+    tyre_size(&c->tyre_rear, &c->rear_radius, &c->rear_width);
     hp2_geom_free(&ps);
     return 0;
 fail:
@@ -218,6 +234,7 @@ void hp2_car_free(hp2_car *c)
 {
     hp2_mesh_free(&c->body);
     hp2_mesh_free(&c->tyre);
+    hp2_mesh_free(&c->tyre_rear);
     hp2_mesh_free(&c->brake[0]);
     hp2_mesh_free(&c->brake[1]);
 }

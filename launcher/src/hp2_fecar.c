@@ -214,11 +214,13 @@ void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const S
         const hp2_wheel *wh = &c->car.rec.wheel[w];
         int front = w == HP2_WHEEL_FL || w == HP2_WHEEL_FR;
         float sy = wh->y > 0 ? -1.0f : 1.0f;
-        float sr = c->car.tyre_radius > 0 ? wh->radius / c->car.tyre_radius : 1;
-        float sw = c->car.tyre_width > 0 ? wh->width / c->car.tyre_width : 1;
+        float tr0, tw0;
+        const hp2_mesh *tm = hp2_car_tyre(&c->car, w, &tr0, &tw0);
+        float sr = tr0 > 0 ? wh->radius / tr0 : 1;
+        float sw = tw0 > 0 ? wh->width / tw0 : 1;
         float s2[3] = { sr, sy * sw, sr }, sb[3] = { 1, sy, 1 }, tr[3] = { wh->x, wh->y, wh->z };
         if (add_mesh(c, &c->car, &c->car.brake[front ? 0 : 1], &k, skin, sb, tr, &list, &n, &cap) != 0) goto done;
-        if (add_mesh(c, &c->car, &c->car.tyre, &k, skin, s2, tr, &list, &n, &cap) != 0) goto done;
+        if (add_mesh(c, &c->car, tm, &k, skin, s2, tr, &list, &n, &cap) != 0) goto done;
     }
     qsort(list, n, sizeof *list, cmp_far);
     SDL_RenderSetClipRect(c->r, area);

@@ -79,6 +79,8 @@ typedef struct {
     hp2_mesh   tyre;            /* a right-hand tyre, hub at the origin */
     float      tyre_radius;     /* of that model; scale it to each wheel's own */
     float      tyre_width;
+    hp2_mesh   tyre_rear;       /* the rear tyre where the car has its own (13 cars: wider rears); empty otherwise */
+    float      rear_radius, rear_width;
     hp2_mesh   brake[2];        /* front, rear disc at the origin (may be empty) */
 } hp2_car;
 
@@ -86,6 +88,9 @@ typedef struct {
  * runs out. The car keeps no pointers into geom. */
 int  hp2_car_build(hp2_car *c, const uint8_t *geom, size_t len, const hp2_carrec *rec);
 void hp2_car_free(hp2_car *c);
+/* The tyre model for wheel k (HP2_WHEEL_*): the rear one on the rear wheels of a car that has it, else the front's;
+ * *radius and *width are that model's own size, to scale it to the wheel record. */
+const hp2_mesh *hp2_car_tyre(const hp2_car *c, int k, float *radius, float *width);
 
 /* The texture to draw for hash h in a car's batch: the model names slots,
  * which the game fills at run time (docs/formats.md 7, "Car textures"):
