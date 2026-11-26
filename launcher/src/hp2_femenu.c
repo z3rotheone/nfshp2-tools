@@ -525,6 +525,7 @@ static void single_race(hp2_femenu *m)
     copy_name(g->car, cop_roster(m) ? CARDB[COP_CARS[m->car % COP_CARS_N]] : CARS[m->car % HP2_CARS].thumb);
     g->skin = m->color + 1;
     if (m->quick_mode || m->race_type != 1) n = m->setup_val[SU_OPPONENTS] >= 6 ? HP2_FEM_MAX_OPP : m->setup_val[SU_OPPONENTS] + 1;
+    if (cop_roster(m) && n < 1) n = 1;                        /* You're The Pig: at least one speeder */
     for (k = 0; k < n; k++) {
         int mine = cop_roster(m) ? -1 : m->car % HP2_CARS, c = mine < 0 ? 0 : mine;
         if (!m->setup_val[SU_OPPTYPE] || m->quick_mode)
@@ -534,6 +535,7 @@ static void single_race(hp2_femenu *m)
         g->opp_skin[k] = -1;
     }
     g->nopp = n;
+    if (cop_roster(m)) g->race_type = HP2_RT_PURSUIT;         /* You're The Pig: you are the cop, the others are speeders */
     g->cops = !m->quick_mode && !m->chal_cop && m->chal_from == HP2_FEM_HOT_PURSUIT && m->setup_val[SU_COPS] ? 1 : 0;
     if (!m->quick_mode && m->race_type == 3) g->race_type = HP2_RT_LAP_KNOCKOUT;   /* the Challenge's Lap Knockout */
     if (!m->quick_mode && m->race_type == 2 && n >= 2) {     /* the Challenge's Race Knockout: a series, the last car out each race */

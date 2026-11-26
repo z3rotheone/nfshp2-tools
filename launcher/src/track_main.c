@@ -142,6 +142,8 @@ typedef struct {
 static hp2_knockout ko;
 /* Pursuit (--pursuit): you are the cop; the others are speeders to arrest. */
 static hp2_pursuit pur;
+/* The police hold for COP_DELAY seconds after GO, and can bust you only 4 s after they move (the port's own). */
+#define COP_DELAY 6.0f
 static hp2_speech speech;      /* the police radio of a Pursuit event */
 static int has_speech, pursuit_called;
 static hp2_oneshot cues;       /* crashes, horn, countdown beeps, finish line (the port's own triggers) */
@@ -936,8 +938,11 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         hp2_drive_in in;
         if (i > 0 && ko.out[i]) continue;                  /* knocked out: gone */
         if (i == 0) in = *player;
-        else if (i >= w->nrace) hp2_cop_drive(&ai[i], &races[i], &w->line, &drv[i], drv[0].pos[0], drv[0].pos[1], drv[0].pos[2],
-                                              drv[0].vel[0], drv[0].vel[1], dt, &in);
+        else if (i >= w->nrace) {
+            hp2_cop_drive(&ai[i], &races[i], &w->line, &drv[i], drv[0].pos[0], drv[0].pos[1], drv[0].pos[2],
+                          drv[0].vel[0], drv[0].vel[1], dt, &in);
+            if (races[0].clock < COP_DELAY) { memset(&in, 0, sizeof in); in.brake = 1; }   /* a head start for the player */
+        }
         else hp2_ai_drive(&ai[i], &races[i], &w->line, &drv[i], dt, &in);
         if (i == 0 && (ko.out[0] || busted)) {              /* you are out or busted: coast to a stop */
             memset(&in, 0, sizeof in);
@@ -989,11 +994,11 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
     }
     hp2_knockout_update(&ko, races, w->nrace);
     if (w->ncv > w->nrace && races[0].state == HP2_RACE_RUNNING && !busted) {
-        /* the port's own arrest: a police car within 9 m of you for 3 seconds (the time runs down at the same pace
+        /* the port's own arrest: a police car within 7 m of you for 3 seconds (the time runs down at the same pace
          * when you get away) and you are busted; the game's arrest rule is not decoded */
         int near_cop = 0;
         for (i = w->nrace; i < w->ncv; i++)
-            if (hypotf(drv[i].pos[0] - drv[0].pos[0], drv[i].pos[1] - drv[0].pos[1]) < 9.0f) near_cop = 1;
+            if (races[0].clock > COP_DELAY + 4.0f && hypotf(drv[i].pos[0] - drv[0].pos[0], drv[i].pos[1] - drv[0].pos[1]) < 7.0f) near_cop = 1;
         busted_t += near_cop ? dt : -dt;
         if (busted_t < 0) busted_t = 0;
         if (busted_t >= 3.0f) {
