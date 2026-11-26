@@ -109,6 +109,7 @@ typedef struct {
     GLuint list;
     int    tex;             /* index into the texture table */
     int    flat;            /* nearly all its triangles lie flat: ground, not a foliage card */
+    int    fill;            /* a cut-out piece with nothing solid under it: drawn solid, or the floor is see-through */
 } glgroup;
 
 #define HP2_MAX_CARS 8
@@ -355,13 +356,113 @@ static int build_world(world *w, int mipmaps, const hp2_texset *ts)
                     float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = sqrtf(nx * nx + ny * ny + nz * nz);
                     if (l > 1e-6f && fabsf(nz) / l > 0.85f) flat++;
                 }
-                out[j].flat = nt > 0 && flat * 10 >= nt * 9;
+                out[j].flat = nt > 0 && flat * 4 >= nt * 3;      /* a ground piece may carry a few banks and walls: three in four is enough */
             }
         }
     }
     (void)mipmaps;
     (void)ts;
     return 0;
+}
+
+static int keep_cuts;      /* --keep-cuts (set below with the drawing state) */
+
+/* Whether a flat group is drawn solid (the rule draw_groups applies to ground pieces). */
+static int ground_solid(const gltex *t, int flat)
+{
+    int mode = t->mode;
+    if (flat && !keep_cuts && t->clear > 0.02f && (t->clear < 0.5f || t->edge > 0.9f) && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
+    return mode == MODE_OPAQUE;
+}
+
+static int tri_covers(const hp2_vert *a, const hp2_vert *b, const hp2_vert *c, float px, float py)
+{
+    float d1 = (px - b->x) * (a->y - b->y) - (a->x - b->x) * (py - b->y);
+    float d2 = (px - c->x) * (b->y - c->y) - (b->x - c->x) * (py - c->y);
+    float d3 = (px - a->x) * (c->y - a->y) - (c->x - a->x) * (py - a->y);
+    return !(((d1 < 0) || (d2 < 0) || (d3 < 0)) && ((d1 > 0) || (d2 > 0) || (d3 > 0)));
+}
+
+/* A flat piece whose texture is mostly clear is drawn as a cut-out. Where nothing solid lies under it the
+ * cut shows the sky through the floor (Scenic Drive, around -558 521), so such a piece is drawn solid.
+ * A grid of the solid triangles answers "is anything under this point". */
+static void fill_gaps(world *w)
+{
+    const float cell = 8.0f;
+    float x0 = w->sc.box[0], y0 = w->sc.box[1];
+    int nx = (int)((w->sc.box[3] - x0) / cell) + 2, ny = (int)((w->sc.box[4] - y0) / cell) + 2, i, j, t, ncand = 0, nfill = 0;
+    int *start, *fillc;
+    const hp2_vert **tris = NULL;
+    size_t ntri = 0, k;
+    if (nx < 1 || ny < 1 || (long)nx * ny > 16000000L) return;
+    for (i = 0; i < w->sc.nsec; i++)
+        for (j = 0; j < w->sc.sec[i].ng; j++) {
+            const glgroup *g = &w->grp[i][j];
+            if (g->flat && !ground_solid(&w->tex[g->tex], 1) && w->tex[g->tex].mode == MODE_CUTOUT && w->tex[g->tex].clear > 0.5f
+                && w->tex[g->tex].clearlum > 8.0f) ncand++;
+        }
+    if (!ncand) return;
+    start = (int *)calloc((size_t)nx * ny + 1, sizeof *start);
+    fillc = (int *)calloc((size_t)nx * ny + 1, sizeof *fillc);
+    if (!start || !fillc) { free(start); free(fillc); return; }
+    /* pass 1 counts, pass 2 fills: each solid triangle goes into every cell its box touches */
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1) {
+            for (k = 0; k < (size_t)nx * ny; k++) start[k + 1] += start[k];
+            tris = (const hp2_vert **)malloc((size_t)(start[(size_t)nx * ny] ? start[(size_t)nx * ny] : 1) * sizeof *tris);
+            if (!tris) { free(start); free(fillc); return; }
+        }
+        for (i = 0; i < w->sc.nsec; i++)
+            for (j = 0; j < w->sc.sec[i].ng; j++) {
+                const glgroup *g = &w->grp[i][j];
+                const hp2_sgroup *sg = &w->sc.sec[i].g[j];
+                if (!sg->v || !ground_solid(&w->tex[g->tex], g->flat) || w->tex[g->tex].mode == MODE_BLEND) continue;
+                for (t = 0; t < sg->nv / 3; t++) {
+                    const hp2_vert *a = &sg->v[3 * t], *b = a + 1, *c = a + 2;
+                    float lo[2] = { fminf(a->x, fminf(b->x, c->x)), fminf(a->y, fminf(b->y, c->y)) };
+                    float hi[2] = { fmaxf(a->x, fmaxf(b->x, c->x)), fmaxf(a->y, fmaxf(b->y, c->y)) };
+                    int cx0 = (int)((lo[0] - x0) / cell), cx1 = (int)((hi[0] - x0) / cell), cy0 = (int)((lo[1] - y0) / cell), cy1 = (int)((hi[1] - y0) / cell), cx, cy;
+                    if (cx0 < 0) cx0 = 0;
+                    if (cy0 < 0) cy0 = 0;
+                    if (cx1 >= nx) cx1 = nx - 1;
+                    if (cy1 >= ny) cy1 = ny - 1;
+                    for (cy = cy0; cy <= cy1; cy++)
+                        for (cx = cx0; cx <= cx1; cx++) {
+                            size_t cid = (size_t)cy * nx + cx;
+                            if (pass == 0) start[cid + 1]++;
+                            else tris[start[cid] + fillc[cid]++] = a;
+                        }
+                }
+            }
+    }
+    ntri = (size_t)start[(size_t)nx * ny];
+    (void)ntri;
+    for (i = 0; i < w->sc.nsec; i++)
+        for (j = 0; j < w->sc.sec[i].ng; j++) {
+            glgroup *g = &w->grp[i][j];
+            const hp2_sgroup *sg = &w->sc.sec[i].g[j];
+            int nt = sg->nv / 3, bare = 0, seen = 0;
+            const gltex *tx = &w->tex[g->tex];
+            if (!sg->v || !g->flat || ground_solid(tx, 1) || tx->mode != MODE_CUTOUT || tx->clear <= 0.5f || tx->clearlum <= 8.0f) continue;
+            for (t = 0; t < nt; t++) {
+                const hp2_vert *a = &sg->v[3 * t], *b = a + 1, *c = a + 2;
+                float px = (a->x + b->x + c->x) / 3, py = (a->y + b->y + c->y) / 3, pz = (a->z + b->z + c->z) / 3;
+                int cx = (int)((px - x0) / cell), cy = (int)((py - y0) / cell), covered = 0, q;
+                if (cx < 0 || cy < 0 || cx >= nx || cy >= ny) continue;
+                for (q = 0; q < fillc[(size_t)cy * nx + cx] && !covered; q++) {
+                    const hp2_vert *o = tris[start[(size_t)cy * nx + cx] + q];
+                    float oz = (o[0].z + o[1].z + o[2].z) / 3;
+                    if (fabsf(oz - pz) < 3.0f && tri_covers(&o[0], &o[1], &o[2], px, py)) covered = 1;
+                }
+                seen++;
+                if (!covered) bare++;
+            }
+            if (seen && bare * 2 > seen) { g->fill = 1; nfill++; }
+        }
+    free(tris);
+    free(start);
+    free(fillc);
+    if (nfill) printf("%d ground pieces with nothing solid under them are drawn solid\n", nfill);
 }
 
 /* One list per batch of a car mesh, textures resolved as the game fills
@@ -481,6 +582,7 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
         int mode = t->mode == MODE_BLEND && blend_opaque ? MODE_OPAQUE : t->mode;
         if (hide_tex && t->hash == hide_tex) continue;
         if (g[j].flat && !keep_cuts && t->clear > 0.02f && (t->clear < 0.5f || t->edge > 0.9f) && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
+        if (g[j].fill && mode == MODE_CUTOUT) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
         set_mode(mode);
         glBindTexture(GL_TEXTURE_2D, t->id);
@@ -1491,6 +1593,7 @@ int main(int argc, char **argv)
         upload_textures(&w, &ts, major > 1 || minor >= 4);
         printf("OpenGL %s; %d textures used, %d not found\n", ver ? ver : "?", w.ntex, w.missing_tex);
     }
+    fill_gaps(&w);
     hp2_scene_drop_vertices(&w.sc);   /* the display lists hold the geometry now */
     start_camera(&w.sc, &c);
     if (w.has_car) {
