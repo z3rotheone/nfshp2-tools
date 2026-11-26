@@ -410,7 +410,8 @@ static void fill_gaps(world *w)
     for (i = 0; i < w->sc.nsec; i++)
         for (j = 0; j < w->sc.sec[i].ng; j++) {
             const glgroup *g = &w->grp[i][j];
-            if (g->flat && !ground_solid(&w->tex[g->tex], 1) && see_through_kind(&w->tex[g->tex], w->sc.sec[i].g[j].nv / 3)) ncand++;
+            /* the same test as the pass below, or this returns early and nothing is filled */
+            if (!ground_solid(&w->tex[g->tex], g->flat) && !w->tex[g->tex].missing && see_through_kind(&w->tex[g->tex], w->sc.sec[i].g[j].nv / 3)) ncand++;
         }
     if (!ncand) return;
     start = (int *)calloc((size_t)nx * ny + 1, sizeof *start);
