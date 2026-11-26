@@ -151,6 +151,8 @@ static int has_cues;
 static int ncops_req;          /* --cops: police cars that chase the player (the port's own) */
 static int busted;             /* the cops held the player: the race is lost */
 static float busted_t;
+static float cop_left = HP2_COP_TIME;   /* You're The Cop: seconds left to fill the quota */
+static int timeup, cop_heli = 3, cop_block = 3;
 static hp2_reverb verb;        /* the track's echo regions: caves, tunnels, mines, hangars, overpasses */
 static int has_verb;
 static void cue(const char *name, float gain) { if (has_cues) hp2_oneshot_play(&cues, name, gain); }
@@ -781,6 +783,37 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
     if (r->n) {
         int i, lap = r->lap > r->laps ? r->laps : r->lap;
         static const char *bg[3] = { "TIME_TRIAL_BG_1", "TIME_TRIAL_BG_2", "TIME_TRIAL_BG_3" };
+        if (pur.on) {
+            /* You're The Cop: the game's own panel - damage lights and arrest marks, helicopter and roadblock
+             * calls left, seconds left (the damage lights stay dark: the port has no cop damage) */
+            int k, row;
+            char nm[24];
+            static const char *plain[] = { "DAMAGE_BUSTS_BG", "CHOPPER_COP_BG", "DAMAGE_METER_BG_1" };
+            for (k = 0; k < 3; k++) if ((x = hp2_hud_widget(hs->race, plain[k]))) hp2_hud_image(h, x, 0, 0, NULL, 1);
+            for (k = 1; k <= 5; k++) {
+                snprintf(nm, sizeof nm, "DAMAGE_LIGHT%d", k);
+                if ((x = hp2_hud_widget(hs->race, nm))) hp2_hud_image(h, x, 0, 0, NULL, 1);
+            }
+            for (k = 1; k <= HP2_COP_QUOTA; k++) {
+                snprintf(nm, sizeof nm, "BETHECOP_X_%d", k);
+                if ((x = hp2_hud_widget(hs->race, nm))) {
+                    hp2_fe_widget m = *x;
+                    if (k <= pur.narrested) { int c; for (c = 0; c < 4; c++) { m.vcol[c][0] = 0; m.vcol[c][1] = 128; m.vcol[c][2] = 0; } }
+                    hp2_hud_image(h, &m, 0, 0, NULL, 1);
+                }
+            }
+            for (k = 1; k <= 3; k++) {
+                snprintf(nm, sizeof nm, "HELICOPTERICON%d", k);
+                if ((x = hp2_hud_widget(hs->race, nm))) hp2_hud_image(h, x, 0, 0, NULL, k <= cop_heli ? 1.0f : 0.25f);
+                snprintf(nm, sizeof nm, "COPCAR_ICON%d", k);
+                if ((x = hp2_hud_widget(hs->race, nm))) hp2_hud_image(h, x, 0, 0, NULL, k <= cop_block ? 1.0f : 0.25f);
+            }
+            for (row = 0, k = 0; k < hs->race->count; k++)
+                if (!strcmp(hs->race->widgets[k].name, "BETHECOP_TIME_TITLE1"))
+                    hp2_hud_text(h, &hs->race->widgets[k], row++ ? "Left" : "Time");
+            snprintf(buf, sizeof buf, "%d", (int)ceilf(cop_left));
+            if ((x = hp2_hud_widget(hs->race, "BETHECOP_TIME"))) hp2_hud_text(h, x, buf);
+        } else {
         for (i = 0; i < 3; i++)
             if ((x = hp2_hud_widget(hs->race, bg[i]))) hp2_hud_image(h, x, 0, 0, NULL, 1);
         if ((x = hp2_hud_widget(hs->race, "TIME_TITLE_1"))) hp2_hud_text(h, x, "Lap");
@@ -808,6 +841,7 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
             snprintf(buf, sizeof buf, "/%d", ncars);
             if ((x = hp2_hud_widget(hs->race, "BIGRACE_TOTAL"))) hp2_hud_text(h, x, buf);
         }
+        }
         if (r->wrong_way && r->state == HP2_RACE_RUNNING && (x = hp2_hud_widget(hs->race, "WRONG_WAY_IMAGE")))
             hp2_hud_image(h, x, 0, 0, NULL, 1);
         if (r->state == HP2_RACE_COUNTDOWN && hs->pre) {
@@ -819,7 +853,10 @@ static void draw_hud(hudstate *hs, const hp2_drive *d, const hp2_race *races, in
             go.y = 183;
             hp2_hud_image(h, &go, 0, 0, NULL, 1 - r->clock);
         }
-        if (busted) {
+        if (timeup && !busted) {
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, "TIME UP");
+            if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, "The speeders got away");
+        } else if (busted) {
             if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_1"))) hp2_hud_text(h, x, "BUSTED!");
             if ((x = hp2_hud_widget(hs->race, "RACE_OVER_LINE_2"))) hp2_hud_text(h, x, "The cops caught you");
         } else if (pur.on && pur.done) {
@@ -861,11 +898,11 @@ static void start_car(const world *w, int k, hp2_drive *d, const hp2_race *route
         int pursuit = pur.on, nracers = w->nrace - (pursuit ? 1 : 0);      /* you're the cop: not on the grid */
         int ncop = w->ncv - w->nrace, coprows = (ncop + 1) / 2, rows = (nracers + 1) / 2, slot, row;
         float base = route->loop ? -4.0f : 6.0f + 8.0f * coprows, p, xy[2], dir[2], side;
-        if (pursuit) base = 30.0f;      /* the speeders roll past the waiting cop as the countdown ends */
+        if (pursuit) base = route->loop ? 8.0f : 14.0f;      /* the speeders are on the grid ahead of the cop, who is not part of it */
         if (pursuit && k == 0) {
-            /* the cop waits 90 m up the road, at its right edge, facing down the course
+            /* the cop waits behind the grid, at the road's right edge, facing down the course
              * (the port's own place: the game's start is not decoded) */
-            p = 90.0f;
+            p = route->loop ? -10.0f : 0.0f;
             slot = 1;
             side = -3.6f;
             hp2_race_point(route, p, xy, dir);
@@ -1045,7 +1082,7 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
         prev_surf = sf;
         /* your siren in a Pursuit event: the long wail, repeated */
         siren_wait -= dt;
-        if ((pur.on ? !pur.done : (w->ncv > w->nrace && !busted)) && races[0].state == HP2_RACE_RUNNING && siren_wait <= 0) { cue("CopSiren01", 0.5f); siren_wait = 5.3f; }
+        if ((pur.on ? !pur.done && !timeup : (w->ncv > w->nrace && !busted)) && races[0].state == HP2_RACE_RUNNING && siren_wait <= 0) { cue("CopSiren01", 0.5f); siren_wait = 5.3f; }
     }
     for (i = 0; i < w->ncv; i++) {
         hp2_drive_in in;
@@ -1065,7 +1102,7 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
             memset(&in, 0, sizeof in);              /* opponents coast to a stop after the line */
             in.brake = drv[i].speed > 1 ? 0.4f : 0;
         }
-        if (races[0].state == HP2_RACE_COUNTDOWN && !(pur.on && i > 0 && i < w->nrace)) {
+        if (races[0].state == HP2_RACE_COUNTDOWN) {
             /* held at the line: the engine revs with the throttle */
             float want = drv[i].idle_rpm + in.throttle * (0.7f * drv[i].redline_rpm - drv[i].idle_rpm);
             drv[i].rpm += (want - drv[i].rpm) * fminf(1, 8 * dt);
@@ -1119,7 +1156,11 @@ static void race_tick(const world *w, hp2_drive *drv, hp2_race *races, hp2_ai *a
             if (has_speech) hp2_speech_say(&speech, "Arrest", 1);
         }
     }
-    if (pur.on && races[0].state == HP2_RACE_RUNNING) {
+    if (pur.on && races[0].state == HP2_RACE_RUNNING && !pur.done && !timeup) {
+        cop_left -= dt;
+        if (cop_left <= 0) { cop_left = 0; timeup = 1; if (has_speech) hp2_speech_say(&speech, "SusLost", 1); }
+    }
+    if (pur.on && races[0].state == HP2_RACE_RUNNING && !timeup) {
         float px[HP2_MAX_CARS], py[HP2_MAX_CARS];
         for (i = 0; i < w->nrace; i++) { px[i] = drv[i].pos[0]; py[i] = drv[i].pos[1]; }
         {   int got = hp2_pursuit_step(&pur, dt, races[0].clock, w->nrace, px, py);
@@ -1227,7 +1268,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--laps") && i + 1 < argc) laps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--result") && i + 1 < argc) resultf = argv[++i];
         else if (!strcmp(argv[i], "--lap-knockout")) ko.on = 1;
-        else if (!strcmp(argv[i], "--pursuit")) { pur.on = pur.ram = 1; hp2_pursuit_reset(&pur); }
+        else if (!strcmp(argv[i], "--pursuit")) { pur.on = pur.ram = 1; pur.quota = HP2_COP_QUOTA; hp2_pursuit_reset(&pur); }
         else if (!strcmp(argv[i], "--no-sound")) sound = 0;
         else if (!strcmp(argv[i], "--no-music")) music = 0;
         else if (!strcmp(argv[i], "--config") && i + 1 < argc) config = argv[++i];
@@ -1657,7 +1698,7 @@ int main(int argc, char **argv)
             }
         }
         if (rkey) {
-            paused = 0; ppage = 0; busted = 0; busted_t = 0;
+            paused = 0; ppage = 0; busted = 0; busted_t = 0; timeup = 0; cop_left = HP2_COP_TIME; cop_heli = cop_block = 3;
             if (driving) {
                 hp2_knockout_reset(&ko);
                 hp2_pursuit_reset(&pur); pursuit_called = 0;
@@ -1786,7 +1827,7 @@ int main(int argc, char **argv)
             hp2_race_order(pr, w.nrace, ord);
         }
         for (ci = 0; ci < w.nrace; ci++) if (ord[ci] == 0) place = ci + 1;
-        if (busted) me.state = HP2_RACE_RUNNING;         /* busted: not finished */
+        if (busted || timeup) me.state = HP2_RACE_RUNNING;         /* busted: not finished */
         n = hp2_race_result_format(&me, w.nrace > 1 && !pur.on ? place : 0, ord, w.nrace, txt, sizeof txt);
         FILE *rf = n > 0 ? fopen(resultf, "wb") : NULL;
         if (rf) { fwrite(txt, 1, (size_t)n, rf); fclose(rf); }

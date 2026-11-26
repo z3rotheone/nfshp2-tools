@@ -2495,6 +2495,13 @@ static void test_ram(void)
     hp2_pursuit_step(&p, 0.6f, 7.0f, 3, px, py);
     for (k = 0; k < 3; k++) { hp2_pursuit_step(&p, 0.6f, 8.0f + k, 3, px, py); hp2_pursuit_ram(&p, 2, 30.0f, 8.0f + k, &arr); }
     CHECK(p.done && p.narrested == 2 && p.time > 0, "ram: the event is done when the last is arrested");
+    /* a quota of one finishes it with the first arrest */
+    memset(&p, 0, sizeof p);
+    p.on = p.ram = 1; p.quota = 1;
+    hp2_pursuit_reset(&p);
+    hp2_pursuit_step(&p, 0.1f, 0.0f, 3, px, py);
+    for (k = 0; k < 3; k++) { hp2_pursuit_step(&p, 0.6f, 1.0f + k, 3, px, py); hp2_pursuit_ram(&p, 1, 30.0f, 1.0f + k, &arr); }
+    CHECK(p.done && p.narrested == 1, "ram: a quota of one is filled by the first arrest");
 }
 
 static void test_tires(void)

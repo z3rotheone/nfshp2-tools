@@ -95,10 +95,14 @@ void hp2_knockout_order(const hp2_knockout *k, const hp2_race *races, int n, int
  * seconds (the time runs down at the same pace when you fall away) and it
  * is arrested: it stops. The event is done when all are. The range and the
  * time are the port's own: the game's arrest rule is not decoded. */
+/* You're The Cop: arrest four speeders within 150 seconds (the screens say four; the time is the port's own). */
+#define HP2_COP_QUOTA    4
+#define HP2_COP_TIME     150.0f
 #define HP2_ARREST_RANGE 12.0f
 #define HP2_ARREST_TIME  2.5f
 typedef struct {
     int on, speeders, narrested, done;
+    int quota;                       /* arrests that finish the chase; 0 = every speeder */
     int arrested[HP2_RESULT_CARS];
     float hold[HP2_RESULT_CARS];
     float time;                      /* the race clock when the last was arrested */
