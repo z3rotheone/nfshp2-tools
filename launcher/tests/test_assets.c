@@ -1486,6 +1486,12 @@ static void test_tyres_real(const hp2_carrec *recs, int n)
     if (!fl || !p911 || !f50 || hp2_coll_parse(&c, fl, len) < 0) { CHECK(0, "tyre test set-up"); free(fl); return; }
     CHECK(NEAR(p911->tyre[0][0], 12) && NEAR(p911->tyre[0][4], 1.47f) && NEAR(p911->tyre[1][4], 1.59f)
           && NEAR(p911->brakes[1], 1.18f) && NEAR(p911->inertia[2], 6.318f), "911TURBO's tyre, brake and yaw fields");
+    {   const hp2_carrec *el = hp2_cardb_find(recs, n, "ELISE");
+        hp2_drive_init(&d, p911, -1500, 0, 0, 0);
+        CHECK(el && NEAR(p911->aero[0], 0.188f) && NEAR(p911->aero[1], 0.24f) && NEAR(el->aero[0], 0.068f) && NEAR(el->aero[1], 0.08f),
+              "aerodynamics block: 911 0.188/0.24, Elise 0.068/0.08");
+        CHECK(d.downforce > 0.08f && d.downforce < 0.12f, "911 downforce %.3f kN per m/s", d.downforce);
+    }
     /* 60-0 mph */
     hp2_drive_init(&d, p911, -1500, 0, 0, 0);
     memset(&in, 0, sizeof in);

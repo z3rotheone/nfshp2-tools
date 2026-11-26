@@ -56,6 +56,7 @@ typedef struct {
     /* the tyres, as the game's Tire reads them (docs/formats.md 12, "Tyres") */
     float     tyre[2][8];       /* 0x1A0 front, 0x1C0 rear: [0] slip-angle span (12), [1] load
                                  * scale, [2] force scale, [3] ?, [4] sliding friction */
+    float     aero[2];          /* 0x2F4, 0x2F8: the aerodynamics block's front and rear downforce (0x1ADD70) */
     float     brakes[7];        /* 0x300: [1] brake torque scale, [2] handbrake torque scale */
     float     inertia[3];       /* 0x1F0, 0x204, 0x218: the diagonal of the body's 4x4 inertia
                                  * matrix at 0x1F0 (roll, pitch, yaw; t m^2, inferred) */

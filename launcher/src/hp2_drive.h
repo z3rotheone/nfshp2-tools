@@ -25,6 +25,9 @@
  */
 #ifndef HP2_DRIVE_H
 #define HP2_DRIVE_H
+/* The game's downforce is about 0.8 x (front + rear) x speed (0x1ADD70). The port applies this share of it: the
+ * rest of that function (a factor from the body at +0x48) is not decoded, so the full force may be too much. */
+#define HP2_AERO_SCALE 0.3f
 
 #include "hp2_car.h"
 #include "hp2_coll.h"
@@ -69,6 +72,7 @@ typedef struct {
     float hub[4][2];            /* x, y of each wheel, model axes */
     float tyre[2][8];           /* front, rear */
     float brake_torque, handbrake_torque;   /* kN m per wheel at full pedal */
+    float downforce;                        /* kN per m/s of forward speed: the car's own aerodynamics */
     float yaw_inertia;          /* t m^2 */
     float rear_share;           /* of the drive, to the rear wheels */
     float accel[2];             /* last step's acceleration, body axes (for the load transfer) */

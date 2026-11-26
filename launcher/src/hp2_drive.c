@@ -93,6 +93,7 @@ void hp2_drive_init(hp2_drive *d, const hp2_carrec *rec, float x, float y, float
         if (d->tyre[k][4] <= 0) d->tyre[k][4] = 1.4f;
     }
     /* Tire::ComputeForce: brake 4 kN m x [0x304], handbrake 10 kN m x [0x308] */
+    d->downforce = 0.8f * (rec->aero[0] + rec->aero[1]) * HP2_AERO_SCALE;
     d->brake_torque = 4.0f * (rec->brakes[1] > 0 ? rec->brakes[1] : 1);
     d->handbrake_torque = 10.0f * (rec->brakes[2] > 0 ? rec->brakes[2] : 0.8f);
     d->yaw_inertia = rec->inertia[2] > 0.5f ? rec->inertia[2] : 3.0f;
@@ -245,7 +246,7 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
     float h = STEP, fx = cosf(d->heading), fy = sinf(d->heading);
     float lx = -fy, ly = fx;                     /* left */
     float vf = d->vel[0] * fx + d->vel[1] * fy, vl = d->vel[0] * lx + d->vel[1] * ly;
-    float maxsteer = 0.55f / (1 + fabsf(vf) / 12), target, a = 0, grip, yaw_target, nz[3] = { 0, 0, 1 };
+    float maxsteer = 0.55f / (1 + fabsf(vf) / 20), target, a = 0, grip, yaw_target, nz[3] = { 0, 0, 1 };
     float gz, ox = d->pos[0], oy = d->pos[1];
     int surface = 0, on;
 
@@ -387,6 +388,8 @@ static void substep(hp2_drive *d, const hp2_coll *c, const hp2_drive_in *in)
             }
             mp += h2 * fsum[0];
             mr += h2 * fsum[1];
+            /* the aerodynamics (0x1ADD70): a force down on the body that grows with speed, per car */
+            fz -= d->downforce * fabsf(vf) * (vf * vf > 1 ? (vf * vf) / (vf * vf + vl * vl) : 1.0f);
             d->heave_v += (fz / d->mass - G) * h;
             d->body_pitch_v += mp / d->pitch_inertia * h;
             d->body_roll_v += mr / d->roll_inertia * h;

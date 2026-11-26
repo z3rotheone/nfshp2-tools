@@ -104,6 +104,8 @@ int hp2_cardb_parse(const uint8_t *globalb, size_t len, hp2_carrec *out, int max
             c->tyre[1][k] = rdf(r + 0x1C0 + 4 * k);
         }
         for (k = 0; k < 7; k++) c->brakes[k] = rdf(r + 0x300 + 4 * k);
+        c->aero[0] = rdf(r + 0x2F4);
+        c->aero[1] = rdf(r + 0x2F8);
         for (k = 0; k < 8; k++) {
             c->susp[0][k] = rdf(r + 0x230 + 4 * k);
             c->susp[1][k] = rdf(r + 0x250 + 4 * k);

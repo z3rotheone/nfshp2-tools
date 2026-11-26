@@ -1355,6 +1355,15 @@ mirrored for the left; the discs at the hubs, unscaled): for the 911 Turbo,
 track by `hp2track`, the wheels sit in the arches with the discs behind the
 spokes.
 
+**The aerodynamics block (`0x2F0`, `0x1ADD70`).** Field 0 (the drag, 0 on every car checked) and the downforce at
++4 (front) and +8 (rear): 0.188 / 0.24 on the 911, 0.068 / 0.08 on the Elise, 0.168 / 0.172 on the Corvette. The
+update applies two downward forces of about `0.4 × speed × (front + rear)` kN each (the constants 0.40 and 0.41 are
+at the gp-relative slots `0x8E30` and `0x8E34`), scaled by the cosine of the velocity to the body to the fourth and
+by a factor from the body at `+0x48` that is not decoded. The port applies `HP2_AERO_SCALE` (0.3) of the sum, so
+the 911 corners at about 1.7 g at 25 m/s and 1.9 g at 50 m/s, the Elise at 1.1 and 1.2. The steering class
+(`TwoWheelAckermanSteering`, pool at `0x2AE988`) was found but its fields were not: the lock and its fall-off with
+speed in `hp2_drive.c` are still the port's own.
+
 The rest of the record (0x0F0–0x118, 0x1A0–0x1E0, 0x200–0x270, 0x2C0–0x310 (a
 0.4–0.7 curve, torque?), 0x350–0x550) is not read yet.
 
