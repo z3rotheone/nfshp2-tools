@@ -102,6 +102,7 @@ typedef struct {
     float    mid;           /* share of half-transparent texels */
     float    clear;         /* share of fully clear texels */
     float    clearlum;      /* their mean brightness (0 for a black shadow shape) */
+    int      missing;       /* the texture is not in any pack the port reads: it would draw plain white */
     float    edge;          /* the largest share of opaque texels along one edge: a strip joined to its edge, not a sprite */
 } gltex;
 
@@ -109,7 +110,7 @@ typedef struct {
     GLuint list;
     int    tex;             /* index into the texture table */
     int    flat;            /* nearly all its triangles lie flat: ground, not a foliage card */
-    int    fill;            /* a cut-out piece with nothing solid under it: drawn solid, or the floor is see-through */
+    int    fill;            /* 1: a cut-out piece with nothing solid under it, drawn solid or the floor is see-through; 2: a flat piece with no texture, not drawn */
 } glgroup;
 
 #define HP2_MAX_CARS 8
@@ -293,7 +294,7 @@ static void upload_textures(world *w, const hp2_texset *ts, int mipmaps)
             tw = t->w;
             th = t->h;
         } else {
-            if (g->hash) w->missing_tex++;
+            if (g->hash) { w->missing_tex++; g->missing = 1; }
             free(px);
             px = NULL;
         }
@@ -394,6 +395,12 @@ static void fill_gaps(world *w)
     int *start, *fillc;
     const hp2_vert **tris = NULL;
     size_t ntri = 0, k;
+    /* a flat piece whose texture is in no pack (da258882 at the start of Scenic Drive's tunnel) would be a white block on the ground */
+    for (i = 0; i < w->sc.nsec; i++)
+        for (j = 0; j < w->sc.sec[i].ng; j++) {
+            glgroup *g = &w->grp[i][j];
+            if (g->flat && w->tex[g->tex].missing && w->sc.sec[i].num != 99) g->fill = 2;
+        }
     if (nx < 1 || ny < 1 || (long)nx * ny > 16000000L) return;
     for (i = 0; i < w->sc.nsec; i++)
         for (j = 0; j < w->sc.sec[i].ng; j++) {
@@ -587,6 +594,7 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
         const gltex *t = &w->tex[g[j].tex];
         int mode = t->mode == MODE_BLEND && blend_opaque ? MODE_OPAQUE : t->mode;
         if (hide_tex && t->hash == hide_tex) continue;
+        if (g[j].fill == 2) continue;
         if (g[j].flat && !keep_cuts && t->clear > 0.02f && (t->clear < 0.5f || t->edge > 0.9f) && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
         if (g[j].fill && mode == MODE_CUTOUT) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
