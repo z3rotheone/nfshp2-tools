@@ -103,8 +103,8 @@ static void sample(const hp2_rtex *t, int lv, float u, float v, float out[4])
     int k;
     x0 = (int)floorf(x); y0 = (int)floorf(y);
     fx = x - (float)x0; fy = y - (float)y0;
-    x0 %= w; if (x0 < 0) x0 += w;
-    y0 %= h; if (y0 < 0) y0 += h;
+    if ((w & (w - 1)) == 0) x0 &= w - 1; else { x0 %= w; if (x0 < 0) x0 += w; }
+    if ((h & (h - 1)) == 0) y0 &= h - 1; else { y0 %= h; if (y0 < 0) y0 += h; }
     x1 = x0 + 1 == w ? 0 : x0 + 1;
     y1 = y0 + 1 == h ? 0 : y0 + 1;
     {   const uint8_t *a = d + 4 * ((size_t)y0 * w + x0), *b = d + 4 * ((size_t)y0 * w + x1),
@@ -121,6 +121,8 @@ void hp2_rast_tri(hp2_rast *r, const hp2_rvert v[3], const hp2_rtex *tex, int bl
     int x0, x1, y0, y1, x, y, i, lv0 = 0, lv1 = 0;
     float lodf = 0;
     if (fabsf(area) < 1e-4f) return;
+    if (((blend & HP2_RAST_CULL_POS) && area > 0) || ((blend & HP2_RAST_CULL_NEG) && area < 0)) return;
+    blend &= 3;
     for (i = 0; i < 3; i++) { if (v[i].z < 0.01f) return; iz[i] = 1.0f / v[i].z; }
     minx = fminf(v[0].x, fminf(v[1].x, v[2].x)); maxx = fmaxf(v[0].x, fmaxf(v[1].x, v[2].x));
     miny = fminf(v[0].y, fminf(v[1].y, v[2].y)); maxy = fmaxf(v[0].y, fmaxf(v[1].y, v[2].y));
@@ -140,33 +142,46 @@ void hp2_rast_tri(hp2_rast *r, const hp2_rvert v[3], const hp2_rtex *tex, int bl
         lodf -= (float)lv0;
     }
     inv = 1.0f / area;
-    for (y = y0; y <= y1; y++) {
-        float py = (float)y + 0.5f;
-        for (x = x0; x <= x1; x++) {
-            float px = (float)x + 0.5f;
-            float w0 = ((v[1].x - px) * (v[2].y - py) - (v[2].x - px) * (v[1].y - py)) * inv;
-            float w1 = ((v[2].x - px) * (v[0].y - py) - (v[0].x - px) * (v[2].y - py)) * inv;
-            float w2 = 1.0f - w0 - w1, izp, p0, p1, p2, col[4];
-            size_t idx;
-            if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
-            izp = w0 * iz[0] + w1 * iz[1] + w2 * iz[2];
-            idx = (size_t)y * r->w + x;
-            if (izp <= r->z[idx]) continue;
-            p0 = w0 * iz[0] / izp; p1 = w1 * iz[1] / izp; p2 = w2 * iz[2] / izp;
-            col[0] = p0 * v[0].r + p1 * v[1].r + p2 * v[2].r;
-            col[1] = p0 * v[0].g + p1 * v[1].g + p2 * v[2].g;
-            col[2] = p0 * v[0].b + p1 * v[1].b + p2 * v[2].b;
-            col[3] = p0 * v[0].a + p1 * v[1].a + p2 * v[2].a;
-            if (tex && tex->n > 0) {
-                float u = p0 * v[0].u + p1 * v[1].u + p2 * v[2].u, vv = p0 * v[0].v + p1 * v[1].v + p2 * v[2].v, a[4], b[4];
-                sample(tex, lv0, u, vv, a);
-                if (lv1 != lv0 && lodf > 0.01f) {
-                    sample(tex, lv1, u, vv, b);
-                    for (i = 0; i < 4; i++) a[i] += (b[i] - a[i]) * lodf;
+    {   /* the barycentric weights are linear in x and y: w = a * x + b * y + c */
+        float a0 = (v[1].y - v[2].y) * inv, b0 = (v[2].x - v[1].x) * inv, c0 = (v[1].x * v[2].y - v[2].x * v[1].y) * inv;
+        float a1 = (v[2].y - v[0].y) * inv, b1 = (v[0].x - v[2].x) * inv, c1 = (v[2].x * v[0].y - v[0].x * v[2].y) * inv;
+        int lvl = lodf > 0.5f ? lv1 : lv0;       /* one mip level, bilinear: with the supersampling it is smooth enough */
+        for (y = y0; y <= y1; y++) {
+            float py = (float)y + 0.5f;
+            float base0 = b0 * py + c0, base1 = b1 * py + c1, base2 = 1.0f - base0 - base1;   /* the weights at x = 0 */
+            float a2 = -a0 - a1;
+            int xs = x0, xe = x1;
+            float rw0, rw1;
+            /* the pixels of this row inside the triangle: each weight a * (x + .5) + base >= 0 bounds x on one side */
+            {   const float aa[3] = { a0, a1, a2 }, bb[3] = { base0, base1, base2 };
+                int e;
+                for (e = 0; e < 3; e++) {
+                    if (aa[e] > 1e-7f) { int lo = (int)ceilf(-bb[e] / aa[e] - 0.5f) - 1; if (lo > xs) xs = lo; }
+                    else if (aa[e] < -1e-7f) { int hi = (int)floorf(-bb[e] / aa[e] - 0.5f) + 1; if (hi < xe) xe = hi; }
+                    else if (bb[e] < -1e-4f) { xs = 1; xe = 0; break; }
                 }
-                col[0] *= a[0] / 255.0f; col[1] *= a[1] / 255.0f; col[2] *= a[2] / 255.0f;
-                if (blend) col[3] *= a[3] / 255.0f;
             }
+            if (xs > xe) continue;
+            rw0 = a0 * ((float)xs + 0.5f) + base0; rw1 = a1 * ((float)xs + 0.5f) + base1;
+            for (x = xs; x <= xe; x++, rw0 += a0, rw1 += a1) {
+                float w0 = rw0, w1 = rw1, w2 = 1.0f - w0 - w1, izp, rz, p0, p1, p2, col[4];
+                size_t idx;
+                if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
+                izp = w0 * iz[0] + w1 * iz[1] + w2 * iz[2];
+                idx = (size_t)y * r->w + x;
+                if (izp <= r->z[idx]) continue;
+                rz = 1.0f / izp;
+                p0 = w0 * iz[0] * rz; p1 = w1 * iz[1] * rz; p2 = w2 * iz[2] * rz;
+                col[0] = p0 * v[0].r + p1 * v[1].r + p2 * v[2].r;
+                col[1] = p0 * v[0].g + p1 * v[1].g + p2 * v[2].g;
+                col[2] = p0 * v[0].b + p1 * v[1].b + p2 * v[2].b;
+                col[3] = p0 * v[0].a + p1 * v[1].a + p2 * v[2].a;
+                if (tex && tex->n > 0) {
+                    float u = p0 * v[0].u + p1 * v[1].u + p2 * v[2].u, vv = p0 * v[0].v + p1 * v[1].v + p2 * v[2].v, a[4];
+                    sample(tex, lvl, u, vv, a);
+                    col[0] *= a[0] * (1.0f / 255.0f); col[1] *= a[1] * (1.0f / 255.0f); col[2] *= a[2] * (1.0f / 255.0f);
+                    if (blend) col[3] *= a[3] * (1.0f / 255.0f);
+                }
             if (col[3] > 1) col[3] = 1;
             for (i = 0; i < 3; i++) { if (col[i] > 1) col[i] = 1; if (col[i] < 0) col[i] = 0; }
             {   uint8_t *o = r->px + 4 * idx;
@@ -182,5 +197,6 @@ void hp2_rast_tri(hp2_rast *r, const hp2_rvert v[3], const hp2_rtex *tex, int bl
                 }
             }
         }
+    }
     }
 }

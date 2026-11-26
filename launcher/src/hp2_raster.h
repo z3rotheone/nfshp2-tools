@@ -48,7 +48,10 @@ void hp2_rast_clear_z(hp2_rast *r);                 /* forget the depths (the co
  * falling to nothing at the rim (alpha a0 * (1 - d^2) for d the distance in radii). */
 void hp2_rast_glow(hp2_rast *r, float cx, float cy, float rx, float ry, float cr, float cg, float cb, float a0);
 
-/* One triangle, both windings. tex may be NULL (flat colour). blend 0: opaque (the texel's alpha is ignored);
+#define HP2_RAST_CULL_POS 4                   /* flag, or'ed into blend: skip triangles whose screen area is positive (y down) */
+#define HP2_RAST_CULL_NEG 8                   /* ... or negative */
+
+/* One triangle, both windings unless a cull flag is given. tex may be NULL (flat colour). blend 0: opaque (the texel's alpha is ignored);
  * 1: alpha-blended over what is there, depth-tested but not written; 2: blended, and the depth written too
  * (a translucent object whose own triangles must not stack). */
 void hp2_rast_tri(hp2_rast *r, const hp2_rvert v[3], const hp2_rtex *tex, int blend);

@@ -31,6 +31,10 @@ typedef struct {
     SDL_Texture  *ss;                 /* the rasterised car, scaled onto the screen */
     hp2_rast      rast;
     const hp2_texset *fets;           /* the front end's own textures (smoke), set by hp2_fecar_set_textures */
+    SDL_Texture  *bgtex;              /* the backdrop, drawn once per window size and put on the screen by the renderer */
+    int           bgw, bgh;           /* the area it was made for */
+    float         paint[3];            /* the skin's paint colour 0..1, for the flat reflection */
+    char          paint_key[48];
     hp2_rtex      smoke;
     int           smoke_ok;
     int           ssw, ssh;

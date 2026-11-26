@@ -6,7 +6,7 @@
 
 #include "hp2_raster.h"
 
-typedef struct { hp2_rvert v[3]; float z; int tex; int blend; } tri;
+typedef struct { hp2_rvert v[3]; float z; int tex; int blend; int flip; } tri;
 
 int hp2_fecar_open(hp2_fecar *c, const char *disc, SDL_Renderer *r, const uint8_t *globalb, size_t globalb_len)
 {
@@ -42,6 +42,7 @@ void hp2_fecar_close(hp2_fecar *c)
     if (c->ss) SDL_DestroyTexture(c->ss);
     hp2_rast_free(&c->rast);
     if (c->smoke_ok) hp2_rtex_free(&c->smoke);
+    if (c->bgtex) SDL_DestroyTexture(c->bgtex);
     hp2_tex_free(&c->ts);
     free(c->cartex);
     free(c->work);
@@ -185,11 +186,14 @@ static int add_mesh(hp2_fecar *c, const hp2_car *car, const hp2_mesh *m, const c
                 t->v[j].x = sx; t->v[j].y = sy; t->v[j].z = zv;
                 t->v[j].u = v->u; t->v[j].v = v->v;
                 t->v[j].r = t->v[j].g = t->v[j].b = lit;
+                if (mirror) { t->v[j].r = lit * c->paint[0]; t->v[j].g = lit * c->paint[1]; t->v[j].b = lit * c->paint[2]; }
                 t->v[j].a = al;
             }
             t->z = z / 3.0f;
-            t->tex = ti;
+            t->tex = mirror ? -1 : ti;                 /* the reflection is flat paint colour: faint, and quick to draw */
             t->blend = mirror ? 2 : tblend || vblend;
+            t->flip = sc[0] * sc[1] * sc[2] < 0;           /* a mirrored part (the left wheels) has its winding turned round */
+            if (mirror && tblend) (*n)--;               /* no reflection of the windows */
         }
     }
     return 0;
@@ -200,9 +204,8 @@ void hp2_fecar_set_textures(hp2_fecar *c, const hp2_texset *fets) { c->fets = fe
 /* The backdrop of the car select screen, which the game draws in code: soft blue smoke drifting about, and the
  * spotlit floor. The look is the port's own (read off a PCSX2 screenshot): the smoke is the game's SMOKEB_CS sprite
  * sheet (4 x 4 puffs) tinted blue. */
-static void backdrop(hp2_fecar *c, float t, float fcx, float fcy, float fr)
+static void backdrop(hp2_fecar *c, hp2_rast *r, float t, float fcx, float fcy, float fr)
 {
-    hp2_rast *r = &c->rast;
     int i;
     if (!c->smoke_ok && c->fets) {
         const hp2_tex *st = hp2_tex_find(c->fets, hp2_geom_hash("SMOKEB_CS"));
@@ -238,48 +241,94 @@ static void backdrop(hp2_fecar *c, float t, float fcx, float fcy, float fr)
     hp2_rast_glow(r, fcx, fcy, fr * 0.85f, fr * 0.2f, 0.68f, 0.7f, 0.76f, 0.35f);
 }
 
+/* The camera for a buffer whose top left is window pixel (ox, oy) and that holds sf buffer pixels per window pixel. */
+static void make_cam(cam_t *k, float L, float el, float yaw_rad, float sf, int ox, int oy, const SDL_Rect *car)
+{
+    float D = L * 2.3f;
+    k->cam[0] = D * cosf(el); k->cam[1] = 0; k->cam[2] = D * sinf(el) + 0.5f;
+    k->fwd[0] = -cosf(el); k->fwd[1] = 0; k->fwd[2] = -sinf(el);
+    k->right[0] = 0; k->right[1] = 1; k->right[2] = 0;
+    k->up[0] = -sinf(el); k->up[1] = 0; k->up[2] = cosf(el);
+    /* the car's size and place come from its own rectangle */
+    k->focal = (float)car->w * sf * 0.5f * D / (L * 0.64f);
+    k->cx = ((float)(car->x - ox) + (float)car->w * 0.5f) * sf;
+    k->cy = ((float)(car->y - oy) + (float)car->h * 0.55f) * sf;
+    k->yaw_c = cosf(yaw_rad); k->yaw_s = sinf(yaw_rad);
+}
+
 void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const SDL_Rect *area, const SDL_Rect *car)
 {
     static const float one[3] = { 1, 1, 1 }, zero[3] = { 0, 0, 0 };
     tri *list = (tri *)c->work;
     size_t n = 0, cap = c->work_cap, i, nm;
     cam_t k;
-    float L, D, el = 0.22f, a = yaw * 3.14159265f / 180.0f, sf, gz = 1e9f, gx, gy, fsx, fsy;
-    int w, bw, bh, pass;
+    float L, el = 0.22f, a = yaw * 3.14159265f / 180.0f, sf, gz = 1e9f;
+    int w, bw, bh, pass, lx0, ly0, lx1, ly1;
+    SDL_Rect layer;
+    SDL_BlendMode pm;
     if (!c->ok || !name || area->w < 8 || area->h < 8) return;
     if (!c->loaded || strcmp(c->name, name)) { if (load_car(c, name) != 0) return; }
     if (c->skin != skin) { drop_textures(c); c->skin = skin; }
-    /* the backdrop and the car are rasterised here, with a depth buffer, at up to 2.5x the area's size (about 2.5
-     * million pixels at most) and scaled down by the renderer, which smooths their edges */
-    sf = sqrtf(2.5e6f / ((float)area->w * (float)area->h));
-    sf = sf > 2.5f ? 2.5f : sf < 0.75f ? 0.75f : sf;
-    bw = (int)((float)area->w * sf); bh = (int)((float)area->h * sf);
+    {   char key[48];
+        snprintf(key, sizeof key, "%s/%d", name, skin);
+        if (strcmp(key, c->paint_key)) {
+            uint8_t rgb[3];
+            c->paint[0] = c->paint[1] = c->paint[2] = 0.3f;
+            if (hp2_fecar_skin_rgb(c, name, skin, rgb)) { c->paint[0] = rgb[0] / 255.0f; c->paint[1] = rgb[1] / 255.0f; c->paint[2] = rgb[2] / 255.0f; }
+            snprintf(c->paint_key, sizeof c->paint_key, "%s", key);
+        }
+    }
+    pm = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
+                                    SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD);
+    /* 1. the backdrop: made once per window size, at about a million pixels (it is all soft), and left to the renderer
+     * to stretch. The floor sits where a car of any length stands (the camera scales with the car). */
+    if (!c->bgtex || c->bgw != area->w || c->bgh != area->h) {
+        float bs = sqrtf(0.9e6f / ((float)area->w * (float)area->h)), fx, fy;
+        hp2_rast br;
+        cam_t bk;
+        const float p0[3] = { 0, 0, 0 };
+        bs = bs > 1.2f ? 1.2f : bs < 0.4f ? 0.4f : bs;
+        if (c->bgtex) { SDL_DestroyTexture(c->bgtex); c->bgtex = NULL; }
+        if (hp2_rast_init(&br, (int)((float)area->w * bs), (int)((float)area->h * bs)) == 0) {
+            make_cam(&bk, 4.5f, el, 0.0f, bs, area->x, area->y, car);
+            project(&bk, p0, &fx, &fy);
+            backdrop(c, &br, 0.0f, fx, fy, (float)car->w * bs * 0.5f);
+            c->bgtex = SDL_CreateTexture(c->r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, br.w, br.h);
+            if (c->bgtex) {
+                SDL_UpdateTexture(c->bgtex, NULL, br.px, br.w * 4);
+                SDL_SetTextureScaleMode(c->bgtex, SDL_ScaleModeLinear);
+                if (SDL_SetTextureBlendMode(c->bgtex, pm) != 0) SDL_SetTextureBlendMode(c->bgtex, SDL_BLENDMODE_BLEND);
+                c->bgw = area->w; c->bgh = area->h;
+            }
+            hp2_rast_free(&br);
+        }
+    }
+    if (c->bgtex) SDL_RenderCopy(c->r, c->bgtex, NULL, area);
+    /* 2. the car and its reflection: rasterised here with a depth buffer, in a layer just big enough for them
+     * (the car's rectangle and room below it for the reflection), at up to 2.2x the window's pixels (about 1.3
+     * million at most), and scaled down by the renderer, which smooths the edges */
+    lx0 = car->x - car->w / 8; ly0 = car->y - car->h / 20; lx1 = car->x + car->w + car->w / 8; ly1 = car->y + car->h + car->h * 45 / 100;
+    if (lx0 < area->x) lx0 = area->x;
+    if (ly0 < area->y) ly0 = area->y;
+    if (lx1 > area->x + area->w) lx1 = area->x + area->w;
+    if (ly1 > area->y + area->h) ly1 = area->y + area->h;
+    layer.x = lx0; layer.y = ly0; layer.w = lx1 - lx0; layer.h = ly1 - ly0;
+    if (layer.w < 8 || layer.h < 8) return;
+    sf = sqrtf(1.3e6f / ((float)layer.w * (float)layer.h));
+    sf = sf > 2.2f ? 2.2f : sf < 0.75f ? 0.75f : sf;
+    bw = (int)((float)layer.w * sf); bh = (int)((float)layer.h * sf);
     if (c->rast.w != bw || c->rast.h != bh) {
         hp2_rast_free(&c->rast);
         if (hp2_rast_init(&c->rast, bw, bh) != 0) return;
     }
     hp2_rast_clear(&c->rast);
     L = c->car.rec.length > 1.0f ? c->car.rec.length : 4.5f;
-    D = L * 2.3f;
-    k.cam[0] = D * cosf(el); k.cam[1] = 0; k.cam[2] = D * sinf(el) + 0.5f;
-    k.fwd[0] = -cosf(el); k.fwd[1] = 0; k.fwd[2] = -sinf(el);
-    k.right[0] = 0; k.right[1] = 1; k.right[2] = 0;
-    k.up[0] = -sinf(el); k.up[1] = 0; k.up[2] = cosf(el);
-    /* the car's size and place come from its own rectangle, in this buffer's pixels */
-    k.focal = (float)car->w * sf * 0.5f * D / (L * 0.64f);
-    k.cx = ((float)(car->x - area->x) + (float)car->w * 0.5f) * sf;
-    k.cy = ((float)(car->y - area->y) + (float)car->h * 0.55f) * sf;
-    k.yaw_c = cosf(a); k.yaw_s = sinf(a);
+    make_cam(&k, L, el, a, sf, layer.x, layer.y, car);
     for (w = 0; w < 4; w++) {
         float z0 = c->car.rec.wheel[w].z - c->car.rec.wheel[w].radius;
         if (z0 < gz) gz = z0;
     }
     if (gz > 1e8f) gz = 0;
-    {   float p0[3] = { 0, 0, gz };
-        gx = 0; gy = 0; (void)gx; (void)gy;
-        project(&k, p0, &fsx, &fsy);
-    }
-    backdrop(c, a, fsx, fsy, (float)car->w * sf * 0.5f);
     for (pass = 0; pass < 2; pass++) {      /* 0: the reflection in the floor, 1: the car */
         int mir = pass == 0;
         float mgz = mir ? gz : 0;
@@ -298,14 +347,14 @@ void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const S
             if (add_mesh(c, &c->car, tm, &k, skin, s2, tr, &list, &n, &cap, mir, mgz) != 0) goto done;
         }
         if (mir) {                          /* the reflection: translucent, its own triangles do not stack */
-            for (i = 0; i < n; i++)
-                hp2_rast_tri(&c->rast, list[i].v, list[i].tex >= 0 && c->tex[list[i].tex].ok ? &c->tex[list[i].tex].t : NULL, 2);
+            for (i = 0; i < n; i++) hp2_rast_tri(&c->rast, list[i].v, NULL, 2);
             hp2_rast_clear_z(&c->rast);
             continue;
         }
         for (i = 0; i < n; i++)             /* solid triangles in any order: the depth buffer sorts them out */
             if (!list[i].blend)
-                hp2_rast_tri(&c->rast, list[i].v, list[i].tex >= 0 && c->tex[list[i].tex].ok ? &c->tex[list[i].tex].t : NULL, 0);
+                hp2_rast_tri(&c->rast, list[i].v, list[i].tex >= 0 && c->tex[list[i].tex].ok ? &c->tex[list[i].tex].t : NULL,
+                             list[i].flip ? HP2_RAST_CULL_NEG : HP2_RAST_CULL_POS);   /* solid parts are closed shells: the far side is never seen */
         nm = 0;                             /* then the blended ones (windows) far to near */
         for (i = 0; i < n; i++) if (list[i].blend) { tri t = list[i]; list[nm++] = t; }
         qsort(list, nm, sizeof *list, cmp_far);
@@ -319,12 +368,10 @@ void hp2_fecar_draw(hp2_fecar *c, const char *name, int skin, float yaw, const S
         if (c->ss) SDL_SetTextureScaleMode(c->ss, SDL_ScaleModeLinear);
     }
     if (c->ss) {
-        SDL_BlendMode bm = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
-                                                      SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD);
         SDL_UpdateTexture(c->ss, NULL, c->rast.px, bw * 4);
         /* the buffer holds premultiplied colour */
-        if (SDL_SetTextureBlendMode(c->ss, bm) != 0) SDL_SetTextureBlendMode(c->ss, SDL_BLENDMODE_BLEND);
-        SDL_RenderCopy(c->r, c->ss, NULL, area);
+        if (SDL_SetTextureBlendMode(c->ss, pm) != 0) SDL_SetTextureBlendMode(c->ss, SDL_BLENDMODE_BLEND);
+        SDL_RenderCopy(c->r, c->ss, NULL, &layer);
     }
 done:
     c->work = list;
