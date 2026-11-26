@@ -386,6 +386,14 @@ static int tri_covers(const hp2_vert *a, const hp2_vert *b, const hp2_vert *c, f
     return !(((d1 < 0) || (d2 < 0) || (d3 < 0)) && ((d1 > 0) || (d2 > 0) || (d3 > 0)));
 }
 
+/* A translucent piece (not an alpha-cut one): wet-road sheen, water, a ground overlay. Over nothing solid it shows the sky. */
+static int see_through_kind(const gltex *t, int ntris)
+{
+    /* up to 60 triangles: wet-road sheen and puddles along a road. Bigger blended pieces are sea and lakes, which are meant to be see-through */
+    if (t->mode == MODE_BLEND) return t->clear < 0.5f && ntris <= 60;
+    return t->mode == MODE_CUTOUT && t->clear > 0.5f && t->clearlum > 8.0f && t->edge > 0.9f;   /* a strip solid along its border */
+}
+
 /* A flat piece whose texture is mostly clear is drawn as a cut-out. Where nothing solid lies under it the
  * cut shows the sky through the floor (Scenic Drive, around -558 521), so such a piece is drawn solid.
  * A grid of the solid triangles answers "is anything under this point". */
@@ -407,8 +415,7 @@ static void fill_gaps(world *w)
     for (i = 0; i < w->sc.nsec; i++)
         for (j = 0; j < w->sc.sec[i].ng; j++) {
             const glgroup *g = &w->grp[i][j];
-            if (g->flat && !ground_solid(&w->tex[g->tex], 1) && w->tex[g->tex].mode == MODE_CUTOUT && w->tex[g->tex].clear > 0.5f
-                && w->tex[g->tex].clearlum > 8.0f) ncand++;
+            if (g->flat && !ground_solid(&w->tex[g->tex], 1) && see_through_kind(&w->tex[g->tex], w->sc.sec[i].g[j].nv / 3)) ncand++;
         }
     if (!ncand) return;
     start = (int *)calloc((size_t)nx * ny + 1, sizeof *start);
@@ -425,7 +432,7 @@ static void fill_gaps(world *w)
             for (j = 0; j < w->sc.sec[i].ng; j++) {
                 const glgroup *g = &w->grp[i][j];
                 const hp2_sgroup *sg = &w->sc.sec[i].g[j];
-                if (!sg->v || !ground_solid(&w->tex[g->tex], g->flat) || w->tex[g->tex].mode == MODE_BLEND) continue;
+                if (!sg->v || g->fill == 2 || !ground_solid(&w->tex[g->tex], g->flat) || w->tex[g->tex].mode == MODE_BLEND) continue;
                 for (t = 0; t < sg->nv / 3; t++) {
                     const hp2_vert *a = &sg->v[3 * t], *b = a + 1, *c = a + 2;
                     float lo[2] = { fminf(a->x, fminf(b->x, c->x)), fminf(a->y, fminf(b->y, c->y)) };
@@ -452,8 +459,7 @@ static void fill_gaps(world *w)
             const hp2_sgroup *sg = &w->sc.sec[i].g[j];
             int nt = sg->nv / 3, bare = 0, seen = 0, nflat = 0;
             const gltex *tx = &w->tex[g->tex];
-            /* edge > 0.9: the strip is solid along its border, like the road-edge pieces; a card clear at its border is a decal */
-            if (!sg->v || ground_solid(tx, g->flat) || tx->mode != MODE_CUTOUT || tx->clear <= 0.5f || tx->clearlum <= 8.0f || tx->edge <= 0.9f) continue;
+            if (!sg->v || ground_solid(tx, g->flat) || tx->missing || !see_through_kind(tx, nt)) continue;
             for (t = 0; t < nt; t++) {
                 const hp2_vert *a = &sg->v[3 * t], *b = a + 1, *c = a + 2;
                 float ux = b->x - a->x, uy = b->y - a->y, uz = b->z - a->z, vx = c->x - a->x, vy = c->y - a->y, vz = c->z - a->z;
@@ -618,7 +624,7 @@ static void draw_groups(const world *w, const glgroup *g, int n, int pass)
         if (hide_tex && t->hash == hide_tex) continue;
         if (g[j].fill == 2) continue;
         if (g[j].flat && !keep_cuts && t->clear > 0.02f && (t->clear < 0.5f || t->edge > 0.9f) && t->clearlum > 8.0f && t->mid < 0.5f) mode = MODE_OPAQUE;
-        if (g[j].fill && mode == MODE_CUTOUT) mode = MODE_OPAQUE;
+        if (g[j].fill == 1 && mode != MODE_OPAQUE) mode = MODE_OPAQUE;
         if ((mode == MODE_BLEND) != pass) continue;
         set_mode(mode);
         glBindTexture(GL_TEXTURE_2D, t->id);
